@@ -1,3 +1,5 @@
+import { formatCurrency } from './currency';
+
 export function printReceiptHtml(html) {
   const w = window.open('', 'PRINT', 'width=400,height=600');
   if (!w) return;
@@ -47,11 +49,11 @@ export function buildBrandedReceiptHtml({ settings, sale }) {
     ${sale.sellerName ? `<div>Seller: ${sale.sellerName}</div>` : ''}
     <table>
       <tbody>
-        ${sale.items.map(it => `<tr><td>${it.name} x${it.qty}</td><td style="text-align:right">$${(it.price*it.qty).toFixed(2)}</td></tr>`).join('')}
-        <tr><td>Subtotal</td><td style="text-align:right">$${sale.subtotal.toFixed(2)}</td></tr>
-        <tr><td>Discount</td><td style="text-align:right">-$${sale.discount.toFixed(2)}</td></tr>
-        <tr><td>Tax</td><td style="text-align:right">$${sale.tax.toFixed(2)}</td></tr>
-        <tr><td><strong>Total</strong></td><td style="text-align:right"><strong>$${sale.total.toFixed(2)}</strong></td></tr>
+        ${sale.items.map(it => `<tr><td>${it.name} x${it.qty}</td><td style="text-align:right">${formatCurrency(it.price*it.qty, settings)}</td></tr>`).join('')}
+        <tr><td>Subtotal</td><td style="text-align:right">${formatCurrency(sale.subtotal, settings)}</td></tr>
+        <tr><td>Discount</td><td style="text-align:right">-${formatCurrency(sale.discount, settings)}</td></tr>
+        <tr><td>Tax</td><td style="text-align:right">${formatCurrency(sale.tax, settings)}</td></tr>
+        <tr><td><strong>Total</strong></td><td style="text-align:right"><strong>${formatCurrency(sale.total, settings)}</strong></td></tr>
       </tbody>
     </table>
     ${foot}

@@ -6,6 +6,7 @@ import { recordSale } from '../store/salesSlice';
 import { buildBrandedReceiptHtml, printReceiptHtml } from '../utils/print';
 import { escposReceipt, escposOpenDrawer, downloadText } from '../utils/escpos';
 import { useToast } from '../components/ToastProvider';
+import { formatCurrency } from '../utils/currency';
 import { useMemo, useState } from 'react';
 import { addAudit } from '../store/auditSlice';
 
@@ -124,7 +125,8 @@ function PosPage() {
         header: { title: settings.appName, store: settings.receiptHeader, branch: branchName },
         items: sale.items,
         totals: { subtotal, discount, tax, total },
-        footer: { note: settings.receiptFooter }
+        footer: { note: settings.receiptFooter },
+        settings
       });
       downloadText('receipt-escpos.txt', (settings.drawerOpenOnCash && payments.some(p => p.type === 'cash')) ? (escposOpenDrawer() + '\n' + text) : text);
     } else {
@@ -170,7 +172,7 @@ function PosPage() {
                 {p.image && <img src={p.image} alt={p.name} className="product-img" />}
                 <div className="product-name">{p.name}</div>
                 <div className="product-sku">{p.sku}</div>
-                <div className="product-price">${p.price?.toFixed(2)}</div>
+                <div className="product-price">{formatCurrency(p.price, settings)}</div>
                 <div className="product-stock" style={{ color: (p.lowStock ?? 0) > 0 && (p.stockByBranch?.[branchId] || 0) <= (p.lowStock ?? 0) ? '#ef4444' : undefined }}>
                   Stock: {p.stockByBranch?.[branchId] || 0}{(p.lowStock ?? 0) > 0 && (p.stockByBranch?.[branchId] || 0) <= (p.lowStock ?? 0) ? ' • Low' : ''}
                 </div>
@@ -191,7 +193,7 @@ function PosPage() {
                     Stock: {p.stockByBranch?.[branchId] || 0}{(p.lowStock ?? 0) > 0 && (p.stockByBranch?.[branchId] || 0) <= (p.lowStock ?? 0) ? ' • Low' : ''}
                   </div>
                 </div>
-                <div style={{ fontWeight: 700 }}>${p.price?.toFixed(2)}</div>
+                <div style={{ fontWeight: 700 }}>{formatCurrency(p.price, settings)}</div>
               </button>
             ))}
           </div>
@@ -214,7 +216,7 @@ function PosPage() {
                 onChange={e => dispatch(setQuantity({ id: item.id, quantity: Number(e.target.value) }))}
                 style={{ width: 70 }}
               />
-              <span style={{ fontWeight: 700 }}>${item.price?.toFixed(2)}</span>
+              <span style={{ fontWeight: 700 }}>{formatCurrency(item.price, settings)}</span>
               <button className="btn" onClick={() => dispatch(removeItem(item.id))}>
                 <svg viewBox="0 0 24 24" fill="none"><path d="M6 7h12M10 11v6M14 11v6M9 7l1-2h4l1 2M7 7l1 12h8l1-12" stroke="currentColor" strokeWidth="2"/></svg>
                 Remove
@@ -228,9 +230,9 @@ function PosPage() {
             <input className="input" type="number" min="0" value={discount} onChange={e => dispatch(setDiscount(Number(e.target.value)))} style={{ width: 120 }} />
           </div>
           <div style={{ marginTop: 8 }}>
-            <div>Subtotal: ${subtotal.toFixed(2)}</div>
-            <div>Tax ({Math.round((taxRate || 0) * 100)}%): ${tax.toFixed(2)}</div>
-            <div><strong>Total: ${total.toFixed(2)}</strong></div>
+            <div>Subtotal: {formatCurrency(subtotal, settings)}</div>
+            <div>Tax ({Math.round((taxRate || 0) * 100)}%): {formatCurrency(tax, settings)}</div>
+            <div><strong>Total: {formatCurrency(total, settings)}</strong></div>
           </div>
           <div style={{ marginTop: 8 }}>
             <h3 style={{ margin: '8px 0' }}>Payments</h3>
@@ -253,7 +255,7 @@ function PosPage() {
               <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2"/></svg>
               Add Payment
             </button>
-            <div style={{ marginTop: 6, color: '#64748b' }}>Paid: ${paid.toFixed(2)} | Due: ${due.toFixed(2)} | Change: ${change.toFixed(2)}</div>
+            <div style={{ marginTop: 6, color: '#64748b' }}>Paid: {formatCurrency(paid, settings)} | Due: {formatCurrency(due, settings)} | Change: {formatCurrency(change, settings)}</div>
           </div>
           {canOverrideTax && (
             <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>

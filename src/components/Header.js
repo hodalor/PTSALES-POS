@@ -2,6 +2,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { logout } from '../store/authSlice';
 import { setCurrentBranch } from '../store/settingsSlice';
 import BranchSelect from './BranchSelect';
+import NotificationBell from './NotificationBell';
 
 function Header() {
   const auth = useSelector(state => state.auth);
@@ -19,6 +20,7 @@ function Header() {
       <div>
         {auth.isAuthenticated ? (
           <>
+            <NotificationBell />
             <span style={{ marginRight: 12 }}>
               {auth.user?.name} — {auth.role}
             </span>

@@ -1,8 +1,10 @@
 import { useSelector } from 'react-redux';
+import { formatCurrency } from '../utils/currency';
 
 function ReportsPage() {
   const sales = useSelector(s => s.sales.sales);
   const branches = useSelector(s => s.branches.branches);
+  const settings = useSelector(s => s.settings);
   function branchLabel(sale) {
     return sale.branchName || (branches.find(b => b.id === sale.branchId)?.name || sale.branchId || '-');
   }
@@ -55,7 +57,7 @@ function ReportsPage() {
               <td>{branchLabel(sale)}</td>
               <td>{sale.sellerName || '-'}</td>
               <td>{sale.items.map(i => `${i.name}x${i.qty}`).join(', ')}</td>
-              <td>${sale.total.toFixed(2)}</td>
+              <td>{formatCurrency(sale.total, settings)}</td>
             </tr>
           ))}
         </tbody>

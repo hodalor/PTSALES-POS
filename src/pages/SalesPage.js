@@ -2,6 +2,7 @@ import { useSelector } from 'react-redux';
 import { useState } from 'react';
 import { buildBrandedReceiptHtml, printReceiptHtml } from '../utils/print';
 import { escposReceipt, downloadText } from '../utils/escpos';
+import { formatCurrency } from '../utils/currency';
 
 function SalesPage() {
   const sales = useSelector(s => s.sales.sales);
@@ -22,7 +23,8 @@ function SalesPage() {
         header: { title: settings.appName, store: settings.receiptHeader, branch: branchLabel(sale) },
         items: sale.items,
         totals: { subtotal: sale.subtotal, discount: sale.discount, tax: sale.tax, total: sale.total },
-        footer: { note: settings.receiptFooter }
+        footer: { note: settings.receiptFooter },
+        settings
       });
       downloadText(`receipt-${sale.id}.txt`, text);
       return;
@@ -59,7 +61,7 @@ function SalesPage() {
               <td>{branchLabel(sale)}</td>
               <td>{sale.sellerName || '-'}</td>
               <td>{sale.items.map(i => `${i.name}x${i.qty}`).join(', ')}</td>
-              <td>${sale.total.toFixed(2)}</td>
+              <td>{formatCurrency(sale.total, settings)}</td>
               <td>
                 <button className="btn btn-primary" onClick={() => reprint(sale, false)}>
                   <svg viewBox="0 0 24 24" fill="none"><path d="M6 9V3h12v6" stroke="currentColor" strokeWidth="2"/><path d="M6 17h12v4H6z" stroke="currentColor" strokeWidth="2"/><path d="M4 9h16a2 2 0 012 2v2H2v-2a2 2 0 012-2z" stroke="currentColor" strokeWidth="2"/></svg>

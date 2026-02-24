@@ -1,19 +1,21 @@
+import { formatCurrency } from './currency';
 // Very simple ESC/POS generator helpers (text only)
-export function escposReceipt({ header, items, totals, footer }) {
+export function escposReceipt({ header, items, totals, footer, settings }) {
   const lines = [];
   lines.push(center(header?.title || 'RECEIPT'));
   if (header?.store) lines.push(center(header.store));
   if (header?.branch) lines.push(center(`Branch: ${header.branch}`));
   lines.push('--------------------------------');
+  const fmt = (v) => formatCurrency(v, settings || {});
   items.forEach(it => {
     lines.push(text(`${truncate(it.name, 20)} x${it.qty}`));
-    lines.push(right(`$${(it.price * it.qty).toFixed(2)}`));
+    lines.push(right(`${fmt(it.price * it.qty)}`));
   });
   lines.push('--------------------------------');
-  lines.push(text(`Subtotal    $${totals.subtotal.toFixed(2)}`));
-  lines.push(text(`Discount   -$${totals.discount.toFixed(2)}`));
-  lines.push(text(`Tax         $${totals.tax.toFixed(2)}`));
-  lines.push(text(`Total       $${totals.total.toFixed(2)}`));
+  lines.push(text(`Subtotal    ${fmt(totals.subtotal)}`));
+  lines.push(text(`Discount   -${fmt(totals.discount)}`));
+  lines.push(text(`Tax         ${fmt(totals.tax)}`));
+  lines.push(text(`Total       ${fmt(totals.total)}`));
   if (footer?.note) {
     lines.push('--------------------------------');
     lines.push(center(footer.note));

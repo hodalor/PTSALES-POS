@@ -8,7 +8,10 @@ const initialState = {
   receiptHeader: 'Thank you for shopping with us!',
   receiptFooter: 'No refunds without receipt',
   drawerOpenOnCash: false,
-  taxRate: 0.10
+  taxRate: 0.10,
+  currencyCode: 'GHS',
+  currencySymbol: '₵',
+  currencyPosition: 'prefix'
 };
 
 const settingsSlice = createSlice({
@@ -42,9 +45,19 @@ const settingsSlice = createSlice({
       if (v < 0) v = 0;
       if (v > 1) v = 1;
       state.taxRate = v;
+    },
+    setCurrencyCode(state, action) {
+      state.currencyCode = String(action.payload || '').toUpperCase() || 'GHS';
+    },
+    setCurrencySymbol(state, action) {
+      state.currencySymbol = String(action.payload || '₵');
+    },
+    setCurrencyPosition(state, action) {
+      const v = String(action.payload || 'prefix');
+      state.currencyPosition = (v === 'suffix') ? 'suffix' : 'prefix';
     }
   }
 });
 
-export const { setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setDrawerOpenOnCash, setTaxRate } = settingsSlice.actions;
+export const { setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition } = settingsSlice.actions;
 export default settingsSlice.reducer;

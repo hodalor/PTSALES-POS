@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setDrawerOpenOnCash, setTaxRate } from '../store/settingsSlice';
+import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition } from '../store/settingsSlice';
 import { addBranch, removeBranch } from '../store/branchesSlice';
 import { useRef, useState } from 'react';
 import { useToast } from '../components/ToastProvider';
@@ -69,6 +69,26 @@ function ConfigSettingsPage() {
               style={{ display: 'block', width: '100%', marginTop: 6 }}
             />
           </label>
+          <div style={{ marginTop: 12 }}>
+            <h3 className="section-title" style={{ margin: '8px 0' }}>Currency</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <label>
+                Code
+                <input className="input" value={settings.currencyCode} onChange={e => dispatch(setCurrencyCode(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+              <label>
+                Symbol
+                <input className="input" value={settings.currencySymbol} onChange={e => dispatch(setCurrencySymbol(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+            </div>
+            <label style={{ display: 'block', marginTop: 8 }}>
+              Position
+              <select className="select" value={settings.currencyPosition} onChange={e => dispatch(setCurrencyPosition(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }}>
+                <option value="prefix">Prefix (₵10.00)</option>
+                <option value="suffix">Suffix (10.00₵)</option>
+              </select>
+            </label>
+          </div>
           <div style={{ marginTop: 12 }}>
             <button
               className="btn btn-primary"

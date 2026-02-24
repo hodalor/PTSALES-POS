@@ -1,6 +1,7 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { addProduct, updateProduct, removeProduct, setStock, addCategory } from '../store/productsSlice';
 import { useState } from 'react';
+import { formatCurrency } from '../utils/currency';
 import { addAudit } from '../store/auditSlice';
 
 function ProductsPage() {
@@ -8,7 +9,10 @@ function ProductsPage() {
   const products = useSelector(s => s.products.products);
   const categories = useSelector(s => s.products.categories);
   const branches = useSelector(s => s.branches.branches);
+  const settings = useSelector(s => s.settings);
   const currentBranchId = useSelector(s => s.settings.currentBranchId);
+  const currentBranch = branches.find(b => b.id === currentBranchId);
+  const currentBranchLabel = (currentBranch?.code) || (currentBranch?.name) || currentBranchId;
   const auth = useSelector(s => s.auth);
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
@@ -116,7 +120,7 @@ function ProductsPage() {
           </select>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
             <label>
-              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Initial Stock ({currentBranchId})</div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>Initial Stock ({currentBranchLabel})</div>
               <input className="input" type="number" min="0" value={initialStock} onChange={e => setInitialStock(Number(e.target.value))} />
             </label>
             <label>
@@ -153,7 +157,7 @@ function ProductsPage() {
                 <th align="left">Price</th>
                 <th align="left">Category</th>
                 <th align="left">Low</th>
-                <th align="left">Stock ({(branches.find(b => b.id === currentBranchId)?.code) || (branches.find(b => b.id === currentBranchId)?.name) || currentBranchId})</th>
+                <th align="left">Stock ({currentBranchLabel})</th>
                 <th></th>
               </tr>
             </thead>
@@ -196,7 +200,7 @@ function ProductsPage() {
                   <td>
                     {editingId === p.id ? (
                       <input className="input" type="number" value={editPrice} onChange={e => setEditPrice(e.target.value)} style={{ width: 100 }} />
-                    ) : `$${p.price?.toFixed(2)}`}
+                    ) : formatCurrency(p.price, settings)}
                   </td>
                   <td>
                     {editingId === p.id ? (

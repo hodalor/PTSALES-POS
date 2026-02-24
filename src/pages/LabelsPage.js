@@ -6,6 +6,7 @@ function LabelsPage() {
   const products = useSelector(s => s.products.products);
   const [query, setQuery] = useState('');
   const [copies, setCopies] = useState(1);
+  const [selected, setSelected] = useState(() => new Set());
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return products;
@@ -17,7 +18,8 @@ function LabelsPage() {
   }, [products, query]);
 
   function printLabels() {
-    const html = buildPrintHtml(filtered, copies);
+    const list = selected.size > 0 ? filtered.filter(p => selected.has(p.id)) : filtered;
+    const html = buildPrintHtml(list, copies);
     const w = window.open('', '_blank');
     if (!w) return;
     w.document.write(html);
@@ -36,21 +38,36 @@ function LabelsPage() {
             <span>Copies</span>
             <input className="input" type="number" min="1" value={copies} onChange={e => setCopies(Math.max(1, Number(e.target.value)))} style={{ width: 100 }} />
           </label>
+          <button className="btn" onClick={() => setSelected(new Set(filtered.map(p => p.id)))}>Select All</button>
+          <button className="btn" onClick={() => setSelected(new Set())}>Clear</button>
           <button className="btn btn-primary" onClick={printLabels}>
             <svg viewBox="0 0 24 24" fill="none"><path d="M6 9V3h12v6" stroke="currentColor" strokeWidth="2"/><path d="M6 17h12v4H6z" stroke="currentColor" strokeWidth="2"/><path d="M4 9h16a2 2 0 012 2v2H2v-2a2 2 0 012-2z" stroke="currentColor" strokeWidth="2"/></svg>
-            Print
+            {selected.size > 0 ? 'Print Selected' : 'Print All'}
           </button>
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
         {filtered.map(p => (
-          <div key={p.id} className="card" style={{ display: 'grid', gap: 6, alignItems: 'center' }}>
+          <label key={p.id} className="card" style={{ display: 'grid', gap: 6, alignItems: 'center', position: 'relative' }}>
+            <input
+              type="checkbox"
+              checked={selected.has(p.id)}
+              onChange={e => {
+                setSelected(prev => {
+                  const s = new Set(prev);
+                  if (e.target.checked) s.add(p.id); else s.delete(p.id);
+                  return s;
+                });
+              }}
+              style={{ position: 'absolute', top: 8, right: 8 }}
+              aria-label={`Select ${p.name}`}
+            />
             <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
             <div style={{ color: '#64748b', fontSize: 12 }}>{p.sku}</div>
             <div style={{ display: 'grid', placeItems: 'center', padding: 4, background: '#ffffff' }}>
               {p.barcode ? <EAN13Barcode value={p.barcode} width={2} height={70} /> : <div style={{ color: '#ef4444' }}>No barcode</div>}
             </div>
-          </div>
+          </label>
         ))}
       </div>
     </div>
@@ -68,7 +85,7 @@ function buildPrintHtml(products, copies) {
     <div class="label">
       <div class="name">${escapeHtml(p.name || '')}</div>
       <div class="sku">${escapeHtml(p.sku || '')}</div>
-      <div class="svg">${renderBarcodeSvg(p.barcode)}</div>
+      <div class="svg">${renderBarcodeSvgString(p.barcode)}</div>
     </div>
   `).join('');
   const html = `
@@ -101,36 +118,43 @@ function buildPrintHtml(products, copies) {
   return html;
 }
 
-function renderBarcodeSvg(value) {
-  const el = EAN13Barcode({ value, width: 2, height: 70, fontSize: 12, displayValue: true });
-  if (!el) return '<div>No barcode</div>';
-  const encoded = renderToStatic(el);
-  return encoded;
+function renderBarcodeSvgString(value) {
+  let raw = String(value || '').replace(/\D/g, '');
+  if (raw.length === 12) raw = raw + ean13CheckDigit(raw);
+  if (raw.length !== 13) return '<div>No barcode</div>';
+  const pattern = encodeEAN13(raw);
+  const width = 2;
+  const height = 70;
+  const fontSize = 12;
+  const modules = pattern.split('').map(c => c === '1');
+  const w = modules.length * width;
+  const H = height + fontSize + 6;
+  let rects = '';
+  let i = 0;
+  while (i < modules.length) {
+    if (!modules[i]) { i++; continue; }
+    let run = 1;
+    while (i + run < modules.length && modules[i + run]) run++;
+    const x = i * width;
+    let h = height;
+    if (i === 0 || (i === 2) || (i === 45) || (i === 47) || (i === 92) || (i === 94)) {
+      h = height + 6;
+    }
+    rects += `<rect x="${x}" y="0" width="${run * width}" height="${h}" fill="#000000" />`;
+    i += run;
+  }
+  return `<svg width="${w}" height="${H}" viewBox="0 0 ${w} ${H}" xmlns="http://www.w3.org/2000/svg"><rect x="0" y="0" width="${w}" height="${H}" fill="#ffffff" />${rects}<text x="${w/2}" y="${height + fontSize}" font-family="monospace" font-size="${fontSize}" text-anchor="middle" fill="#000000">${raw}</text></svg>`;
 }
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
 }
 
-function renderToStatic(reactElement) {
-  if (!reactElement || reactElement.type !== 'svg') return '';
-  const props = reactElement.props || {};
-  const svgAttrs = Object.entries(props)
-    .filter(([k]) => !['children'].includes(k))
-    .map(([k, v]) => `${k}="${String(v)}"`).join(' ');
-  const children = props.children || [];
-  const renderChild = (child) => {
-    if (!child) return '';
-    if (typeof child === 'string') return child;
-    const name = child.type;
-    const p = child.props || {};
-    const attrs = Object.entries(p).filter(([k]) => !['children'].includes(k)).map(([k, v]) => `${k}="${String(v)}"`).join(' ');
-    const content = Array.isArray(p.children) ? p.children.map(renderChild).join('') : (p.children ? renderChild(p.children) : '');
-    return `<${name} ${attrs}>${content}</${name}>`;
-  };
-  const inner = Array.isArray(children) ? children.map(renderChild).join('') : renderChild(children);
-  return `<svg ${svgAttrs}>${inner}</svg>`;
-}
+function lCodes(d){return ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'][d];}
+function gCodes(d){return ['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'][d];}
+function rCodes(d){return ['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'][d];}
+const parityMap = {'0':'LLLLLL','1':'LLGLGG','2':'LLGGLG','3':'LLGGGL','4':'LGLLGG','5':'LGGLLG','6':'LGGGLL','7':'LGLGLG','8':'LGLGGL','9':'LGGLGL'};
+function ean13CheckDigit(d12){let sum=0;for(let i=0;i<12;i++){const d=Number(d12[i]);sum+=(i%2===0)?d:d*3;}const mod=sum%10;return String((10-mod)%10);}
+function encodeEAN13(digits13){const d=digits13.split('').map(ch=>Number(ch));const first=String(d[0]);const parity=parityMap[first];let pattern='101';for(let i=1;i<=6;i++){const digit=d[i];const side=parity[i-1];const bits=side==='L'?lCodes(digit):gCodes(digit);pattern+=bits;}pattern+='01010';for(let i=7;i<=12;i++){const digit=d[i];const bits=rCodes(digit);pattern+=bits;}pattern+='101';return pattern;}
 
 export default LabelsPage;
-
