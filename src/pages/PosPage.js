@@ -9,6 +9,8 @@ import { useToast } from '../components/ToastProvider';
 import { formatCurrency } from '../utils/currency';
 import { useMemo, useState } from 'react';
 import { addAudit } from '../store/auditSlice';
+import { setNextInvoiceNumber } from '../store/settingsSlice';
+import { productSpec } from '../utils/productSpec';
 
 function PosPage() {
   const cart = useSelector(state => state.cart);
@@ -23,15 +25,41 @@ function PosPage() {
   const [taxOverridePct, setTaxOverridePct] = useState('');
   const [taxOverrideRemark, setTaxOverrideRemark] = useState('');
   const toast = useToast();
+  const sellables = useMemo(() => {
+    const out = [];
+    products.forEach(p => {
+      if (Array.isArray(p.variants) && p.variants.length > 0) {
+        p.variants.forEach(v => {
+          out.push({
+            id: `${p.id}:${v.id}`,
+            productId: p.id,
+            variantId: v.id,
+            name: `${p.name} (${v.label})`,
+            sku: v.sku || `${p.sku}-${v.label}`,
+            price: (v.price != null ? v.price : p.price),
+            image: p.image,
+            stockByBranch: v.stockByBranch || {},
+            lowStock: p.lowStock,
+            attributes: p.attributes,
+            unitKind: p.unitKind, unitValue: p.unitValue, unitSymbol: p.unitSymbol, sizeLabel: p.sizeLabel, shoeSize: p.shoeSize
+          });
+        });
+      } else {
+        out.push(p);
+      }
+    });
+    return out;
+  }, [products]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter(p =>
+    if (!q) return sellables;
+    return sellables.filter(p =>
       p.name.toLowerCase().includes(q) ||
       p.sku.toLowerCase().includes(q) ||
-      (p.barcode || '').toLowerCase().includes(q)
+      (p.barcode || '').toLowerCase().includes(q) ||
+      productSpec(p).toLowerCase().includes(q)
     );
-  }, [products, query]);
+  }, [sellables, query]);
   const dispatch = useDispatch();
 
   const subtotal = cart.items.reduce((sum, i) => sum + (i.price || 0) * (i.quantity || 1), 0);
@@ -51,7 +79,8 @@ function PosPage() {
       toast.show('Out of stock for current branch', { type: 'error' });
       return;
     }
-    dispatch(addItem({ name: p.name, sku: p.sku, price: p.price }));
+    const spec = productSpec(p);
+    dispatch(addItem({ name: p.name, sku: p.sku, price: p.price, spec, productId: p.productId || p.id, variantId: p.variantId || null }));
   }
 
   function addPaymentRow() {
@@ -76,24 +105,32 @@ function PosPage() {
       }
     }
     const branchName = branches.find(b => b.id === branchId)?.name || branchId;
+    const branchCode = branches.find(b => b.id === branchId)?.code || branchId;
+    const num = Number(settings.nextInvoiceNumber || 1);
+    const invoiceSerial = `${settings.invoicePrefix || 'INV'}-${branchCode}-${String(num).padStart(6,'0')}`;
     const sale = {
       id: String(Date.now()),
       branchId,
       branchName,
       sellerName: auth.user?.name || 'unknown',
       sellerRole: auth.role || '',
-      items: cart.items.map(i => ({ name: i.name, sku: i.sku, qty: i.quantity, price: i.price })),
+      items: cart.items.map(i => ({ name: i.name, sku: i.sku, spec: i.spec, qty: i.quantity, price: i.price })),
       subtotal,
       discount,
       tax,
       total,
       payment_methods: payments.map(p => ({ type: p.type, amount: Number(p.amount) || 0 })),
       status: 'completed',
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      invoiceSerial
     };
+    const skuToRef = new Map();
+    sellables.forEach(p => skuToRef.set(p.sku, { productId: p.productId || p.id, variantId: p.variantId || null }));
     cart.items.forEach(i => {
-      const p = products.find(p2 => p2.sku === i.sku);
-      if (p) dispatch(adjustStock({ productId: p.id, branchId, delta: -i.quantity }));
+      const ref = skuToRef.get(i.sku);
+      if (ref) {
+        dispatch(adjustStock({ productId: ref.productId, variantId: ref.variantId, branchId, delta: -i.quantity }));
+      }
     });
     dispatch(recordSale(sale));
     if (canOverrideTax && taxOverridePct !== '' && String(Math.round((taxRate || 0)*100)) !== String(Math.round((settings.taxRate || 0)*100))) {
@@ -119,10 +156,11 @@ function PosPage() {
       return;
     }
     await enqueue('sale', sale);
+    dispatch(setNextInvoiceNumber(num + 1));
     dispatch(clearCart());
     if (escpos) {
       const text = escposReceipt({
-        header: { title: settings.appName, store: settings.receiptHeader, branch: branchName },
+        header: { title: settings.appName, store: settings.receiptHeader, branch: branchName, phone: settings.businessPhone || '', cashier: sale.sellerName, receiptId: sale.id, invoiceSerial: sale.invoiceSerial },
         items: sale.items,
         totals: { subtotal, discount, tax, total },
         footer: { note: settings.receiptFooter },
@@ -139,7 +177,7 @@ function PosPage() {
     if (e.key === 'Enter') {
       const q = query.trim();
       if (!q) return;
-      const exact = products.find(p =>
+      const exact = sellables.find(p =>
         (p.barcode && p.barcode === q) ||
         p.sku.toLowerCase() === q.toLowerCase()
       );
@@ -171,6 +209,7 @@ function PosPage() {
               <button key={p.id} onClick={() => addToCart(p)} className="product-card">
                 {p.image && <img src={p.image} alt={p.name} className="product-img" />}
                 <div className="product-name">{p.name}</div>
+                {productSpec(p) && <div className="product-sku" style={{ color: '#64748b' }}>{productSpec(p)}</div>}
                 <div className="product-sku">{p.sku}</div>
                 <div className="product-price">{formatCurrency(p.price, settings)}</div>
                 <div className="product-stock" style={{ color: (p.lowStock ?? 0) > 0 && (p.stockByBranch?.[branchId] || 0) <= (p.lowStock ?? 0) ? '#ef4444' : undefined }}>
@@ -187,6 +226,7 @@ function PosPage() {
                 <div className="meta">
                   <div>
                     <div className="title">{p.name}</div>
+                    {productSpec(p) && <div className="sku" style={{ color: '#64748b' }}>{productSpec(p)}</div>}
                     <div className="sku">{p.sku}</div>
                   </div>
                   <div className="stock" style={{ color: (p.lowStock ?? 0) > 0 && (p.stockByBranch?.[branchId] || 0) <= (p.lowStock ?? 0) ? '#ef4444' : undefined }}>
@@ -206,6 +246,7 @@ function PosPage() {
             <li key={item.id} className="cart-item">
               <div className="cart-title">
                 <div>{item.name}</div>
+                {item.spec && <small style={{ color: '#64748b' }}>{item.spec}</small>}
                 <small>{item.sku}</small>
               </div>
               <input

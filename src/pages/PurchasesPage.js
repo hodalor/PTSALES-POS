@@ -5,6 +5,7 @@ import { useToast } from '../components/ToastProvider';
 import BranchSelect from '../components/BranchSelect';
 import { addAudit } from '../store/auditSlice';
 import { formatCurrency } from '../utils/currency';
+import { useSelector as useReduxSelector } from 'react-redux';
 
 function PurchasesPage() {
   const products = useSelector(s => s.products.products);
@@ -16,6 +17,8 @@ function PurchasesPage() {
   const [productId, setProductId] = useState(products[0]?.id || '');
   const [branchId, setBranchId] = useState(currentBranchId);
   const [qty, setQty] = useState(1);
+  const [packName, setPackName] = useState('');
+  const [variantId, setVariantId] = useState('');
   const [supplier, setSupplier] = useState('');
   const [cost, setCost] = useState('');
   const [note, setNote] = useState('');
@@ -80,16 +83,21 @@ function PurchasesPage() {
       return;
     }
     const price = Number(cost) || 0;
-    dispatch(adjustStock({ productId, branchId, delta: Number(qty) }));
     const prod = products.find(p => p.id === productId);
+    const pack = (prod?.packs || []).find(pk => pk.name === packName);
+    const factor = pack ? Number(pack.quantity) || 1 : 1;
+    const baseUnits = Number(qty) * factor;
+    dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId, delta: baseUnits }));
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'stock_receive',
-      details: { product: prod?.name || productId, qty: Number(qty), branchId, supplier: supplier.trim() || '', cost: price },
+      details: { product: prod?.name || productId, variant: (prod?.variants || []).find(v => v.id === variantId)?.label || '', qty: Number(qty), pack: pack ? pack.name : 'Base Unit', factor, baseUnits, branchId, supplier: supplier.trim() || '', cost: price },
       remark: note.trim() || '',
       branchId
     }));
     setQty(1);
+    setPackName('');
+    setVariantId('');
     setSupplier('');
     setCost('');
     setNote('');
@@ -102,8 +110,28 @@ function PurchasesPage() {
       <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
         <label>
           <div style={{ marginBottom: 6, color: '#64748b' }}>Product</div>
-          <select className="select" value={productId} onChange={e => setProductId(e.target.value)} style={{ display: 'block', width: '100%' }}>
+          <select className="select" value={productId} onChange={e => { setProductId(e.target.value); setPackName(''); setVariantId(''); }} style={{ display: 'block', width: '100%' }}>
             {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>
+        {(products.find(p => p.id === productId)?.variants || []).length > 0 && (
+          <label>
+            <div style={{ marginBottom: 6, color: '#64748b' }}>Variant</div>
+            <select className="select" value={variantId} onChange={e => setVariantId(e.target.value)}>
+              <option value="">None (base)</option>
+              {(products.find(p => p.id === productId)?.variants || []).map(v => (
+                <option key={v.id} value={v.id}>{v.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        <label>
+          <div style={{ marginBottom: 6, color: '#64748b' }}>Pack</div>
+          <select className="select" value={packName} onChange={e => setPackName(e.target.value)}>
+            <option value="">Base Unit</option>
+            {(products.find(p => p.id === productId)?.packs || []).map(pk => (
+              <option key={pk.name} value={pk.name}>{pk.name} = {pk.quantity} units</option>
+            ))}
           </select>
         </label>
         <label>
@@ -116,7 +144,8 @@ function PurchasesPage() {
         </label>
         <label>
           <div style={{ marginBottom: 6, color: '#64748b' }}>Supplier</div>
-          <input className="input" placeholder="e.g., FreshCo" value={supplier} onChange={e => setSupplier(e.target.value)} />
+          <input className="input" placeholder="e.g., FreshCo" value={supplier} onChange={e => setSupplier(e.target.value)} list="suppliers-list" />
+          <SuppliersDatalist />
         </label>
         <label>
           <div style={{ marginBottom: 6, color: '#64748b' }}>Cost Price</div>
@@ -170,6 +199,8 @@ function PurchasesPage() {
               <th align="left">Product</th>
               <th align="left">Branch</th>
               <th align="left">Qty</th>
+              <th align="left">Pack</th>
+              <th align="left">Base Units</th>
               <th align="left">Supplier</th>
               <th align="left">Cost</th>
               <th align="left">Remark</th>
@@ -186,6 +217,8 @@ function PurchasesPage() {
                   <td>{d.product || '—'}</td>
                   <td>{branchName}</td>
                   <td>{d.qty ?? '—'}</td>
+                  <td>{d.pack || 'Base Unit'}</td>
+                  <td>{d.baseUnits ?? (Number(d.qty) || 0) * (Number(d.factor) || 1)}</td>
                   <td>{d.supplier || '—'}</td>
                   <td>{Number.isFinite(Number(d.cost)) ? formatCurrency(Number(d.cost), settings) : '—'}</td>
                   <td>{e.remark || '—'}</td>
@@ -193,12 +226,21 @@ function PurchasesPage() {
               );
             })}
             {purchases.length === 0 && (
-              <tr><td colSpan="8" style={{ padding: 12, color: '#64748b' }}>No purchase records yet</td></tr>
+              <tr><td colSpan="10" style={{ padding: 12, color: '#64748b' }}>No purchase records yet</td></tr>
             )}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+function SuppliersDatalist() {
+  const list = useReduxSelector(s => s.suppliers?.suppliers || []);
+  return (
+    <datalist id="suppliers-list">
+      {list.map(s => <option key={s.id} value={s.name} />)}
+    </datalist>
   );
 }
 

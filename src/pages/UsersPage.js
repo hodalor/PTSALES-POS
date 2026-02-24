@@ -2,6 +2,8 @@ import { useDispatch, useSelector } from 'react-redux';
 import { addUser, removeUser, updateUser } from '../store/usersSlice';
 import { addAudit } from '../store/auditSlice';
 import { useMemo, useState } from 'react';
+import { useToast } from '../components/ToastProvider';
+import { promptDialog } from '../utils/dialogs';
 
 function UsersPage() {
   const dispatch = useDispatch();
@@ -30,6 +32,7 @@ function UsersPage() {
   const [editRemark, setEditRemark] = useState('');
   const isSuper = String(auth.role || '').toLowerCase() === 'superadmin';
   const superAdminsCount = users.filter(u => u.role === 'SuperAdmin' && u.active !== false).length;
+  const toast = useToast();
   function canRemoveUser(u) {
     if (isSuper) {
       if (u.role === 'SuperAdmin') return superAdminsCount > 1;
@@ -43,11 +46,11 @@ function UsersPage() {
     const cleanPin = pin.trim();
     if (!cleanName || !cleanPin) return;
     if (!/^\d{4,6}$/.test(cleanPin)) {
-      alert('PIN must be 4-6 digits');
+      toast.show('PIN must be 4-6 digits', { type: 'error' });
       return;
     }
     if (!remark.trim()) {
-      alert('Please enter a remark for audit logging');
+      toast.show('Please enter a remark for audit logging', { type: 'error' });
       return;
     }
     const forceAll = role === 'SuperAdmin' || role === 'Admin';
@@ -84,26 +87,22 @@ function UsersPage() {
     if (!editingId) return;
     const target = users.find(u => u.id === editingId);
     const fields = { id: editingId, name: editName.trim(), role: editRole, active: !!editActive };
-    // Optional PIN change
     const p = editPin.trim();
     if (p) {
       if (!/^\d{4,6}$/.test(p)) {
-        alert('PIN must be 4-6 digits');
+        toast.show('PIN must be 4-6 digits', { type: 'error' });
         return;
       }
       fields.pin = p;
     }
-    // Prevent demoting the last SuperAdmin
     if (target && target.role === 'SuperAdmin' && editRole !== 'SuperAdmin' && superAdminsCount <= 1) {
-      alert('At least one SuperAdmin must remain');
+      toast.show('At least one SuperAdmin must remain', { type: 'error' });
       return;
     }
-    // Prevent disabling the last SuperAdmin
     if (target && target.role === 'SuperAdmin' && fields.active === false && superAdminsCount <= 1) {
-      alert('Cannot disable the last SuperAdmin');
+      toast.show('Cannot disable the last SuperAdmin', { type: 'error' });
       return;
     }
-    // Branch assignment
     const forceAll = editRole === 'SuperAdmin' || editRole === 'Admin';
     if (forceAll || editAllBranches) {
       fields.assignedBranches = 'all';
@@ -114,7 +113,7 @@ function UsersPage() {
       fields.branchId = assigned[0] || editBranchId;
     }
     if (!editRemark.trim()) {
-      alert('Please enter a remark for audit logging');
+      toast.show('Please enter a remark for audit logging', { type: 'error' });
       return;
     }
     dispatch(updateUser(fields));
@@ -128,15 +127,17 @@ function UsersPage() {
   }
 
   function toggleActive(u, active) {
-    const r = window.prompt(active ? 'Remark for enabling user' : 'Remark for disabling user') || '';
-    if (!r.trim()) return;
-    dispatch(updateUser({ id: u.id, active }));
-    dispatch(addAudit({
-      actor: auth.user?.name || 'unknown',
-      actionType: 'user_status',
-      details: { id: u.id, name: u.name, active },
-      remark: r
-    }));
+    (async () => {
+      const r = await promptDialog(active ? 'Remark for enabling user' : 'Remark for disabling user');
+      if (!r || !r.trim()) return;
+      dispatch(updateUser({ id: u.id, active }));
+      dispatch(addAudit({
+        actor: auth.user?.name || 'unknown',
+        actionType: 'user_status',
+        details: { id: u.id, name: u.name, active },
+        remark: r
+      }));
+    })();
   }
 
   return (
@@ -222,12 +223,14 @@ function UsersPage() {
                         className="btn"
                         onClick={() => {
                           if (!canRemoveUser(u)) {
-                            alert('Cannot remove the last SuperAdmin');
+                            toast.show('Cannot remove the last SuperAdmin', { type: 'error' });
                             return;
                           }
-                          const r = window.prompt('Remark for removing user') || '';
-                          if (!r.trim()) return;
-                          dispatch(removeUser(u.id));
+                          (async () => {
+                            const r = await promptDialog('Remark for removing user');
+                            if (!r || !r.trim()) return;
+                            dispatch(removeUser(u.id));
+                          })();
                         }}
                         disabled={!canRemoveUser(u)}
                       >

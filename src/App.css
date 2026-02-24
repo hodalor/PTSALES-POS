@@ -10,10 +10,11 @@
 }
 
 html, body, #root {
-  height: 100%;
+  height: 100dvh;
   background: var(--bg);
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  overflow: hidden; /* lock page scroll; only inner content scrolls */
 }
 
 .layout {
@@ -26,6 +27,13 @@ html, body, #root {
   background: var(--sidebar-bg);
   color: white;
   padding: 16px 12px;
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
 }
 .sidebar-brand {
   display: flex;
@@ -45,6 +53,19 @@ html, body, #root {
 .sidebar-nav {
   display: grid;
   gap: 6px;
+  overflow: auto;
+  flex: 1 1 auto;
+  /* Hide scrollbar but keep scroll working */
+  -ms-overflow-style: none;      /* IE and old Edge */
+  scrollbar-width: none;         /* Firefox */
+  padding-bottom: 12px;
+}
+.sidebar-nav::-webkit-scrollbar {
+  width: 0px;                    /* Chrome/Safari */
+  height: 0px;
+}
+.sidebar-nav::-webkit-scrollbar-thumb {
+  background: transparent;
 }
 .sidebar .section-label {
   margin: 12px 8px 6px;
@@ -79,9 +100,13 @@ html, body, #root {
 .content {
   display: flex;
   flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
 }
 .main {
   padding: 16px;
+  overflow: auto;
+  flex: 1 1 auto;
 }
 
 .login-page {
@@ -389,6 +414,9 @@ html, body, #root {
   padding: 10px 14px;
   background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
   border-bottom: 1px solid #e2e8f0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 .topbar .brand {
   display: flex;

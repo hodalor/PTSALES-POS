@@ -7,6 +7,13 @@ const initialState = {
   receiptLogoUrl: '',
   receiptHeader: 'Thank you for shopping with us!',
   receiptFooter: 'No refunds without receipt',
+  businessPhone: '0243984046',
+  businessWebsite: '',
+  businessTpin: '',
+  sdcId: '',
+  receiptQrBaseUrl: '',
+  invoicePrefix: 'INV',
+  nextInvoiceNumber: 1,
   drawerOpenOnCash: false,
   taxRate: 0.10,
   currencyCode: 'GHS',
@@ -36,6 +43,29 @@ const settingsSlice = createSlice({
     setReceiptFooter(state, action) {
       state.receiptFooter = action.payload;
     },
+    setBusinessPhone(state, action) {
+      state.businessPhone = String(action.payload || '');
+    },
+    setBusinessWebsite(state, action) {
+      state.businessWebsite = String(action.payload || '');
+    },
+    setBusinessTpin(state, action) {
+      state.businessTpin = String(action.payload || '');
+    },
+    setSdcId(state, action) {
+      state.sdcId = String(action.payload || '');
+    },
+    setReceiptQrBaseUrl(state, action) {
+      state.receiptQrBaseUrl = String(action.payload || '');
+    },
+    setInvoicePrefix(state, action) {
+      state.invoicePrefix = String(action.payload || 'INV');
+    },
+    setNextInvoiceNumber(state, action) {
+      let v = Number(action.payload);
+      if (!Number.isFinite(v) || v < 1) v = 1;
+      state.nextInvoiceNumber = Math.floor(v);
+    },
     setDrawerOpenOnCash(state, action) {
       state.drawerOpenOnCash = !!action.payload;
     },
@@ -59,5 +89,5 @@ const settingsSlice = createSlice({
   }
 });
 
-export const { setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition } = settingsSlice.actions;
+export const { setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setSdcId, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition } = settingsSlice.actions;
 export default settingsSlice.reducer;

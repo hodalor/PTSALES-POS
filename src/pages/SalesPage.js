@@ -20,7 +20,7 @@ function SalesPage() {
   function reprint(sale, escpos = false) {
     if (escpos) {
       const text = escposReceipt({
-        header: { title: settings.appName, store: settings.receiptHeader, branch: branchLabel(sale) },
+        header: { title: settings.appName, store: settings.receiptHeader, branch: branchLabel(sale), phone: settings.businessPhone || '', cashier: sale.sellerName, receiptId: sale.id, invoiceSerial: sale.invoiceSerial },
         items: sale.items,
         totals: { subtotal: sale.subtotal, discount: sale.discount, tax: sale.tax, total: sale.total },
         footer: { note: settings.receiptFooter },
@@ -49,6 +49,7 @@ function SalesPage() {
             <th align="left">Date</th>
             <th align="left">Branch</th>
             <th align="left">Seller</th>
+            <th align="left">Invoice</th>
             <th align="left">Items</th>
             <th align="left">Total</th>
             <th></th>
@@ -60,7 +61,8 @@ function SalesPage() {
               <td>{new Date(sale.created_at).toLocaleString()}</td>
               <td>{branchLabel(sale)}</td>
               <td>{sale.sellerName || '-'}</td>
-              <td>{sale.items.map(i => `${i.name}x${i.qty}`).join(', ')}</td>
+              <td>{sale.invoiceSerial || '—'}</td>
+              <td>{sale.items.map(i => `${i.name}${i.spec ? ' ['+i.spec+']' : ''}x${i.qty}`).join(', ')}</td>
               <td>{formatCurrency(sale.total, settings)}</td>
               <td>
                 <button className="btn btn-primary" onClick={() => reprint(sale, false)}>

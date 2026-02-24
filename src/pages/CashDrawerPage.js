@@ -1,6 +1,7 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { useState } from 'react';
 import { openSession, closeSession, addMovement } from '../store/sessionsSlice';
+import { downloadText, escposOpenDrawer } from '../utils/escpos';
 
 function CashDrawerPage() {
   const dispatch = useDispatch();
@@ -11,6 +12,10 @@ function CashDrawerPage() {
 
   function openDrawer() {
     dispatch(openSession(Number(floatAmount)));
+  }
+  function openDrawerNow() {
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    downloadText(`drawer-open-${ts}.txt`, escposOpenDrawer());
   }
   function record(type) {
     if (!amount) return;
@@ -46,6 +51,7 @@ function CashDrawerPage() {
             <input placeholder="note" value={note} onChange={e => setNote(e.target.value)} />
             <button onClick={() => record('in')}>Cash In</button>
             <button onClick={() => record('out')}>Cash Out</button>
+            <button onClick={openDrawerNow}>Open Drawer Now</button>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -76,6 +82,9 @@ function CashDrawerPage() {
           <h2>Open Cash Drawer</h2>
           <input placeholder="Opening float" type="number" value={floatAmount} onChange={e => setFloatAmount(e.target.value)} style={{ display: 'block', width: '100%', marginBottom: 8 }} />
           <button onClick={openDrawer}>Open Session</button>
+          <div style={{ marginTop: 8 }}>
+            <button onClick={openDrawerNow}>Open Drawer Now</button>
+          </div>
         </div>
       )}
     </div>

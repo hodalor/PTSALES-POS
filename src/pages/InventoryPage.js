@@ -9,6 +9,7 @@ function InventoryPage() {
   const currentBranchId = useSelector(s => s.settings.currentBranchId);
   const [branchId, setBranchId] = useState(currentBranchId);
   const [modalId, setModalId] = useState(null);
+  const [openVariantsFor, setOpenVariantsFor] = useState(null);
   const dispatch = useDispatch();
 
   const branch = useMemo(() => branches.find(b => b.id === branchId) || branches[0], [branches, branchId]);
@@ -39,26 +40,54 @@ function InventoryPage() {
             {rows.map(p => {
               const low = p.lowStock ?? 0;
               const cur = p.stockByBranch?.[branchId] || 0;
+              const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
               return (
-                <tr key={p.id} onClick={() => setModalId(p.id)} style={{ cursor: 'pointer' }}>
-                  <td>{p.name}</td>
-                  <td>${(p.price || 0).toFixed(2)}</td>
-                  <td><code style={{ fontSize: 12 }}>{p.barcode || '—'}</code></td>
-                  <td onClick={e => e.stopPropagation()}>
-                    <input
-                      className="input"
-                      type="number"
-                      min="0"
-                      value={cur}
-                      onChange={e => dispatch(setStock({ productId: p.id, branchId, quantity: Number(e.target.value) }))}
-                      style={{
-                        width: 100,
-                        borderColor: low > 0 && cur <= low ? '#ef4444' : undefined,
-                        color: low > 0 && cur <= low ? '#b91c1c' : undefined
-                      }}
-                    />
-                  </td>
-                </tr>
+                <>
+                  <tr key={p.id} onClick={() => setModalId(p.id)} style={{ cursor: 'pointer' }}>
+                    <td>{p.name}</td>
+                    <td>${(p.price || 0).toFixed(2)}</td>
+                    <td><code style={{ fontSize: 12 }}>{p.barcode || '—'}</code></td>
+                    <td onClick={e => e.stopPropagation()}>
+                      {hasVariants ? (
+                        <button className="btn" onClick={() => setOpenVariantsFor(o => o === p.id ? null : p.id)}>Variants</button>
+                      ) : (
+                        <input
+                          className="input"
+                          type="number"
+                          min="0"
+                          value={cur}
+                          onChange={e => dispatch(setStock({ productId: p.id, branchId, quantity: Number(e.target.value) }))}
+                          style={{
+                            width: 100,
+                            borderColor: low > 0 && cur <= low ? '#ef4444' : undefined,
+                            color: low > 0 && cur <= low ? '#b91c1c' : undefined
+                          }}
+                        />
+                      )}
+                    </td>
+                  </tr>
+                  {(openVariantsFor === p.id && hasVariants) && (
+                    <tr key={`${p.id}-variants`} style={{ background: '#fbfdff' }}>
+                      <td colSpan="4">
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          {p.variants.map(v => (
+                            <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, alignItems: 'center' }}>
+                              <div><strong>{v.label}</strong> <span style={{ color: '#64748b' }}>{v.sku || ''}</span></div>
+                              <input
+                                className="input"
+                                type="number"
+                                min="0"
+                                value={v.stockByBranch?.[branchId] || 0}
+                                onChange={e => dispatch(setStock({ productId: p.id, variantId: v.id, branchId, quantity: Number(e.target.value) }))}
+                                style={{ width: 120 }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
               );
             })}
           </tbody>
@@ -101,6 +130,26 @@ function InventoryPage() {
                     ))}
                   </div>
                 </div>
+                {(Array.isArray(selected.variants) && selected.variants.length > 0) && (
+                  <div style={{ gridColumn: '1 / -1', marginTop: 8 }}>
+                    <strong>Variants (current branch)</strong>
+                    <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
+                      {selected.variants.map(v => (
+                        <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, alignItems: 'center' }}>
+                          <div><strong>{v.label}</strong> <span style={{ color: '#64748b' }}>{v.sku || ''}</span></div>
+                          <input
+                            className="input"
+                            type="number"
+                            min="0"
+                            value={v.stockByBranch?.[branchId] || 0}
+                            onChange={e => dispatch(setStock({ productId: selected.id, variantId: v.id, branchId, quantity: Number(e.target.value) }))}
+                            style={{ width: 100 }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -111,4 +160,3 @@ function InventoryPage() {
 }
 
 export default InventoryPage;
-

@@ -4,18 +4,30 @@ export function escposReceipt({ header, items, totals, footer, settings }) {
   const lines = [];
   lines.push(center(header?.title || 'RECEIPT'));
   if (header?.store) lines.push(center(header.store));
-  if (header?.branch) lines.push(center(`Branch: ${header.branch}`));
+  if (header?.branch) lines.push(center(header.branch));
+  if (header?.phone) lines.push(center(`Tel: ${header.phone}`));
+  if (header?.cashier) lines.push(text(`CASHIER: ${header.cashier}`));
+  if (settings?.businessTpin) lines.push(text(`TPIN: ${settings.businessTpin}`));
+  if (settings?.sdcId) lines.push(text(`SDC ID: ${settings.sdcId}`));
+  if (header?.invoiceSerial) lines.push(text(`INV: ${header.invoiceSerial}`));
   lines.push('--------------------------------');
   const fmt = (v) => formatCurrency(v, settings || {});
   items.forEach(it => {
-    lines.push(text(`${truncate(it.name, 20)} x${it.qty}`));
+    const nm = it.spec ? `${it.name} [${it.spec}]` : it.name;
+    lines.push(text(`${truncate(nm, 20)} x${it.qty}`));
     lines.push(right(`${fmt(it.price * it.qty)}`));
   });
   lines.push('--------------------------------');
   lines.push(text(`Subtotal    ${fmt(totals.subtotal)}`));
   lines.push(text(`Discount   -${fmt(totals.discount)}`));
   lines.push(text(`Tax         ${fmt(totals.tax)}`));
-  lines.push(text(`Total       ${fmt(totals.total)}`));
+  lines.push(text(`DUE(VAT)    ${fmt(totals.total)}`));
+  const base = (settings?.receiptQrBaseUrl && settings.receiptQrBaseUrl.trim()) ? settings.receiptQrBaseUrl.trim().replace(/\/+$/,'') : '';
+  if (base && header?.receiptId) {
+    lines.push('--------------------------------');
+    lines.push(center('Scan to view receipt'));
+    lines.push(center(`${base}/r/${header.receiptId}`));
+  }
   if (footer?.note) {
     lines.push('--------------------------------');
     lines.push(center(footer.note));

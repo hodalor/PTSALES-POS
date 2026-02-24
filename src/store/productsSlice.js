@@ -24,7 +24,7 @@ function generateEAN13() {
 
 const initialState = {
   products: [
-    { id: 'p1', name: 'Soda 330ml', sku: 'SODA-330', price: 10, stockByBranch: { main: 50 }, category: 'Beverages', barcode: generateEAN13(), lowStock: 10, image: null }
+    { id: 'p1', name: 'Soda', sku: 'SODA-330', price: 10, stockByBranch: { main: 50 }, category: 'Beverages', barcode: generateEAN13(), lowStock: 10, image: null, unitKind: 'volume', unitValue: 330, unitSymbol: 'mL', attributes: [], packs: [{ name: 'Case (24)', quantity: 24 }] }
   ],
   categories: ['Beverages']
 };
@@ -38,7 +38,7 @@ const productsSlice = createSlice({
         state.products.push(action.payload);
       },
       prepare(product) {
-        const payload = { id: nanoid(), stockByBranch: {}, ...product };
+        const payload = { id: nanoid(), stockByBranch: {}, attributes: [], packs: [], unitKind: 'none', unitValue: null, unitSymbol: '', sizeLabel: '', shoeSize: '', ...product };
         if (!payload.barcode) {
           payload.barcode = generateEAN13();
         }
@@ -55,21 +55,34 @@ const productsSlice = createSlice({
       state.products = state.products.filter(p => p.id !== action.payload);
     },
     setStock(state, action) {
-      const { productId, branchId, quantity } = action.payload;
+      const { productId, branchId, quantity, variantId } = action.payload;
       const p = state.products.find(x => x.id === productId);
-      if (p) {
-        p.stockByBranch = p.stockByBranch || {};
-        p.stockByBranch[branchId] = quantity;
+      if (!p) return;
+      if (variantId && Array.isArray(p.variants)) {
+        const v = p.variants.find(vv => vv.id === variantId);
+        if (!v) return;
+        v.stockByBranch = v.stockByBranch || {};
+        v.stockByBranch[branchId] = quantity;
+        return;
       }
+      p.stockByBranch = p.stockByBranch || {};
+      p.stockByBranch[branchId] = quantity;
     },
     adjustStock(state, action) {
-      const { productId, branchId, delta } = action.payload;
+      const { productId, branchId, delta, variantId } = action.payload;
       const p = state.products.find(x => x.id === productId);
-      if (p) {
-        p.stockByBranch = p.stockByBranch || {};
-        const cur = p.stockByBranch[branchId] || 0;
-        p.stockByBranch[branchId] = Math.max(0, cur + delta);
+      if (!p) return;
+      if (variantId && Array.isArray(p.variants)) {
+        const v = p.variants.find(vv => vv.id === variantId);
+        if (!v) return;
+        v.stockByBranch = v.stockByBranch || {};
+        const cur = v.stockByBranch[branchId] || 0;
+        v.stockByBranch[branchId] = Math.max(0, cur + delta);
+        return;
       }
+      p.stockByBranch = p.stockByBranch || {};
+      const cur = p.stockByBranch[branchId] || 0;
+      p.stockByBranch[branchId] = Math.max(0, cur + delta);
     },
     addCategory(state, action) {
       if (!state.categories.includes(action.payload)) state.categories.push(action.payload);

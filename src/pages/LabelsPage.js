@@ -1,21 +1,44 @@
 import { useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 import EAN13Barcode from '../components/EAN13Barcode';
+import { productSpec } from '../utils/productSpec';
 
 function LabelsPage() {
   const products = useSelector(s => s.products.products);
   const [query, setQuery] = useState('');
   const [copies, setCopies] = useState(1);
   const [selected, setSelected] = useState(() => new Set());
+  const flattened = useMemo(() => {
+    const out = [];
+    products.forEach(p => {
+      if (Array.isArray(p.variants) && p.variants.length > 0) {
+        p.variants.forEach(v => {
+          out.push({
+            id: `${p.id}:${v.id}`,
+            name: `${p.name} (${v.label})`,
+            sku: v.sku || `${p.sku}-${v.label}`,
+            barcode: v.barcode || p.barcode,
+            variantId: v.id,
+            productId: p.id,
+            unitKind: p.unitKind, unitValue: p.unitValue, unitSymbol: p.unitSymbol, sizeLabel: p.sizeLabel, shoeSize: p.shoeSize, attributes: p.attributes
+          });
+        });
+      } else {
+        out.push(p);
+      }
+    });
+    return out;
+  }, [products]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return products;
-    return products.filter(p =>
+    if (!q) return flattened;
+    return flattened.filter(p =>
       p.name.toLowerCase().includes(q) ||
       p.sku.toLowerCase().includes(q) ||
-      (p.barcode || '').toLowerCase().includes(q)
+      (p.barcode || '').toLowerCase().includes(q) ||
+      productSpec(p).toLowerCase().includes(q)
     );
-  }, [products, query]);
+  }, [flattened, query]);
 
   function printLabels() {
     const list = selected.size > 0 ? filtered.filter(p => selected.has(p.id)) : filtered;
@@ -63,6 +86,7 @@ function LabelsPage() {
               aria-label={`Select ${p.name}`}
             />
             <div style={{ fontWeight: 700, fontSize: 14 }}>{p.name}</div>
+            {productSpec(p) && <div style={{ color: '#64748b', fontSize: 12 }}>{productSpec(p)}</div>}
             <div style={{ color: '#64748b', fontSize: 12 }}>{p.sku}</div>
             <div style={{ display: 'grid', placeItems: 'center', padding: 4, background: '#ffffff' }}>
               {p.barcode ? <EAN13Barcode value={p.barcode} width={2} height={70} /> : <div style={{ color: '#ef4444' }}>No barcode</div>}
@@ -83,7 +107,7 @@ function buildPrintHtml(products, copies) {
   });
   const slots = items.map((p, idx) => `
     <div class="label">
-      <div class="name">${escapeHtml(p.name || '')}</div>
+      <div class="name">${escapeHtml(p.name || '')}${productSpec(p) ? ' — ' + escapeHtml(productSpec(p)) : ''}</div>
       <div class="sku">${escapeHtml(p.sku || '')}</div>
       <div class="svg">${renderBarcodeSvgString(p.barcode)}</div>
     </div>

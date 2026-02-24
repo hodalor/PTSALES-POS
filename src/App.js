@@ -25,6 +25,8 @@ import CashDrawerPage from './pages/CashDrawerPage';
 import ToastProvider from './components/ToastProvider';
 import LabelsPage from './pages/LabelsPage';
 import AuditLogPage from './pages/AuditLogPage';
+import ReceiptPublicPage from './pages/ReceiptPublicPage';
+import AdminManualPage from './pages/AdminManualPage';
 
 function App() {
   const syncHandler = useCallback(async (item) => {
@@ -37,6 +39,7 @@ function App() {
     <ToastProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/r/:id" element={<ReceiptPublicPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/" element={<Navigate to="/pos" replace />} />
@@ -57,6 +60,7 @@ function App() {
             <Route path="/cashdrawer" element={<ProtectedRoute roles={['Admin','Manager','Cashier']}><CashDrawerPage /></ProtectedRoute>} />
             <Route path="/config" element={<ProtectedRoute roles={['Admin','Manager']}><ConfigSettingsPage /></ProtectedRoute>} />
             <Route path="/audit" element={<ProtectedRoute roles={['Admin','SuperAdmin']}><AuditLogPage /></ProtectedRoute>} />
+            <Route path="/manual" element={<ProtectedRoute roles={['Admin','SuperAdmin']}><AdminManualPage /></ProtectedRoute>} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

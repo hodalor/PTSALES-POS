@@ -4,6 +4,7 @@ import { adjustStock } from '../store/productsSlice';
 import { useToast } from '../components/ToastProvider';
 import BranchSelect from '../components/BranchSelect';
 import { addAudit } from '../store/auditSlice';
+import { promptDialog } from '../utils/dialogs';
 
 function TransfersPage() {
   const products = useSelector(s => s.products.products);
@@ -12,6 +13,7 @@ function TransfersPage() {
   const auth = useSelector(s => s.auth);
   const audit = useSelector(s => s.audit.entries);
   const [productId, setProductId] = useState(products[0]?.id || '');
+  const [variantId, setVariantId] = useState('');
   const [fromId, setFromId] = useState(currentBranchId || branches[0]?.id || '');
   const [toId, setToId] = useState(branches.find(b => b.id !== currentBranchId)?.id || branches[1]?.id || branches[0]?.id || '');
   const [qty, setQty] = useState(1);
@@ -66,27 +68,28 @@ function TransfersPage() {
     URL.revokeObjectURL(url);
   }
 
-  function transfer() {
+  async function transfer() {
     if (!productId || !fromId || !toId || fromId === toId || qty <= 0) {
       toast.show('Check product, branches and quantity', { type: 'error' });
       return;
     }
-    const remark = window.prompt('Enter reason/remark for this transfer');
+    const remark = await promptDialog('Enter reason/remark for this transfer');
     if (!remark || !remark.trim()) {
       toast.show('Remark is required for transfers', { type: 'error' });
       return;
     }
-    dispatch(adjustStock({ productId, branchId: fromId, delta: -Number(qty) }));
-    dispatch(adjustStock({ productId, branchId: toId, delta: Number(qty) }));
+    dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId: fromId, delta: -Number(qty) }));
+    dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId: toId, delta: Number(qty) }));
     const prod = products.find(p => p.id === productId);
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'stock_transfer',
-      details: { product: prod?.name || productId, from: fromId, to: toId, qty: Number(qty) },
+      details: { product: prod?.name || productId, variant: (prod?.variants || []).find(v => v.id === variantId)?.label || '', from: fromId, to: toId, qty: Number(qty) },
       remark,
       branchId: fromId
     }));
     setQty(1);
+    setVariantId('');
     toast.show('Transfer recorded', { type: 'success' });
   }
 
@@ -94,9 +97,17 @@ function TransfersPage() {
     <div style={{ padding: 16 }}>
       <h1>Transfers</h1>
       <div className="card" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <select className="select" value={productId} onChange={e => setProductId(e.target.value)}>
+        <select className="select" value={productId} onChange={e => { setProductId(e.target.value); setVariantId(''); }}>
           {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
+        {(products.find(p => p.id === productId)?.variants || []).length > 0 && (
+          <select className="select" value={variantId} onChange={e => setVariantId(e.target.value)} style={{ minWidth: 180 }}>
+            <option value="">Base</option>
+            {(products.find(p => p.id === productId)?.variants || []).map(v => (
+              <option key={v.id} value={v.id}>{v.label}</option>
+            ))}
+          </select>
+        )}
         <BranchSelect value={fromId} onChange={setFromId} />
         <BranchSelect value={toId} onChange={setToId} enforceRole={false} />
         <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} style={{ width: 120 }} />

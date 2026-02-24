@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition } from '../store/settingsSlice';
+import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setSdcId, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition } from '../store/settingsSlice';
 import { addBranch, removeBranch } from '../store/branchesSlice';
 import { useRef, useState } from 'react';
 import { useToast } from '../components/ToastProvider';
@@ -33,6 +33,16 @@ function ConfigSettingsPage() {
             App Name
             <input className="input" value={settings.appName} onChange={e => dispatch(setAppName(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
           </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+            <label>
+              Invoice Prefix
+              <input className="input" value={settings.invoicePrefix || ''} onChange={e => dispatch(setInvoicePrefix(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+            </label>
+            <label>
+              Next Invoice Number
+              <input className="input" type="number" min="1" value={settings.nextInvoiceNumber || 1} onChange={e => dispatch(setNextInvoiceNumber(Number(e.target.value)))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+            </label>
+          </div>
           <label style={{ display: 'block', marginTop: 12 }}>
             Footer Text
             <input className="input" value={settings.footerText} onChange={e => dispatch(setFooterText(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
@@ -40,6 +50,28 @@ function ConfigSettingsPage() {
           <div style={{ marginTop: 12, color: '#64748b' }}>
             Receipt will use the app logo from /logo512.png
           </div>
+          <label style={{ display: 'block', marginTop: 12 }}>
+            Business Phone
+            <input className="input" value={settings.businessPhone || ''} onChange={e => dispatch(setBusinessPhone(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+          </label>
+          <label style={{ display: 'block', marginTop: 12 }}>
+            Website
+            <input className="input" value={settings.businessWebsite || ''} onChange={e => dispatch(setBusinessWebsite(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+            <label>
+              TIN/TPIN
+              <input className="input" value={settings.businessTpin || ''} onChange={e => dispatch(setBusinessTpin(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+            </label>
+            <label>
+              SDC ID
+              <input className="input" value={settings.sdcId || ''} onChange={e => dispatch(setSdcId(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+            </label>
+          </div>
+          <label style={{ display: 'block', marginTop: 12 }}>
+            Receipt QR Base URL
+            <input className="input" placeholder="e.g., https://pos.yourdomain.com" value={settings.receiptQrBaseUrl || ''} onChange={e => dispatch(setReceiptQrBaseUrl(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+          </label>
           <label style={{ display: 'block', marginTop: 12 }}>
             Receipt Header
             <input className="input" value={settings.receiptHeader} onChange={e => dispatch(setReceiptHeader(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
@@ -92,7 +124,7 @@ function ConfigSettingsPage() {
           <div style={{ marginTop: 12 }}>
             <button
               className="btn btn-primary"
-              onClick={() => {
+              onClick={async () => {
                 const before = initialTaxRef.current || 0;
                 const after = settings.taxRate || 0;
                 if (before !== after) {
@@ -100,7 +132,8 @@ function ConfigSettingsPage() {
                     toast.show('Not permitted to change tax rate', { type: 'error' });
                     return;
                   }
-                  const remark = window.prompt('Enter remark for tax rate change') || '';
+                  const { promptDialog } = await import('../utils/dialogs');
+                  const remark = await promptDialog('Enter remark for tax rate change');
                   if (!remark.trim()) {
                     toast.show('Remark is required for tax change', { type: 'error' });
                     return;
