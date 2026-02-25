@@ -1,0 +1,31 @@
+import { Router } from 'express';
+import products from './products.js';
+import branches from './branches.js';
+import sales from './sales.js';
+import refunds from './refunds.js';
+import stock from './stock.js';
+import suppliers from './suppliers.js';
+import customers from './customers.js';
+import auth from './auth.js';
+import settings from './settings.js';
+import users from './users.js';
+import serverLogs from './serverLogs.js';
+import audits from './audits.js';
+import cashsessions from './cashsessions.js';
+
+const router = Router();
+router.use('/products', products);
+router.use('/branches', branches);
+router.use('/sales', sales);
+router.use('/refunds', refunds);
+router.use('/stock', stock);
+router.use('/suppliers', suppliers);
+router.use('/customers', customers);
+router.use('/auth', auth);
+router.use('/settings', settings);
+router.use('/users', users);
+router.use('/server-logs', serverLogs);
+router.use('/audits', audits);
+router.use('/cashsessions', cashsessions);
+
+export default router;
