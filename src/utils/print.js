@@ -20,7 +20,7 @@ export function printReceiptHtml(html) {
         .right { text-align:right; }
         .title { font-weight:700; }
         .small { font-size: 12px; }
-        .qr svg { width: 160px; height: 160px; image-rendering: pixelated; }
+        .qr svg { width: 160px; height: 160px; }
         @media print {
           img, svg { max-width: none; }
         }
@@ -72,8 +72,9 @@ export function buildBrandedReceiptHtml({ settings, sale }) {
     return `<div class="sp"><span>${label}</span><span>${formatCurrency(p.amount || 0, settings)}</span></div>`;
   }).join('');
   const base = (settings?.receiptQrBaseUrl && settings.receiptQrBaseUrl.trim()) ? settings.receiptQrBaseUrl.trim().replace(/\/+$/,'') : (typeof window !== 'undefined' ? window.location.origin : '');
+  const saleId = sale?.id || sale?._id || '';
   const compact = {
-    id: sale.id,
+    id: saleId,
     ts: sale.created_at,
     br: branch,
     ca: cashier,
@@ -84,11 +85,11 @@ export function buildBrandedReceiptHtml({ settings, sale }) {
   };
   let encoded = '';
   try { encoded = btoa(unescape(encodeURIComponent(JSON.stringify(compact)))); } catch(e) {}
-  let shareUrl = `${base}/r/${encodeURIComponent(String(sale.id))}`;
-  if (encoded && (shareUrl.length + encoded.length + 3) <= 150) {
+  let shareUrl = saleId ? `${base}/r/${encodeURIComponent(String(saleId))}` : '';
+  if (saleId && encoded && (shareUrl.length + encoded.length + 3) <= 150) {
     shareUrl = `${shareUrl}?d=${encoded}`;
   }
-  const qrSvgStr = generateQrSvg(shareUrl, 160);
+  const qrSvgStr = shareUrl ? generateQrSvg(shareUrl, 160) : '';
   return `
     <div class="center"><img src="${logoSrc}" alt="logo" style="max-height:60px"/></div>
     ${head}
@@ -125,9 +126,9 @@ export function buildBrandedReceiptHtml({ settings, sale }) {
     ${sale?.receiptNumber ? `<div class="sp"><span class="muted">RECEIPT</span><span>${sale.receiptNumber}</span></div>` : ''}
     ${sale?.invoiceSerial ? `<div class="sp"><span class="muted">INVOICE</span><span>${sale.invoiceSerial}</span></div>` : ''}
     <div class="hr"></div>
-    <div class="center small">Scan to view online</div>
-    <div class="center qr" style="margin:6px 0">${qrSvgStr}</div>
-    <div class="center small" style="word-break: break-all">${shareUrl}</div>
+    ${shareUrl ? `<div class="center small">Scan to view online</div>` : ''}
+    ${shareUrl ? `<div class="center qr" style="margin:6px 0">${qrSvgStr}</div>` : ''}
+    ${shareUrl ? `<div class="center small" style="word-break: break-all">${shareUrl}</div>` : ''}
     ${foot}
   `;
 }

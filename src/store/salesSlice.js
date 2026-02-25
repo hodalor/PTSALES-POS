@@ -9,14 +9,19 @@ const salesSlice = createSlice({
   initialState,
   reducers: {
     setSales(state, action) {
-      state.sales = Array.isArray(action.payload) ? action.payload : [];
+      const list = Array.isArray(action.payload) ? action.payload : [];
+      state.sales = list.map(s => {
+        const id = s?.id || s?._id || nanoid();
+        return { ...s, id: String(id) };
+      });
     },
     recordSale: {
       reducer(state, action) {
         state.sales.push(action.payload);
       },
       prepare(sale) {
-        return { payload: { id: nanoid(), ...sale } };
+        const id = sale?.id || sale?._id || nanoid();
+        return { payload: { ...sale, id: String(id) } };
       }
     }
   }
