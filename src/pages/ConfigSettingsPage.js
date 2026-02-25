@@ -1,9 +1,12 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setSdcId, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition } from '../store/settingsSlice';
-import { addBranch, removeBranch } from '../store/branchesSlice';
+import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setSdcId, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency } from '../store/settingsSlice';
+import { addBranch, removeBranch, updateBranch } from '../store/branchesSlice';
+import * as branchesApi from '../api/branches';
 import { useRef, useState } from 'react';
 import { useToast } from '../components/ToastProvider';
 import { addAudit } from '../store/auditSlice';
+import { fetchJson, getApiBase, setApiBase } from '../api/client';
+import * as settingsApi from '../api/settings';
 
 function ConfigSettingsPage() {
   const dispatch = useDispatch();
@@ -12,15 +15,63 @@ function ConfigSettingsPage() {
   const auth = useSelector(s => s.auth);
   const [branchName, setBranchName] = useState('');
   const [branchCode, setBranchCode] = useState('');
+  const [newCurCode, setNewCurCode] = useState('');
+  const [newCurSymbol, setNewCurSymbol] = useState('');
+  const [newCurPos, setNewCurPos] = useState('prefix');
   const toast = useToast();
   const initialTaxRef = useRef(settings.taxRate);
   const canEditTax = ['Admin','Manager'].includes(auth.role) || String(auth.role || '').toLowerCase() === 'superadmin';
+  const roleLower = String(auth.role || '').toLowerCase();
+  const canManageBranches = roleLower === 'admin' || roleLower === 'superadmin';
+  const [apiBase, setApiBaseState] = useState(() => {
+    try { return getApiBase(); } catch { return ''; }
+  });
 
   function addNewBranch() {
     if (!branchName.trim() || !branchCode.trim()) return;
-    dispatch(addBranch({ name: branchName.trim(), code: branchCode.trim() }));
+    const action = dispatch(addBranch({ name: branchName.trim(), code: branchCode.trim() }));
+    const created = action?.payload;
+    if (created) {
+      branchesApi.create({ id: created.id, name: created.name, code: created.code }).catch(() => {});
+    }
     setBranchName('');
     setBranchCode('');
+  }
+  
+  async function onEditBranch(b) {
+    if (!canManageBranches) {
+      toast.show('Only Admin or SuperAdmin can edit branches', { type: 'error' });
+      return;
+    }
+    const { promptDialog } = await import('../utils/dialogs');
+    const newName = await promptDialog('Enter new branch name', b.name);
+    if (!newName || !newName.trim()) return;
+    const newCode = await promptDialog('Enter new branch code', b.code);
+    if (!newCode || !newCode.trim()) return;
+    dispatch(updateBranch({ id: b.id, name: newName.trim(), code: newCode.trim() }));
+    try {
+      await branchesApi.update(b.id, { name: newName.trim(), code: newCode.trim() });
+      toast.show('Branch updated', { type: 'success' });
+    } catch {
+      toast.show('Failed to update branch on server', { type: 'error' });
+    }
+  }
+  
+  async function onRemoveBranch(b) {
+    if (!canManageBranches) {
+      toast.show('Only Admin or SuperAdmin can remove branches', { type: 'error' });
+      return;
+    }
+    const { confirmDialog } = await import('../utils/dialogs');
+    const ok = await confirmDialog(`Remove branch ${b.name}?`);
+    if (!ok) return;
+    dispatch(removeBranch(b.id));
+    try {
+      await branchesApi.remove(b.id);
+      toast.show('Branch removed', { type: 'success' });
+    } catch {
+      toast.show('Failed to remove branch on server', { type: 'error' });
+    }
   }
 
   return (
@@ -41,6 +92,16 @@ function ConfigSettingsPage() {
             <label>
               Next Invoice Number
               <input className="input" type="number" min="1" value={settings.nextInvoiceNumber || 1} onChange={e => dispatch(setNextInvoiceNumber(Number(e.target.value)))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+            </label>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+            <label>
+              Receipt Prefix
+              <input className="input" value={settings.receiptPrefix || ''} onChange={e => dispatch(setReceiptPrefix(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+            </label>
+            <label>
+              Next Receipt Number
+              <input className="input" type="number" min="1" value={settings.nextReceiptNumber || 1} onChange={e => dispatch(setNextReceiptNumber(Number(e.target.value)))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
             </label>
           </div>
           <label style={{ display: 'block', marginTop: 12 }}>
@@ -120,6 +181,111 @@ function ConfigSettingsPage() {
                 <option value="suffix">Suffix (10.00₵)</option>
               </select>
             </label>
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 6 }}>Currencies</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 6 }}>
+                <select className="select" value={settings.activeCurrencyCode || settings.currencyCode} onChange={e => dispatch(setActiveCurrency(e.target.value))}>
+                  {(settings.currencies || []).map(c => <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>)}
+                </select>
+                <input className="input" placeholder="New code" value={newCurCode} onChange={e => setNewCurCode(e.target.value.toUpperCase())} />
+                <input className="input" placeholder="New symbol" value={newCurSymbol} onChange={e => setNewCurSymbol(e.target.value)} />
+                <select className="select" value={newCurPos} onChange={e => setNewCurPos(e.target.value)}>
+                  <option value="prefix">Prefix</option>
+                  <option value="suffix">Suffix</option>
+                </select>
+                <button className="btn" onClick={() => {
+                  if (!newCurCode || !newCurSymbol) return;
+                  dispatch(addCurrency({ code: newCurCode, symbol: newCurSymbol, position: newCurPos }));
+                  setNewCurCode('');
+                  setNewCurSymbol('');
+                }}>Add</button>
+              </div>
+              <ul style={{ marginTop: 8 }}>
+                {(settings.currencies || []).map(c => (
+                  <li key={c.code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', padding: '6px 0' }}>
+                    <span>{c.code} {c.position === 'suffix' ? `(10.00${c.symbol})` : `(${c.symbol}10.00)`}</span>
+                    <span>
+                      <button className="btn" onClick={() => dispatch(setActiveCurrency(c.code))} disabled={(settings.activeCurrencyCode||settings.currencyCode)===c.code}>Use</button>
+                      <button className="btn" onClick={() => dispatch(removeCurrency(c.code))} style={{ marginLeft: 6 }} disabled={(settings.activeCurrencyCode||settings.currencyCode)===c.code}>Remove</button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <h3 className="section-title" style={{ margin: '8px 0' }}>Background Refresh</h3>
+            <label>
+              Interval (seconds)
+              <input
+                className="input"
+                type="number"
+                min="10"
+                max="3600"
+                value={settings.refreshIntervalSec || 60}
+                onChange={e => dispatch(setRefreshIntervalSec(Number(e.target.value)))}
+                disabled={!canEditTax}
+                style={{ display: 'block', width: '100%', marginTop: 6 }}
+              />
+            </label>
+            <div style={{ marginTop: 6, color: '#64748b' }}>
+              Used for auto-refreshing products, customers, suppliers, branches, refunds and sales.
+            </div>
+            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+              <button
+                className="btn"
+                onClick={async () => {
+                  try {
+                    const pong = await fetchJson('/');
+                    await fetchJson('/api/branches');
+                    toast.show(`API OK: ${pong?.name || 'online'}`, { type: 'success' });
+                  } catch (e) {
+                    toast.show('API test failed', { type: 'error' });
+                  }
+                }}
+              >
+                Test API
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  try {
+                    localStorage.removeItem('ptSales:state');
+                    toast.show('Local data cleared', { type: 'success' });
+                  } catch {}
+                }}
+              >
+                Clear Local Data
+              </button>
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <h3 className="section-title" style={{ margin: '8px 0' }}>API Endpoint</h3>
+              <label>
+                Base URL
+                <input
+                  className="input"
+                  placeholder="http://localhost:4000"
+                  value={apiBase}
+                  onChange={e => setApiBaseState(e.target.value)}
+                  style={{ display: 'block', width: '100%', marginTop: 6 }}
+                />
+              </label>
+              <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    try {
+                      setApiBase(apiBase);
+                      toast.show('API base saved', { type: 'success' });
+                    } catch {
+                      toast.show('Failed to save API base', { type: 'error' });
+                    }
+                  }}
+                >
+                  Save API Base
+                </button>
+              </div>
+            </div>
           </div>
           <div style={{ marginTop: 12 }}>
             <button
@@ -146,7 +312,12 @@ function ConfigSettingsPage() {
                   }));
                   initialTaxRef.current = after;
                 }
-                toast.show('Settings saved', { type: 'success' });
+                try {
+                  await settingsApi.save(settings);
+                  toast.show('Settings saved', { type: 'success' });
+                } catch {
+                  toast.show('Failed to save settings', { type: 'error' });
+                }
               }}
             >
               Save
@@ -164,15 +335,18 @@ function ConfigSettingsPage() {
             </label>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
-            <input className="input" placeholder="Branch name" value={branchName} onChange={e => setBranchName(e.target.value)} />
-            <input className="input" placeholder="Code" value={branchCode} onChange={e => setBranchCode(e.target.value)} />
-            <button className="btn btn-primary" onClick={addNewBranch}>Add</button>
+            <input className="input" placeholder="Branch name" value={branchName} onChange={e => setBranchName(e.target.value)} disabled={!canManageBranches} />
+            <input className="input" placeholder="Code" value={branchCode} onChange={e => setBranchCode(e.target.value)} disabled={!canManageBranches} />
+            <button className="btn btn-primary" onClick={addNewBranch} disabled={!canManageBranches}>Add</button>
           </div>
           <ul>
             {branches.map(b => (
               <li key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
                 <span>{b.name} ({b.code})</span>
-                <button className="btn" onClick={() => dispatch(removeBranch(b.id))} disabled={b.id === 'main'}>Remove</button>
+                <span>
+                  <button className="btn" onClick={() => onEditBranch(b)} disabled={!canManageBranches}>Edit</button>
+                  <button className="btn" onClick={() => onRemoveBranch(b)} disabled={!canManageBranches || b.id === 'main'} style={{ marginLeft: 8 }}>Remove</button>
+                </span>
               </li>
             ))}
           </ul>

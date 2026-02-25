@@ -10,9 +10,10 @@ import customersReducer from './customersSlice';
 import salesReducer from './salesSlice';
 import sessionsReducer from './sessionsSlice';
 import auditReducer from './auditSlice';
-import { loadState, saveState } from './persist';
+import refundsReducer from './refundsSlice';
+// persistence disabled
 
-const preloadedState = loadState();
+const preloadedState = undefined;
 const store = configureStore({
   reducer: {
     auth: authReducer,
@@ -25,32 +26,14 @@ const store = configureStore({
     customers: customersReducer,
     sales: salesReducer,
     audit: auditReducer,
-    sessions: sessionsReducer
+    sessions: sessionsReducer,
+    refunds: refundsReducer
   },
   preloadedState
 });
 
-store.subscribe(() => {
-  saveState(store.getState());
-});
+// no-op persistence
 
-try {
-  const st = store.getState();
-  const list = st.users?.users || [];
-  const su = list.find(u => String(u.name || '').toLowerCase() === 'superadmin');
-  if (su) {
-    const patch = { id: su.id };
-    let needs = false;
-    if (su.role !== 'SuperAdmin') { patch.role = 'SuperAdmin'; needs = true; }
-    if (su.assignedBranches !== 'all') { patch.assignedBranches = 'all'; needs = true; }
-    if (typeof su.active === 'undefined') { patch.active = true; needs = true; }
-    if (needs) store.dispatch(updateUser(patch));
-    // remove duplicate "superadmin" records beyond the first
-    const dups = list.filter(u => String(u.name || '').toLowerCase() === 'superadmin' && u.id !== su.id);
-    dups.forEach(d => store.dispatch(removeUser(d.id)));
-  } else {
-    store.dispatch(addUser({ name: 'superadmin', role: 'SuperAdmin', pin: '1234', branchId: 'main', assignedBranches: 'all' }));
-  }
-} catch {}
+// removed client-side superadmin seeding
 
 export default store;

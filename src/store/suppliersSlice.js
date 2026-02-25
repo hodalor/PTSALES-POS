@@ -8,6 +8,9 @@ const suppliersSlice = createSlice({
   name: 'suppliers',
   initialState,
   reducers: {
+    setSuppliers(state, action) {
+      state.suppliers = Array.isArray(action.payload) ? action.payload : [];
+    },
     addSupplier: {
       reducer(state, action) {
         state.suppliers.push(action.payload);
@@ -31,6 +34,5 @@ const suppliersSlice = createSlice({
   }
 });
 
-export const { addSupplier, updateSupplier, removeSupplier } = suppliersSlice.actions;
+export const { setSuppliers, addSupplier, updateSupplier, removeSupplier } = suppliersSlice.actions;
 export default suppliersSlice.reducer;
-

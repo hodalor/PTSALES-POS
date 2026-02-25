@@ -5,6 +5,8 @@ import { useToast } from '../components/ToastProvider';
 import BranchSelect from '../components/BranchSelect';
 import { addAudit } from '../store/auditSlice';
 import { promptDialog } from '../utils/dialogs';
+import { exportCsv, exportTablePdf } from '../utils/exporters';
+import * as stockApi from '../api/stock';
 
 function TransfersPage() {
   const products = useSelector(s => s.products.products);
@@ -17,16 +19,34 @@ function TransfersPage() {
   const [fromId, setFromId] = useState(currentBranchId || branches[0]?.id || '');
   const [toId, setToId] = useState(branches.find(b => b.id !== currentBranchId)?.id || branches[1]?.id || branches[0]?.id || '');
   const [qty, setQty] = useState(1);
+  const [saving, setSaving] = useState(false);
   const [fActor, setFActor] = useState('');
   const [fFrom, setFFrom] = useState('');
   const [fTo, setFTo] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const dispatch = useDispatch();
   const toast = useToast();
   useEffect(() => {
     setFromId(currentBranchId);
   }, [currentBranchId]);
+
+  const roleLower = String(auth.role || '').toLowerCase();
+  const grants = Array.isArray(auth.grants) ? auth.grants : [];
+  function has(g) {
+    if (!g) return false;
+    if (roleLower === 'superadmin') return true;
+    return grants.includes(g);
+  }
+  const canTransfer = (['admin','manager','inventory staff'].includes(roleLower)) || has('add_transfers');
+  const assigned = auth.user?.assignedBranches || 'all';
+  const branchOptions = useMemo(() => {
+    if (roleLower === 'superadmin' || roleLower === 'admin' || assigned === 'all') return branches;
+    const ids = new Set(Array.isArray(assigned) ? assigned : [assigned]);
+    return branches.filter(b => ids.has(b.id));
+  }, [roleLower, assigned, branches]);
 
   const byId = useMemo(() => {
     const map = new Map();
@@ -49,26 +69,42 @@ function TransfersPage() {
     }).slice().reverse();
   }, [baseTransfers, fActor, fFrom, fTo, dateFrom, dateTo]);
 
-  function exportCsv() {
-    const headers = ['Timestamp','Actor','Product','From','To','Qty','Remark'];
-    const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = [headers.map(escape).join(',')];
-    transfers.forEach(e => {
-      const d = e.details || {};
-      lines.push([e.ts, e.actor, d.product || '', byId.get(d.from) || d.from || '', byId.get(d.to) || d.to || '', d.qty ?? '', e.remark || ''].map(escape).join(','));
-    });
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'transfers.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  function onExportCsv() {
+    const headers = [
+      { key: 'ts', label: 'Timestamp', value: e => new Date(e.ts).toLocaleString() },
+      { key: 'actor', label: 'Actor' },
+      { key: 'product', label: 'Product', value: e => (e.details || {}).product || '' },
+      { key: 'from', label: 'From', value: e => byId.get((e.details || {}).from) || (e.details || {}).from || '' },
+      { key: 'to', label: 'To', value: e => byId.get((e.details || {}).to) || (e.details || {}).to || '' },
+      { key: 'qty', label: 'Qty', value: e => (e.details || {}).qty ?? '' },
+      { key: 'remark', label: 'Remark', value: e => e.remark || '' }
+    ];
+    exportCsv('transfers.csv', headers, transfers);
+  }
+  function onExportPdf() {
+    const headers = [
+      { key: 'ts', label: 'Timestamp', value: e => new Date(e.ts).toLocaleString() },
+      { key: 'actor', label: 'Actor' },
+      { key: 'product', label: 'Product', value: e => (e.details || {}).product || '' },
+      { key: 'route', label: 'From → To', value: e => {
+        const d = e.details || {}; return `${byId.get(d.from) || d.from || '—'} → ${byId.get(d.to) || d.to || '—'}`;
+      }},
+      { key: 'qty', label: 'Qty', value: e => (e.details || {}).qty ?? '' },
+      { key: 'remark', label: 'Remark', value: e => e.remark || '' }
+    ];
+    exportTablePdf('Transfers', headers, transfers);
   }
 
   async function transfer() {
+    if (saving) return;
+    if (!canTransfer) {
+      toast.show('Not authorized to transfer stock', { type: 'error' });
+      return;
+    }
+    if (!navigator.onLine) {
+      toast.show('Offline: cannot sync transfer to server', { type: 'error' });
+      return;
+    }
     if (!productId || !fromId || !toId || fromId === toId || qty <= 0) {
       toast.show('Check product, branches and quantity', { type: 'error' });
       return;
@@ -78,9 +114,25 @@ function TransfersPage() {
       toast.show('Remark is required for transfers', { type: 'error' });
       return;
     }
+    const prod = products.find(p => p.id === productId);
+    setSaving(true);
+    try {
+      await stockApi.transfer({
+        productId,
+        from: fromId,
+        to: toId,
+        qty: Number(qty),
+        actor: auth.user?.name || 'unknown',
+        remark,
+        variantId: variantId || undefined
+      });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to sync transfer to server'), { type: 'error' });
+      setSaving(false);
+      return;
+    }
     dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId: fromId, delta: -Number(qty) }));
     dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId: toId, delta: Number(qty) }));
-    const prod = products.find(p => p.id === productId);
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'stock_transfer',
@@ -91,6 +143,7 @@ function TransfersPage() {
     setQty(1);
     setVariantId('');
     toast.show('Transfer recorded', { type: 'success' });
+    setSaving(false);
   }
 
   return (
@@ -109,11 +162,11 @@ function TransfersPage() {
           </select>
         )}
         <BranchSelect value={fromId} onChange={setFromId} />
-        <BranchSelect value={toId} onChange={setToId} enforceRole={false} />
+        <BranchSelect value={toId} onChange={setToId} />
         <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} style={{ width: 120 }} />
-        <button className="btn btn-primary" onClick={transfer}>
+        <button className="btn btn-primary" onClick={transfer} disabled={!canTransfer || saving}>
           <svg viewBox="0 0 24 24" fill="none"><path d="M7 7h10M7 17h10M7 7l-3 3m3-3l-3-3M17 17l3 3m-3-3l3-3" stroke="currentColor" strokeWidth="2"/></svg>
-          Transfer
+          {saving ? 'Saving…' : 'Transfer'}
         </button>
       </div>
       <div className="card" style={{ marginTop: 12 }}>
@@ -137,18 +190,19 @@ function TransfersPage() {
             From Branch
             <select className="select" value={fFrom} onChange={e => setFFrom(e.target.value)}>
               <option value="">All</option>
-              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              {branchOptions.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </label>
           <label>
             To Branch
             <select className="select" value={fTo} onChange={e => setFTo(e.target.value)}>
               <option value="">All</option>
-              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              {branchOptions.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </label>
-          <div style={{ alignSelf: 'end' }}>
-            <button className="btn" onClick={exportCsv}>Export CSV</button>
+          <div style={{ alignSelf: 'end', display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={onExportCsv}>Export CSV</button>
+            <button className="btn" onClick={onExportPdf}>Export PDF</button>
           </div>
         </div>
         <h2 className="section-title">Recent Transfers</h2>
@@ -164,7 +218,7 @@ function TransfersPage() {
             </tr>
           </thead>
           <tbody>
-            {transfers.map(e => {
+            {transfers.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map(e => {
               const d = e.details || {};
               const fromName = byId.get(d.from) || d.from || '—';
               const toName = byId.get(d.to) || d.to || '—';
@@ -184,6 +238,22 @@ function TransfersPage() {
             )}
           </tbody>
         </table>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <button className="btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}>Prev</button>
+            <span>Page {page} of {Math.max(1, Math.ceil(transfers.length / pageSize))}</span>
+            <button className="btn" onClick={() => setPage(p => Math.min(Math.max(1, Math.ceil(transfers.length / pageSize)), p + 1))} disabled={page >= Math.max(1, Math.ceil(transfers.length / pageSize))}>Next</button>
+          </div>
+          <label>
+            <span style={{ marginRight: 6 }}>Rows</span>
+            <select className="select" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}>
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </label>
+        </div>
       </div>
     </div>
   );

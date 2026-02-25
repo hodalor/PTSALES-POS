@@ -1,21 +1,55 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { useEffect, useMemo, useState } from 'react';
 import { setStock } from '../store/productsSlice';
+import { addAudit } from '../store/auditSlice';
 import BranchSelect from '../components/BranchSelect';
+import * as stockApi from '../api/stock';
+import { formatCurrency } from '../utils/currency';
+import { useToast } from '../components/ToastProvider';
 
 function InventoryPage() {
   const products = useSelector(s => s.products.products);
   const branches = useSelector(s => s.branches.branches);
   const currentBranchId = useSelector(s => s.settings.currentBranchId);
+  const settings = useSelector(s => s.settings);
+  const auth = useSelector(s => s.auth);
   const [branchId, setBranchId] = useState(currentBranchId);
   const [modalId, setModalId] = useState(null);
   const [openVariantsFor, setOpenVariantsFor] = useState(null);
+  const [savingKey, setSavingKey] = useState(null);
   const dispatch = useDispatch();
+  const toast = useToast();
 
   const branch = useMemo(() => branches.find(b => b.id === branchId) || branches[0], [branches, branchId]);
   const rows = useMemo(() => products, [products]);
   useEffect(() => { setBranchId(currentBranchId); }, [currentBranchId]);
   const selected = useMemo(() => rows.find(p => p.id === modalId) || null, [rows, modalId]);
+
+  function setStockWithAudit(p, variantId, bId, quantity) {
+    const oldQty = variantId
+      ? ((p.variants?.find(v => v.id === variantId)?.stockByBranch || {})[bId] || 0)
+      : (p.stockByBranch?.[bId] || 0);
+    const delta = Number(quantity) - Number(oldQty);
+    const key = `${p.id}:${variantId || 'base'}:${bId}`;
+    setSavingKey(key);
+    dispatch(setStock({ productId: p.id, variantId: variantId || undefined, branchId: bId, quantity: Number(quantity) }));
+    dispatch(addAudit({
+      actor: auth.user?.name || 'unknown',
+      actionType: 'stock_set_manual',
+      details: { product: p.name, variant: (p.variants || []).find(v => v.id === variantId)?.label || '', quantity: Number(quantity), delta, branchId: bId },
+      branchId: bId
+    }));
+    stockApi.setStock({
+      productId: p.id,
+      branchId: bId,
+      quantity: Number(quantity),
+      actor: auth.user?.name || 'unknown',
+      variantId: variantId || undefined
+    }).catch((e) => {
+      dispatch(setStock({ productId: p.id, variantId: variantId || undefined, branchId: bId, quantity: Number(oldQty) }));
+      toast.show(String(e?.message || 'Failed to save stock'), { type: 'error' });
+    }).finally(() => setSavingKey(k => (k === key ? null : k)));
+  }
 
   return (
     <div style={{ padding: 16 }}>
@@ -45,7 +79,7 @@ function InventoryPage() {
                 <>
                   <tr key={p.id} onClick={() => setModalId(p.id)} style={{ cursor: 'pointer' }}>
                     <td>{p.name}</td>
-                    <td>${(p.price || 0).toFixed(2)}</td>
+                    <td>{formatCurrency(p.price || 0, settings)}</td>
                     <td><code style={{ fontSize: 12 }}>{p.barcode || '—'}</code></td>
                     <td onClick={e => e.stopPropagation()}>
                       {hasVariants ? (
@@ -56,12 +90,13 @@ function InventoryPage() {
                           type="number"
                           min="0"
                           value={cur}
-                          onChange={e => dispatch(setStock({ productId: p.id, branchId, quantity: Number(e.target.value) }))}
+                          onChange={e => setStockWithAudit(p, null, branchId, Number(e.target.value))}
                           style={{
                             width: 100,
                             borderColor: low > 0 && cur <= low ? '#ef4444' : undefined,
                             color: low > 0 && cur <= low ? '#b91c1c' : undefined
                           }}
+                          disabled={savingKey === `${p.id}:base:${branchId}`}
                         />
                       )}
                     </td>
@@ -73,13 +108,14 @@ function InventoryPage() {
                           {p.variants.map(v => (
                             <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, alignItems: 'center' }}>
                               <div><strong>{v.label}</strong> <span style={{ color: '#64748b' }}>{v.sku || ''}</span></div>
-                              <input
+                          <input
                                 className="input"
                                 type="number"
                                 min="0"
-                                value={v.stockByBranch?.[branchId] || 0}
-                                onChange={e => dispatch(setStock({ productId: p.id, variantId: v.id, branchId, quantity: Number(e.target.value) }))}
+                            value={v.stockByBranch?.[branchId] || 0}
+                            onChange={e => setStockWithAudit(p, v.id, branchId, Number(e.target.value))}
                                 style={{ width: 120 }}
+                                disabled={savingKey === `${p.id}:${v.id}:${branchId}`}
                               />
                             </div>
                           ))}
@@ -108,7 +144,7 @@ function InventoryPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
                 <div><strong>SKU:</strong> {selected.sku}</div>
                 <div><strong>Category:</strong> {selected.category || '—'}</div>
-                <div><strong>Price:</strong> ${Number(selected.price || 0).toFixed(2)}</div>
+                <div><strong>Price:</strong> {formatCurrency(Number(selected.price || 0), settings)}</div>
                 <div><strong>Barcode:</strong> <code style={{ fontSize: 12 }}>{selected.barcode || '—'}</code></div>
                 <div><strong>Low Stock:</strong> {selected.lowStock ?? 0}</div>
                 <div><strong>Total Across Branches:</strong> {Object.values(selected.stockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
@@ -123,8 +159,9 @@ function InventoryPage() {
                           type="number"
                           min="0"
                           value={selected.stockByBranch?.[b.id] || 0}
-                          onChange={e => dispatch(setStock({ productId: selected.id, branchId: b.id, quantity: Number(e.target.value) }))}
+                          onChange={e => setStockWithAudit(selected, null, b.id, Number(e.target.value))}
                           style={{ width: 80 }}
+                          disabled={savingKey === `${selected.id}:base:${b.id}`}
                         />
                       </div>
                     ))}
@@ -142,8 +179,9 @@ function InventoryPage() {
                             type="number"
                             min="0"
                             value={v.stockByBranch?.[branchId] || 0}
-                            onChange={e => dispatch(setStock({ productId: selected.id, variantId: v.id, branchId, quantity: Number(e.target.value) }))}
+                            onChange={e => setStockWithAudit(selected, v.id, branchId, Number(e.target.value))}
                             style={{ width: 100 }}
+                            disabled={savingKey === `${selected.id}:${v.id}:${branchId}`}
                           />
                         </div>
                       ))}

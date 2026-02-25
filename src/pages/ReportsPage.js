@@ -1,67 +1,374 @@
+import { useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { formatCurrency } from '../utils/currency';
+import BranchSelect from '../components/BranchSelect';
+import { exportCsv, exportTablePdf } from '../utils/exporters';
+import { Bar, Doughnut } from 'react-chartjs-2';
+import { Chart, BarElement, ArcElement, CategoryScale, LinearScale, Tooltip, Legend } from 'chart.js';
+
+Chart.register(BarElement, ArcElement, CategoryScale, LinearScale, Tooltip, Legend);
 
 function ReportsPage() {
   const sales = useSelector(s => s.sales.sales);
+  const audit = useSelector(s => s.audit.entries);
+  const refunds = useSelector(s => s.refunds.requests);
+  const products = useSelector(s => s.products.products);
   const branches = useSelector(s => s.branches.branches);
   const settings = useSelector(s => s.settings);
-  function branchLabel(sale) {
-    return sale.branchName || (branches.find(b => b.id === sale.branchId)?.name || sale.branchId || '-');
+  const auth = useSelector(s => s.auth);
+
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [branchId, setBranchId] = useState(settings.currentBranchId);
+  const [reportType, setReportType] = useState('all');
+
+  useEffect(() => setBranchId(settings.currentBranchId), [settings.currentBranchId]);
+
+  const byId = useMemo(() => {
+    const map = new Map();
+    branches.forEach(b => map.set(b.id, b.name || b.code || b.id));
+    return map;
+  }, [branches]);
+  const inRange = (iso) => {
+    const ts = new Date(iso).getTime();
+    const fromTs = dateFrom ? new Date(dateFrom).getTime() : 0;
+    const toTs = dateTo ? new Date(dateTo).getTime() : Number.MAX_SAFE_INTEGER;
+    return ts >= fromTs && ts <= toTs;
+  };
+  const matchBranch = (id) => !branchId || id === branchId;
+
+  const filteredSales = useMemo(() => sales.filter(s => inRange(s.created_at) && matchBranch(s.branchId)), [sales, dateFrom, dateTo, branchId]);
+  const analytics = useMemo(() => {
+    const productUnits = {};
+    const categoryUnits = {};
+    const cashierRevenue = {};
+    const skuTo = new Map(products.map(p => [p.sku, { name: p.name, category: p.category || 'Uncategorized' }]));
+    for (const s of filteredSales) {
+      const seller = s.sellerName || 'Unknown';
+      cashierRevenue[seller] = (cashierRevenue[seller] || 0) + (Number(s.total) || 0);
+      for (const it of s.items || []) {
+        const sku = it.sku || it.name || 'unknown';
+        productUnits[sku] = (productUnits[sku] || 0) + (Number(it.qty) || 0);
+        const meta = skuTo.get(sku);
+        const cat = meta?.category || 'Uncategorized';
+        categoryUnits[cat] = (categoryUnits[cat] || 0) + (Number(it.qty) || 0);
+      }
+    }
+    const topEntries = Object.entries(productUnits).sort((a,b) => b[1]-a[1]).slice(0,10);
+    const topLabels = topEntries.map(([sku]) => skuTo.get(sku)?.name || sku);
+    const topBar = { labels: topLabels, datasets: [{ label: 'Units', data: topEntries.map(x=>x[1]), backgroundColor: '#0ea5e9' }] };
+    const catLabels = Object.keys(categoryUnits);
+    const catDoughnut = { labels: catLabels, datasets: [{ data: catLabels.map(c=>categoryUnits[c]), backgroundColor: ['#0ea5e9','#16a34a','#f59e0b','#ef4444','#8b5cf6','#14b8a6'] }] };
+    const cashEntries = Object.entries(cashierRevenue).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    const cashierBar = { labels: cashEntries.map(x=>x[0]), datasets: [{ label: 'Revenue', data: cashEntries.map(x=>+(x[1]||0).toFixed(2)), backgroundColor: '#16a34a' }] };
+    return { topEntries, topBar, categoryUnits, catDoughnut, cashierRevenue, cashierBar };
+  }, [filteredSales, products]);
+
+  const show = (key) => reportType === 'all' || reportType === key;
+
+  function exportTopProducts(type) {
+    const rows = analytics.topEntries.map(([sku, units]) => {
+      const p = products.find(pp => pp.sku === sku);
+      return { name: p?.name || sku, sku, units };
+    });
+    const headers = [
+      { key: 'name', label: 'Product' },
+      { key: 'sku', label: 'SKU' },
+      { key: 'units', label: 'Units' }
+    ];
+    if (type === 'csv') exportCsv('top-products.csv', headers, rows);
+    else exportTablePdf('Top Products', headers, rows);
+  }
+  function exportCategories(type) {
+    const rows = Object.keys(analytics.categoryUnits).map(cat => ({ category: cat, units: analytics.categoryUnits[cat] }));
+    const headers = [
+      { key: 'category', label: 'Category' },
+      { key: 'units', label: 'Units' }
+    ];
+    if (type === 'csv') exportCsv('category-performance.csv', headers, rows);
+    else exportTablePdf('Category Performance', headers, rows);
+  }
+  function exportCashiers(type) {
+    const rows = Object.keys(analytics.cashierRevenue).map(name => ({ cashier: name, revenue: +(analytics.cashierRevenue[name]||0).toFixed(2) }))
+      .sort((a,b)=>b.revenue-a.revenue);
+    const headers = [
+      { key: 'cashier', label: 'Cashier' },
+      { key: 'revenue', label: 'Revenue' }
+    ];
+    if (type === 'csv') exportCsv('cashier-performance.csv', headers, rows);
+    else exportTablePdf('Cashier Performance', headers, rows);
   }
 
-  function exportCsv() {
-    const cols = ['id','created_at','branch','seller','items','subtotal','discount','tax','total'];
-    const lines = [cols.join(',')].concat(
-      sales.map(sale => [
-        sale.id,
-        sale.created_at,
-        branchLabel(sale),
-        sale.sellerName || '',
-        JSON.stringify(sale.items).replaceAll(',', ';'),
-        sale.subtotal,
-        sale.discount,
-        sale.tax,
-        sale.total
-      ].join(','))
-    );
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'sales.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+  function exportSales(type) {
+    const rows = sales.filter(s => inRange(s.created_at) && matchBranch(s.branchId));
+    const headers = [
+      { key: 'id', label: 'Sale ID' },
+      { key: 'created_at', label: 'Date', value: r => new Date(r.created_at).toLocaleString() },
+      { key: 'branch', label: 'Branch', value: r => byId.get(r.branchId) || r.branchId || '' },
+      { key: 'seller', label: 'Seller', value: r => r.sellerName || '' },
+      { key: 'items', label: 'Items', value: r => (r.items || []).map(i => `${i.name}x${i.qty}`).join('; ') },
+      { key: 'subtotal', label: 'Subtotal' },
+      { key: 'discount', label: 'Discount' },
+      { key: 'tax', label: 'Tax' },
+      { key: 'total', label: 'Total' }
+    ];
+    if (type === 'csv') exportCsv('sales.csv', headers, rows);
+    else exportTablePdf('Sales', headers, rows);
+  }
+
+  function exportTransfers(type) {
+    const list = audit.filter(e => e.actionType === 'stock_transfer' && inRange(e.ts) && matchBranch((e.details || {}).from || e.branchId));
+    const headers = [
+      { key: 'ts', label: 'Timestamp', value: e => new Date(e.ts).toLocaleString() },
+      { key: 'actor', label: 'Actor' },
+      { key: 'product', label: 'Product', value: e => (e.details || {}).product || '' },
+      { key: 'from', label: 'From', value: e => byId.get((e.details || {}).from) || (e.details || {}).from || '' },
+      { key: 'to', label: 'To', value: e => byId.get((e.details || {}).to) || (e.details || {}).to || '' },
+      { key: 'qty', label: 'Qty', value: e => (e.details || {}).qty ?? '' },
+      { key: 'remark', label: 'Remark', value: e => e.remark || '' }
+    ];
+    if (type === 'csv') exportCsv('transfers.csv', headers, list);
+    else exportTablePdf('Transfers', headers, list);
+  }
+
+  function exportPurchases(type) {
+    const list = audit.filter(e => e.actionType === 'stock_receive' && inRange(e.ts) && matchBranch(e.branchId));
+    const headers = [
+      { key: 'ts', label: 'Timestamp', value: e => new Date(e.ts).toLocaleString() },
+      { key: 'actor', label: 'Actor' },
+      { key: 'product', label: 'Product', value: e => (e.details || {}).product || '' },
+      { key: 'branch', label: 'Branch', value: e => byId.get(e.branchId) || e.branchId || '' },
+      { key: 'qty', label: 'Qty', value: e => (e.details || {}).qty ?? '' },
+      { key: 'pack', label: 'Pack', value: e => (e.details || {}).pack || 'Base Unit' },
+      { key: 'baseUnits', label: 'Base Units', value: e => (e.details || {}).baseUnits ?? '' },
+      { key: 'supplier', label: 'Supplier', value: e => (e.details || {}).supplier || '' },
+      { key: 'cost', label: 'Cost', value: e => (e.details || {}).cost ?? '' },
+      { key: 'remark', label: 'Remark', value: e => e.remark || '' }
+    ];
+    if (type === 'csv') exportCsv('purchases.csv', headers, list);
+    else exportTablePdf('Purchases', headers, list);
+  }
+
+  function exportAdjustments(type) {
+    const source = audit.filter(e => (e.actionType === 'stock_adjust' || e.actionType === 'stock_damage_remove') && inRange(e.ts));
+    const list = source.filter(e => matchBranch(e.branchId || (e.details || {}).branchId));
+    const headers = [
+      { key: 'ts', label: 'Timestamp', value: e => new Date(e.ts).toLocaleString() },
+      { key: 'actor', label: 'Actor' },
+      { key: 'product', label: 'Product', value: e => (e.details || {}).product || '' },
+      { key: 'variant', label: 'Variant', value: e => (e.details || {}).variant || '' },
+      { key: 'branch', label: 'Branch', value: e => byId.get(e.branchId || (e.details || {}).branchId) || e.branchId || (e.details || {}).branchId || '' },
+      { key: 'delta', label: 'Delta', value: e => e.actionType === 'stock_adjust' ? (e.details || {}).delta : -Math.abs((e.details || {}).qty || 0) },
+      { key: 'type', label: 'Type', value: e => e.actionType === 'stock_adjust' ? 'Adjust' : 'Damage/Expired' },
+      { key: 'remark', label: 'Remark', value: e => e.remark || '' }
+    ];
+    if (type === 'csv') exportCsv('adjustments.csv', headers, list);
+    else exportTablePdf('Adjustments', headers, list);
+  }
+
+  function exportStockRecords(type) {
+    function normalize(e) {
+      const t = e.actionType;
+      const d = e.details || {};
+      const b = e.branchId || d.branchId || null;
+      if (t === 'stock_adjust') {
+        return { ts: e.ts, actor: e.actor, branchId: b, source: 'Adjustments', action: d.delta > 0 ? 'Add' : 'Remove', product: d.product || '', variant: d.variant || '', qty: d.delta, remark: e.remark || '' };
+      }
+      if (t === 'stock_damage_remove') {
+        return { ts: e.ts, actor: e.actor, branchId: b, source: 'Adjustments', action: 'Remove', product: d.product || '', variant: d.variant || '', qty: -Math.abs(d.qty || 0), remark: e.remark || '' };
+      }
+      if (t === 'stock_transfer') {
+        return { ts: e.ts, actor: e.actor, branchId: d.from || b, source: 'Transfers', action: `Transfer ${d.from} → ${d.to}`, product: d.product || '', variant: d.variant || '', qty: d.qty || 0, remark: e.remark || '' };
+      }
+      if (t === 'stock_receive') {
+        return { ts: e.ts, actor: e.actor, branchId: b, source: 'Purchases', action: 'Add', product: d.product || '', variant: d.variant || '', qty: d.baseUnits ?? d.qty ?? 0, remark: e.remark || '' };
+      }
+      if (t === 'stock_set_initial') {
+        return { ts: e.ts, actor: e.actor, branchId: b, source: 'Products', action: 'Set', product: d.product || '', variant: d.variant || '', qty: d.quantity ?? 0, remark: e.remark || '' };
+      }
+      if (t === 'stock_set_manual') {
+        return { ts: e.ts, actor: e.actor, branchId: b, source: 'Inventory', action: 'Set', product: d.product || '', variant: d.variant || '', qty: d.delta ?? 0, remark: e.remark || '' };
+      }
+      if (t === 'stock_sale_deduct') {
+        const totalUnits = Array.isArray(d.items) ? d.items.reduce((s, it) => s + (Number(it.qty) || 0), 0) : 0;
+        return { ts: e.ts, actor: e.actor, branchId: b, source: 'POS', action: 'Remove (Sale)', product: `${totalUnits} unit(s) across ${d.items?.length || 0} item(s)`, variant: '', qty: -Math.abs(totalUnits), remark: e.remark || '' };
+      }
+      if (t === 'stock_restock_refund') {
+        const totalUnits = Array.isArray(d.items) ? d.items.reduce((s, it) => s + (Number(it.qty) || 0), 0) : 0;
+        return { ts: e.ts, actor: e.actor, branchId: b, source: 'Refund Approvals', action: 'Add (Restock)', product: `${totalUnits} unit(s) across ${d.items?.length || 0} item(s)`, variant: '', qty: totalUnits, remark: e.remark || '' };
+      }
+      return null;
+    }
+    const base = audit.map(normalize).filter(Boolean).filter(r => inRange(r.ts) && matchBranch(r.branchId));
+    const headers = [
+      { key: 'ts', label: 'Timestamp', value: r => new Date(r.ts).toLocaleString() },
+      { key: 'actor', label: 'Actor' },
+      { key: 'branch', label: 'Branch', value: r => byId.get(r.branchId) || r.branchId || '' },
+      { key: 'source', label: 'Source' },
+      { key: 'action', label: 'Action' },
+      { key: 'product', label: 'Product' },
+      { key: 'variant', label: 'Variant' },
+      { key: 'qty', label: 'Delta' },
+      { key: 'remark', label: 'Remark' }
+    ];
+    if (type === 'csv') exportCsv('stock-records.csv', headers, base);
+    else exportTablePdf('Stock Records', headers, base);
+  }
+
+  function exportRefunds(type) {
+    const list = refunds.filter(r => inRange(r.created_at) && matchBranch(r.branchId));
+    const headers = [
+      { key: 'ref', label: 'Ref', value: r => r.invoiceSerial || r.receiptNumber || r.saleId },
+      { key: 'initiator', label: 'Initiator', value: r => r.initiatorName || '' },
+      { key: 'branch', label: 'Branch', value: r => byId.get(r.branchId) || r.branchId || '' },
+      { key: 'type', label: 'Type', value: r => String(r.type || '').toUpperCase() },
+      { key: 'amount', label: 'Amount', value: r => String(r.requestedAmount || 0) },
+      { key: 'created', label: 'Created', value: r => new Date(r.created_at).toLocaleString() },
+      { key: 'status', label: 'Status', value: r => (r.status || '').replace('_',' ') },
+      { key: 'approver', label: 'Approver', value: r => r.approverName || '' }
+    ];
+    if (type === 'csv') exportCsv('refunds.csv', headers, list);
+    else exportTablePdf('Refunds', headers, list);
   }
 
   return (
     <div style={{ padding: 16 }}>
       <h1>Reports</h1>
-      <button className="btn btn-primary" onClick={exportCsv}>
-        <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12M7 10l5 5 5-5" stroke="currentColor" strokeWidth="2"/><path d="M5 19h14" stroke="currentColor" strokeWidth="2"/></svg>
-        Export Sales CSV
-      </button>
-      <table className="table" style={{ marginTop: 12 }}>
-        <thead>
-          <tr>
-            <th align="left">Date</th>
-            <th align="left">Branch</th>
-            <th align="left">Seller</th>
-            <th align="left">Items</th>
-            <th align="left">Total</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sales.map(sale => (
-            <tr key={sale.id}>
-              <td>{new Date(sale.created_at).toLocaleString()}</td>
-              <td>{branchLabel(sale)}</td>
-              <td>{sale.sellerName || '-'}</td>
-              <td>{sale.items.map(i => `${i.name}x${i.qty}`).join(', ')}</td>
-              <td>{formatCurrency(sale.total, settings)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
+        <label>
+          From
+          <input className="input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+        </label>
+        <label>
+          To
+          <input className="input" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+        </label>
+        <label>
+          Branch
+          <BranchSelect value={branchId} onChange={setBranchId} />
+        </label>
+      </div>
+      <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+        <div style={{ gridColumn: '1 / span 2', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+          <label>
+            Report
+            <select className="select" value={reportType} onChange={e => setReportType(e.target.value)}>
+              <option value="all">All Sections</option>
+              <option value="sales">Sales</option>
+              <option value="purchases">Purchases</option>
+              <option value="transfers">Transfers</option>
+              <option value="adjustments">Adjustments</option>
+              <option value="stock">Stock Records</option>
+              <option value="refunds">Refunds</option>
+              <option value="analytics-top">Top Products</option>
+              <option value="analytics-cat">Category Performance</option>
+              <option value="analytics-cashier">Cashier Performance</option>
+            </select>
+          </label>
+        </div>
+        {show('sales') && (
+        <div>
+          <h2 className="section-title">Sales</h2>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => exportSales('csv')}>Export CSV</button>
+            <button className="btn" onClick={() => exportSales('pdf')}>Export PDF</button>
+          </div>
+        </div>
+        )}
+        {show('purchases') && (
+        <div>
+          <h2 className="section-title">Purchases</h2>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => exportPurchases('csv')}>Export CSV</button>
+            <button className="btn" onClick={() => exportPurchases('pdf')}>Export PDF</button>
+          </div>
+        </div>
+        )}
+        {show('transfers') && (
+        <div>
+          <h2 className="section-title">Transfers</h2>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => exportTransfers('csv')}>Export CSV</button>
+            <button className="btn" onClick={() => exportTransfers('pdf')}>Export PDF</button>
+          </div>
+        </div>
+        )}
+        {show('adjustments') && (
+        <div>
+          <h2 className="section-title">Adjustments</h2>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => exportAdjustments('csv')}>Export CSV</button>
+            <button className="btn" onClick={() => exportAdjustments('pdf')}>Export PDF</button>
+          </div>
+        </div>
+        )}
+        {show('stock') && (
+        <div>
+          <h2 className="section-title">Stock Records</h2>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => exportStockRecords('csv')}>Export CSV</button>
+            <button className="btn" onClick={() => exportStockRecords('pdf')}>Export PDF</button>
+          </div>
+        </div>
+        )}
+        {show('refunds') && (
+        <div>
+          <h2 className="section-title">Refunds</h2>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => exportRefunds('csv')}>Export CSV</button>
+            <button className="btn" onClick={() => exportRefunds('pdf')}>Export PDF</button>
+          </div>
+        </div>
+        )}
+      </div>
+      {(show('analytics-top') || show('analytics-cat') || show('analytics-cashier')) && (
+      <div className="card" style={{ marginTop: 12 }}>
+        <h2 className="section-title">Analytics</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+          {show('analytics-top') && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 600 }}>Top Products</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn" onClick={() => exportTopProducts('csv')}>CSV</button>
+                <button className="btn" onClick={() => exportTopProducts('pdf')}>PDF</button>
+              </div>
+            </div>
+            <div style={{ height: 220, marginTop: 8 }}>
+              <Bar data={analytics.topBar} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, indexAxis: 'y' }} />
+            </div>
+          </div>
+          )}
+          {show('analytics-cat') && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 600 }}>Category Performance</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn" onClick={() => exportCategories('csv')}>CSV</button>
+                <button className="btn" onClick={() => exportCategories('pdf')}>PDF</button>
+              </div>
+            </div>
+            <div style={{ height: 220, marginTop: 8 }}>
+              <Doughnut data={analytics.catDoughnut} />
+            </div>
+          </div>
+          )}
+          {show('analytics-cashier') && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 600 }}>Cashier Performance</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn" onClick={() => exportCashiers('csv')}>CSV</button>
+                <button className="btn" onClick={() => exportCashiers('pdf')}>PDF</button>
+              </div>
+            </div>
+            <div style={{ height: 220, marginTop: 8 }}>
+              <Bar data={analytics.cashierBar} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, indexAxis: 'y' }} />
+            </div>
+          </div>
+          )}
+        </div>
+      </div>
+      )}
     </div>
   );
 }

@@ -14,17 +14,44 @@ const initialState = {
   receiptQrBaseUrl: '',
   invoicePrefix: 'INV',
   nextInvoiceNumber: 1,
+  receiptPrefix: 'RCPT',
+  nextReceiptNumber: 1,
   drawerOpenOnCash: false,
   taxRate: 0.10,
   currencyCode: 'GHS',
   currencySymbol: '₵',
-  currencyPosition: 'prefix'
+  currencyPosition: 'prefix',
+  currencies: [
+    { code: 'GHS', symbol: '₵', position: 'prefix' },
+    { code: 'USD', symbol: '$', position: 'prefix' }
+  ],
+  activeCurrencyCode: 'GHS',
+  refreshIntervalSec: 60,
+  userGrants: {}
 };
 
 const settingsSlice = createSlice({
   name: 'settings',
   initialState,
   reducers: {
+    setAllSettings(state, action) {
+      const data = action.payload || {};
+      Object.keys(data).forEach(k => {
+        state[k] = data[k];
+      });
+    },
+    setUserGrants(state, action) {
+      const m = action.payload || {};
+      state.userGrants = m;
+    },
+    setUserGrant(state, action) {
+      const { username, grants } = action.payload || {};
+      const name = String(username || '');
+      if (!name) return;
+      if (!Array.isArray(grants)) return;
+      if (!state.userGrants) state.userGrants = {};
+      state.userGrants[name] = grants.slice();
+    },
     setAppName(state, action) {
       state.appName = action.payload;
     },
@@ -66,6 +93,22 @@ const settingsSlice = createSlice({
       if (!Number.isFinite(v) || v < 1) v = 1;
       state.nextInvoiceNumber = Math.floor(v);
     },
+    setReceiptPrefix(state, action) {
+      state.receiptPrefix = String(action.payload || 'RCPT');
+    },
+    setNextReceiptNumber(state, action) {
+      let v = Number(action.payload);
+      if (!Number.isFinite(v) || v < 1) v = 1;
+      state.nextReceiptNumber = Math.floor(v);
+    },
+    setReceiptPrefix(state, action) {
+      state.receiptPrefix = String(action.payload || 'RCPT');
+    },
+    setNextReceiptNumber(state, action) {
+      let v = Number(action.payload);
+      if (!Number.isFinite(v) || v < 1) v = 1;
+      state.nextReceiptNumber = Math.floor(v);
+    },
     setDrawerOpenOnCash(state, action) {
       state.drawerOpenOnCash = !!action.payload;
     },
@@ -85,9 +128,45 @@ const settingsSlice = createSlice({
     setCurrencyPosition(state, action) {
       const v = String(action.payload || 'prefix');
       state.currencyPosition = (v === 'suffix') ? 'suffix' : 'prefix';
+    },
+    addCurrency(state, action) {
+      const { code, symbol, position } = action.payload || {};
+      const c = String(code || '').toUpperCase();
+      if (!c) return;
+      const pos = position === 'suffix' ? 'suffix' : 'prefix';
+      const idx = Array.isArray(state.currencies) ? state.currencies.findIndex(x => x.code === c) : -1;
+      const entry = { code: c, symbol: String(symbol || ''), position: pos };
+      if (idx >= 0) state.currencies[idx] = entry;
+      else state.currencies.push(entry);
+    },
+    removeCurrency(state, action) {
+      const c = String(action.payload || '').toUpperCase();
+      state.currencies = (state.currencies || []).filter(x => x.code !== c);
+      if (state.activeCurrencyCode === c) {
+        const fallback = state.currencies[0] || { code: 'GHS', symbol: '₵', position: 'prefix' };
+        state.activeCurrencyCode = fallback.code;
+        state.currencyCode = fallback.code;
+        state.currencySymbol = fallback.symbol;
+        state.currencyPosition = fallback.position;
+      }
+    },
+    setActiveCurrency(state, action) {
+      const c = String(action.payload || '').toUpperCase();
+      const found = (state.currencies || []).find(x => x.code === c);
+      if (!found) return;
+      state.activeCurrencyCode = found.code;
+      state.currencyCode = found.code;
+      state.currencySymbol = found.symbol;
+      state.currencyPosition = found.position;
+    },
+    setRefreshIntervalSec(state, action) {
+      let v = Number(action.payload);
+      if (!Number.isFinite(v) || v < 10) v = 10;
+      if (v > 3600) v = 3600;
+      state.refreshIntervalSec = Math.floor(v);
     }
   }
 });
 
-export const { setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setSdcId, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition } = settingsSlice.actions;
+export const { setAllSettings, setUserGrants, setUserGrant, setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setSdcId, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, addCurrency, removeCurrency, setActiveCurrency, setRefreshIntervalSec } = settingsSlice.actions;
 export default settingsSlice.reducer;

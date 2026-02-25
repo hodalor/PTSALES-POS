@@ -74,6 +74,7 @@ export default function ReceiptPublicPage() {
           <div>Cashier: {sale.sellerName || '—'}</div>
           <div style={{ textAlign: 'right' }}>{new Date(sale.created_at).toLocaleString()}</div>
         </div>
+        {sale.receiptNumber && <div style={{ marginTop: 4, color: '#64748b' }}>Receipt: {sale.receiptNumber}</div>}
         {sale.invoiceSerial && <div style={{ marginTop: 4, color: '#64748b' }}>Invoice: {sale.invoiceSerial}</div>}
         <hr />
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>

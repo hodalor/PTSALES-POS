@@ -12,6 +12,19 @@ const sessionsSlice = createSlice({
   name: 'sessions',
   initialState,
   reducers: {
+    setSession(state, action) {
+      const s = action.payload || {};
+      state.isOpen = !!s.isOpen;
+      state.openedAt = s.openedAt || null;
+      state.closedAt = s.closedAt || null;
+      state.openingFloat = Number(s.openingFloat || 0);
+      state.movements = Array.isArray(s.movements) ? s.movements.map(m => ({
+        time: m.time || m.ts || new Date().toISOString(),
+        type: m.type,
+        amount: Number(m.amount),
+        note: m.note || ''
+      })) : [];
+    },
     openSession(state, action) {
       if (state.isOpen) return;
       state.isOpen = true;
@@ -33,5 +46,5 @@ const sessionsSlice = createSlice({
   }
 });
 
-export const { openSession, closeSession, addMovement } = sessionsSlice.actions;
+export const { setSession, openSession, closeSession, addMovement } = sessionsSlice.actions;
 export default sessionsSlice.reducer;

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { buildBrandedReceiptHtml, printReceiptHtml } from '../utils/print';
 import { escposReceipt, downloadText } from '../utils/escpos';
 import { formatCurrency } from '../utils/currency';
+import { exportCsv, exportTablePdf } from '../utils/exporters';
 
 function SalesPage() {
   const sales = useSelector(s => s.sales.sales);
@@ -13,6 +14,8 @@ function SalesPage() {
   const roleLower = String(auth.role || '').toLowerCase();
   const canSeeAll = roleLower === 'admin' || roleLower === 'superadmin';
   const [showAll, setShowAll] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   function branchLabel(sale) {
     return sale.branchName || (branches.find(b => b.id === sale.branchId)?.name || sale.branchId || '-');
   }
@@ -20,7 +23,7 @@ function SalesPage() {
   function reprint(sale, escpos = false) {
     if (escpos) {
       const text = escposReceipt({
-        header: { title: settings.appName, store: settings.receiptHeader, branch: branchLabel(sale), phone: settings.businessPhone || '', cashier: sale.sellerName, receiptId: sale.id, invoiceSerial: sale.invoiceSerial },
+        header: { title: settings.appName, store: settings.receiptHeader, branch: branchLabel(sale), phone: settings.businessPhone || '', cashier: sale.sellerName, receiptId: sale.id, receiptNumber: sale.receiptNumber, invoiceSerial: sale.invoiceSerial },
         items: sale.items,
         totals: { subtotal: sale.subtotal, discount: sale.discount, tax: sale.tax, total: sale.total },
         footer: { note: settings.receiptFooter },
@@ -32,6 +35,28 @@ function SalesPage() {
     const html = buildBrandedReceiptHtml({ settings, sale: { ...sale, branchName: branchLabel(sale) } });
     printReceiptHtml(html);
   }
+  function onExportCsv() {
+    const headers = [
+      { key: 'date', label: 'Date', value: s => new Date(s.created_at).toLocaleString() },
+      { key: 'branch', label: 'Branch', value: s => branchLabel(s) },
+      { key: 'seller', label: 'Seller', value: s => s.sellerName || '' },
+      { key: 'invoice', label: 'Invoice', value: s => s.invoiceSerial || '' },
+      { key: 'items', label: 'Items', value: s => s.items.map(i => `${i.name}x${i.qty}`).join('; ') },
+      { key: 'total', label: 'Total', value: s => s.total }
+    ];
+    exportCsv('sales.csv', headers, filteredSales);
+  }
+  function onExportPdf() {
+    const headers = [
+      { key: 'date', label: 'Date', value: s => new Date(s.created_at).toLocaleString() },
+      { key: 'branch', label: 'Branch', value: s => branchLabel(s) },
+      { key: 'seller', label: 'Seller', value: s => s.sellerName || '' },
+      { key: 'invoice', label: 'Invoice', value: s => s.invoiceSerial || '' },
+      { key: 'items', label: 'Items', value: s => s.items.map(i => `${i.name}x${i.qty}`).join('; ') },
+      { key: 'total', label: 'Total', value: s => formatCurrency(s.total, settings) }
+    ];
+    exportTablePdf('Sales', headers, filteredSales);
+  }
   return (
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -42,6 +67,10 @@ function SalesPage() {
             <span>All branches</span>
           </label>
         )}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, margin: '8px 0' }}>
+        <button className="btn" onClick={onExportCsv}>Export CSV</button>
+        <button className="btn" onClick={onExportPdf}>Export PDF</button>
       </div>
       <table className="table">
         <thead>
@@ -56,7 +85,7 @@ function SalesPage() {
           </tr>
         </thead>
         <tbody>
-          {filteredSales.map(sale => (
+          {filteredSales.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map(sale => (
             <tr key={sale.id}>
               <td>{new Date(sale.created_at).toLocaleString()}</td>
               <td>{branchLabel(sale)}</td>
@@ -78,6 +107,22 @@ function SalesPage() {
           ))}
         </tbody>
       </table>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8 }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <button className="btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}>Prev</button>
+          <span>Page {page} of {Math.max(1, Math.ceil(filteredSales.length / pageSize))}</span>
+          <button className="btn" onClick={() => setPage(p => Math.min(Math.max(1, Math.ceil(filteredSales.length / pageSize)), p + 1))} disabled={page >= Math.max(1, Math.ceil(filteredSales.length / pageSize))}>Next</button>
+        </div>
+        <label>
+          <span style={{ marginRight: 6 }}>Rows</span>
+          <select className="select" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}>
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </label>
+      </div>
     </div>
   );
 }

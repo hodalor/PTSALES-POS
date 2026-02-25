@@ -1,15 +1,16 @@
 import { createSlice, nanoid } from '@reduxjs/toolkit';
 
 const initialState = {
-  branches: [
-    { id: 'main', name: 'Main Branch', code: 'MAIN' }
-  ]
+  branches: []
 };
 
 const branchesSlice = createSlice({
   name: 'branches',
   initialState,
   reducers: {
+    setBranches(state, action) {
+      state.branches = Array.isArray(action.payload) && action.payload.length > 0 ? action.payload : state.branches;
+    },
     addBranch: {
       reducer(state, action) {
         state.branches.push(action.payload);
@@ -32,5 +33,5 @@ const branchesSlice = createSlice({
   }
 });
 
-export const { addBranch, updateBranch, removeBranch } = branchesSlice.actions;
+export const { setBranches, addBranch, updateBranch, removeBranch } = branchesSlice.actions;
 export default branchesSlice.reducer;

@@ -25,20 +25,22 @@ function AdminManualPage() {
         <ul>
           <li>Dashboard: High‑level metrics (Admin/Manager).</li>
           <li>POS: Sell items, take payments, print receipts, handle tax overrides.</li>
-          <li>Sales: View historical sales, invoice numbers, receipt links.</li>
+          <li>Sales: View historical sales, invoice and receipt numbers; reprint.</li>
           <li>Products: Create/edit products with units, attributes, packs and variants.</li>
           <li>Inventory: Set stock per branch; manage per‑variant stock.</li>
           <li>Purchases: Receive stock (supports packs and variants).</li>
           <li>Transfers: Move stock between branches (supports variants).</li>
           <li>Adjustments: Correct stock up/down with remarks (supports variants).</li>
+          <li>Stock Records: Unified list of all stock changes across the system, with filters and exports.</li>
           <li>Labels: Print barcode labels (products and their variants).</li>
           <li>Suppliers & Customers: Maintain master data and contacts.</li>
-          <li>Refunds: Placeholder for returns workflow.</li>
+          <li>Refunds: Initiate and approve refunds with two‑step verification.</li>
           <li>Reports: Export sales CSV, totals by time/seller/branch.</li>
           <li>Users: Manage user accounts and roles.</li>
           <li>Cash Drawer: Open drawer logs and operations.</li>
           <li>Config: Store info, receipt header/footer, taxes, invoice serials, phone, website.</li>
           <li>Audit Log: Track sensitive actions (stock, sales, overrides).</li>
+          <li>Server Logs: Backend diagnostics (SuperAdmin).</li>
         </ul>
       </Section>
 
@@ -80,6 +82,7 @@ function AdminManualPage() {
           <li>Tax override (if role allows): Enter override % and required remark; recorded in Audit Log.</li>
           <li>Payments: Add multiple methods with amounts (cash/card/mobile/wallet). System prevents completion until fully paid.</li>
           <li>Invoice Number: Auto‑generated as Prefix‑Branch‑NNNNNN (configured in Settings).</li>
+          <li>Receipt Number: Auto‑generated as Prefix‑Branch‑NNNNNN; printed alongside Invoice on receipts.</li>
           <li>Receipts: Prints branded HTML receipt; offline QR embeds a local SVG; also supports ESC/POS text download.</li>
           <li>Offline: If offline, the sale is queued and syncs later. Receipt still prints.</li>
         </ul>
@@ -120,6 +123,7 @@ function AdminManualPage() {
         <ul>
           <li>Select Product → Variant (if any) → Branch → Delta (+/‑) → Apply with a required remark.</li>
           <li>Use for corrections, write‑offs or cycle count differences. All actions are audited.</li>
+          <li>Damaged/Expired Removal: Use the dedicated removal tool to subtract a quantity with a reason; this records an audit entry and updates branch stock.</li>
         </ul>
       </Section>
 
@@ -138,6 +142,18 @@ function AdminManualPage() {
           <li>Close Session: When ending the shift, close to lock entries and preserve totals.</li>
           <li>Open Drawer Now: Use the “Open Drawer Now” button to generate a tiny ESC/POS file that pulses the drawer immediately, without affecting automatic open‑on‑sale settings.</li>
           <li>Physical Drawer: When configured in Config and using cash payments, the drawer open command is also included with ESC/POS output at POS completion.</li>
+          <li>Persistence: Sessions and movements are stored in Atlas; reloading the page restores your open session automatically.</li>
+        </ul>
+      </Section>
+
+      <Section title="Refunds – Two‑Step Verification">
+        <ul>
+          <li>Search: Enter either Receipt Number or Invoice Number to locate the sale.</li>
+          <li>Evidence: Upload at least two images and enter a remark explaining the return.</li>
+          <li>Type: Choose Full (eligible = Total − Tax) or Partial (enter amount ≤ eligible).</li>
+          <li>Restock: For full or partial refunds, approver can choose No/Full/Partial restock with quantities.</li>
+          <li>Approval: Cashier/Manager/Admin can initiate; approval required by Manager/Admin (not the initiator). Approver submits a decision with an optional remark.</li>
+          <li>Effect: Upon approval, revenue is reduced by the approved amount and, if selected, stock is increased for the returned items.</li>
         </ul>
       </Section>
 
@@ -153,14 +169,35 @@ function AdminManualPage() {
           <li>App/Store: Name, website, phone, receipt header/footer.</li>
           <li>Taxes: Default tax rate. Roles may override at POS with remark (audited).</li>
           <li>Invoice: Prefix and next number. System increments after each completed sale.</li>
+          <li>Receipt: Prefix and next number. System increments after each completed sale.</li>
           <li>QR: Offline QR generation embedded into receipts (no external service).</li>
         </ul>
       </Section>
 
       <Section title="Audit Log – Compliance">
         <ul>
-          <li>Tracks stock receives, transfers, adjustments, tax overrides, and sale completions.</li>
+          <li>Tracks stock receives, transfers, adjustments, tax overrides, sale completions, refund approvals, and cash drawer events.</li>
           <li>Filter and export as needed for reviews.</li>
+          <li>Data is pulled from the server in the background for up‑to‑date results.</li>
+        </ul>
+      </Section>
+
+      <Section title="Stock Records – Unified Changes">
+        <ul>
+          <li>Scope: Consolidates stock changes from Purchases (receive), Transfers, Adjustments (incl. damage/expiry), Inventory manual set, Products initial stock, POS sales (stock deduct), and Refund Approvals (restock).</li>
+          <li>Filters: Date range, Actor, Branch, Source page.</li>
+          <li>Columns: Timestamp, Actor, Branch, Source, Action, Product, Variant, Delta, Remark.</li>
+          <li>Exports: CSV and print‑to‑PDF for filtered results; use page header buttons.</li>
+          <li>Pagination: Change rows per page (10/25/50/100) and page through results.</li>
+        </ul>
+      </Section>
+
+      <Section title="Exports & Pagination">
+        <ul>
+          <li>Records pages (Sales, Refunds, Refund Approvals, Purchases, Transfers, Stock Records) now include CSV and PDF exports for the filtered dataset.</li>
+          <li>Use the Export CSV/PDF buttons at the top of each table.</li>
+          <li>Pagination controls appear below tables with page navigation and rows‑per‑page selector.</li>
+          <li>PDF uses a print‑friendly view; use your browser’s “Save as PDF”.</li>
         </ul>
       </Section>
 
@@ -170,6 +207,24 @@ function AdminManualPage() {
           <li>Manager: POS, Inventory, Reports; may see Dashboard.</li>
           <li>Inventory Staff: Products, Inventory, Purchases, Transfers, Adjustments, Labels.</li>
           <li>Cashier: POS, Sales, Cash Drawer, Customers.</li>
+          <li>SuperAdmin: All Admin features plus Server Logs.</li>
+        </ul>
+      </Section>
+      
+      <Section title="Grants – Fine‑Grained Permissions">
+        <ul>
+          <li>Per‑user grants supplement roles. Assign on the Users page.</li>
+          <li>Stock Ops: add_purchases, add_transfers, add_adjustments control receiving, transfers and adjustments buttons and APIs.</li>
+          <li>Refunds: approve_refunds allows non‑Manager/Admin to approve if granted.</li>
+          <li>Changes apply immediately; background refresh keeps the UI consistent.</li>
+        </ul>
+      </Section>
+      
+      <Section title="Server Logs – Backend Diagnostics">
+        <ul>
+          <li>SuperAdmin‑only. Navigate to Server Logs to view recent backend entries.</li>
+          <li>Columns include timestamp, level, actor, route, status, message, error code and meaning; stack is available on hover.</li>
+          <li>Use Refresh or rely on auto‑refresh; export CSV/PDF for sharing.</li>
         </ul>
       </Section>
 

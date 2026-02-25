@@ -2,7 +2,7 @@ import { createSlice, nanoid } from '@reduxjs/toolkit';
 
 const initialState = {
   users: [
-    { id: 'u1', name: 'superadmin', role: 'SuperAdmin', pin: '1234', branchId: 'main', assignedBranches: 'all', active: true }
+    { id: 'u1', name: 'superadmin', role: 'SuperAdmin', branchId: 'main', assignedBranches: 'all', active: true }
   ],
   roles: ['SuperAdmin', 'Admin', 'Branch Manager', 'Manager', 'Cashier', 'Inventory Staff', 'Auditor', 'Other']
 };
@@ -15,11 +15,11 @@ const usersSlice = createSlice({
       reducer(state, action) {
         state.users.push(action.payload);
       },
-      prepare({ name, role, pin, branchId, assignedBranches }) {
+      prepare({ name, role, branchId, assignedBranches }) {
         let assigned = assignedBranches;
         if (assigned === undefined) assigned = branchId ? [branchId] : [];
         if (assigned !== 'all' && !Array.isArray(assigned)) assigned = [assigned];
-        const payload = { id: nanoid(), name, role, pin, branchId, assignedBranches: assigned, active: true };
+        const payload = { id: nanoid(), name, role, branchId, assignedBranches: assigned, active: true };
         return { payload };
       }
     },
@@ -29,9 +29,12 @@ const usersSlice = createSlice({
     },
     removeUser(state, action) {
       state.users = state.users.filter(u => u.id !== action.payload);
+    },
+    setUsers(state, action) {
+      state.users = Array.isArray(action.payload) ? action.payload : [];
     }
   }
 });
 
-export const { addUser, updateUser, removeUser } = usersSlice.actions;
+export const { addUser, updateUser, removeUser, setUsers } = usersSlice.actions;
 export default usersSlice.reducer;

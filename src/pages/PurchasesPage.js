@@ -6,6 +6,8 @@ import BranchSelect from '../components/BranchSelect';
 import { addAudit } from '../store/auditSlice';
 import { formatCurrency } from '../utils/currency';
 import { useSelector as useReduxSelector } from 'react-redux';
+import { exportCsv, exportTablePdf } from '../utils/exporters';
+import * as stockApi from '../api/stock';
 
 function PurchasesPage() {
   const products = useSelector(s => s.products.products);
@@ -25,16 +27,34 @@ function PurchasesPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [fActor, setFActor] = useState('');
-  const [fBranch, setFBranch] = useState('');
+  const [fBranch, setFBranch] = useState(currentBranchId);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [saving, setSaving] = useState(false);
   const dispatch = useDispatch();
   const toast = useToast();
   useEffect(() => { setBranchId(currentBranchId); }, [currentBranchId]);
+  useEffect(() => { setFBranch(currentBranchId); }, [currentBranchId]);
 
   const byId = useMemo(() => {
     const map = new Map();
     branches.forEach(b => map.set(b.id, b.name));
     return map;
   }, [branches]);
+  const roleLower = String(auth.role || '').toLowerCase();
+  const grants = Array.isArray(auth.grants) ? auth.grants : [];
+  function has(g) {
+    if (!g) return false;
+    if (roleLower === 'superadmin') return true;
+    return grants.includes(g);
+  }
+  const canReceive = (['admin','manager','inventory staff'].includes(roleLower)) || has('add_purchases');
+  const assigned = auth.user?.assignedBranches || 'all';
+  const branchOptions = useMemo(() => {
+    if (roleLower === 'superadmin' || roleLower === 'admin' || assigned === 'all') return branches;
+    const ids = new Set(Array.isArray(assigned) ? assigned : [assigned]);
+    return branches.filter(b => ids.has(b.id));
+  }, [roleLower, assigned, branches]);
   const basePurchases = useMemo(() => audit.filter(e => e.actionType === 'stock_receive'), [audit]);
   const actors = useMemo(() => Array.from(new Set(basePurchases.map(e => e.actor).filter(Boolean))).sort(), [basePurchases]);
   const purchases = useMemo(() => {
@@ -49,35 +69,47 @@ function PurchasesPage() {
     }).slice().reverse();
   }, [basePurchases, dateFrom, dateTo, fActor, fBranch]);
 
-  function exportCsv() {
-    const headers = ['Timestamp','Actor','Product','Branch','Qty','Supplier','Cost','Remark'];
-    const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = [headers.map(escape).join(',')];
-    purchases.forEach(e => {
-      const d = e.details || {};
-      lines.push([
-        e.ts,
-        e.actor,
-        d.product || '',
-        byId.get(e.branchId) || e.branchId || '',
-        d.qty ?? '',
-        d.supplier || '',
-        Number.isFinite(Number(d.cost)) ? Number(d.cost) : '',
-        e.remark || ''
-      ].map(escape).join(','));
-    });
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'purchases.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  function onExportCsv() {
+    const headers = [
+      { key: 'ts', label: 'Timestamp', value: e => new Date(e.ts).toLocaleString() },
+      { key: 'actor', label: 'Actor' },
+      { key: 'product', label: 'Product', value: e => (e.details || {}).product || '' },
+      { key: 'branch', label: 'Branch', value: e => byId.get(e.branchId) || e.branchId || '' },
+      { key: 'qty', label: 'Qty', value: e => (e.details || {}).qty ?? '' },
+      { key: 'pack', label: 'Pack', value: e => (e.details || {}).pack || 'Base Unit' },
+      { key: 'baseUnits', label: 'Base Units', value: e => (e.details || {}).baseUnits ?? '' },
+      { key: 'supplier', label: 'Supplier', value: e => (e.details || {}).supplier || '' },
+      { key: 'cost', label: 'Cost', value: e => (e.details || {}).cost ?? '' },
+      { key: 'remark', label: 'Remark', value: e => e.remark || '' }
+    ];
+    exportCsv('purchases.csv', headers, purchases);
+  }
+  function onExportPdf() {
+    const headers = [
+      { key: 'ts', label: 'Timestamp', value: e => new Date(e.ts).toLocaleString() },
+      { key: 'actor', label: 'Actor' },
+      { key: 'product', label: 'Product', value: e => (e.details || {}).product || '' },
+      { key: 'branch', label: 'Branch', value: e => byId.get(e.branchId) || e.branchId || '' },
+      { key: 'qty', label: 'Qty', value: e => (e.details || {}).qty ?? '' },
+      { key: 'pack', label: 'Pack', value: e => (e.details || {}).pack || 'Base Unit' },
+      { key: 'baseUnits', label: 'Base Units', value: e => (e.details || {}).baseUnits ?? '' },
+      { key: 'supplier', label: 'Supplier', value: e => (e.details || {}).supplier || '' },
+      { key: 'cost', label: 'Cost', value: e => (e.details || {}).cost ?? '' },
+      { key: 'remark', label: 'Remark', value: e => e.remark || '' }
+    ];
+    exportTablePdf('Purchases', headers, purchases);
   }
 
-  function receive() {
+  async function receive() {
+    if (saving) return;
+    if (!canReceive) {
+      toast.show('Not authorized to receive stock', { type: 'error' });
+      return;
+    }
+    if (!navigator.onLine) {
+      toast.show('Offline: cannot sync purchase to server', { type: 'error' });
+      return;
+    }
     if (!productId || !branchId || qty <= 0) {
       toast.show('Select product/branch and quantity', { type: 'error' });
       return;
@@ -87,6 +119,23 @@ function PurchasesPage() {
     const pack = (prod?.packs || []).find(pk => pk.name === packName);
     const factor = pack ? Number(pack.quantity) || 1 : 1;
     const baseUnits = Number(qty) * factor;
+    setSaving(true);
+    try {
+      await stockApi.receive({
+        productId,
+        branchId,
+        baseUnits,
+        actor: auth.user?.name || 'unknown',
+        supplier: supplier.trim() || '',
+        cost: price,
+        remark: note.trim() || '',
+        variantId: variantId || undefined
+      });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to sync to server'), { type: 'error' });
+      setSaving(false);
+      return;
+    }
     dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId, delta: baseUnits }));
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
@@ -102,6 +151,7 @@ function PurchasesPage() {
     setCost('');
     setNote('');
     toast.show('Stock received', { type: 'success' });
+    setSaving(false);
   }
 
   return (
@@ -156,9 +206,9 @@ function PurchasesPage() {
           <input className="input" placeholder="Optional note" value={note} onChange={e => setNote(e.target.value)} />
         </label>
         <div>
-          <button className="btn btn-primary" onClick={receive} style={{ marginTop: 6 }}>
+          <button className="btn btn-primary" onClick={receive} style={{ marginTop: 6 }} disabled={!canReceive || saving}>
             <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12M7 10l5 5 5-5" stroke="currentColor" strokeWidth="2"/><path d="M5 19h14" stroke="currentColor" strokeWidth="2"/></svg>
-            Receive
+            {saving ? 'Saving…' : 'Receive'}
           </button>
         </div>
       </div>
@@ -182,12 +232,13 @@ function PurchasesPage() {
           <label>
             Branch
             <select className="select" value={fBranch} onChange={e => setFBranch(e.target.value)}>
-              <option value="">All</option>
-              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              {(roleLower === 'superadmin' || roleLower === 'admin') && <option value="">All</option>}
+              {branchOptions.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </label>
-          <div style={{ alignSelf: 'end' }}>
-            <button className="btn" onClick={exportCsv}>Export CSV</button>
+          <div style={{ alignSelf: 'end', display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={onExportCsv}>Export CSV</button>
+            <button className="btn" onClick={onExportPdf}>Export PDF</button>
           </div>
         </div>
         <h2 className="section-title">Recent Purchases</h2>
@@ -207,7 +258,7 @@ function PurchasesPage() {
             </tr>
           </thead>
           <tbody>
-            {purchases.map(e => {
+            {purchases.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map(e => {
               const d = e.details || {};
               const branchName = byId.get(e.branchId) || e.branchId || '—';
               return (
@@ -230,6 +281,22 @@ function PurchasesPage() {
             )}
           </tbody>
         </table>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 8 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <button className="btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}>Prev</button>
+            <span>Page {page} of {Math.max(1, Math.ceil(purchases.length / pageSize))}</span>
+            <button className="btn" onClick={() => setPage(p => Math.min(Math.max(1, Math.ceil(purchases.length / pageSize)), p + 1))} disabled={page >= Math.max(1, Math.ceil(purchases.length / pageSize))}>Next</button>
+          </div>
+          <label>
+            <span style={{ marginRight: 6 }}>Rows</span>
+            <select className="select" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}>
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </label>
+        </div>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { loginSuccess } from '../store/authSlice';
+import * as authApi from '../api/auth';
 import { useToast } from '../components/ToastProvider';
 
 function LoginPage() {
@@ -46,20 +47,13 @@ function LoginPage() {
     return () => clearInterval(id);
   }, [expiresAt]);
 
-  function resolveUser(u, p) {
-    if (!/^\d{4,6}$/.test(String(p || ''))) return null;
-    const found = users.find(x => x.name.toLowerCase() === (u || '').toLowerCase() && String(x.pin) === String(p));
-    if (found) {
-      let landing = '/pos';
-      if (found.role === 'SuperAdmin' || found.role === 'Admin' || found.role === 'Manager') landing = '/dashboard';
-      if (found.role === 'Inventory Staff') landing = '/inventory';
-      if (found.role === 'Auditor') landing = '/reports';
-      return { role: found.role, landing, user: { name: found.name, branchId: found.branchId, assignedBranches: found.assignedBranches || (found.branchId ? [found.branchId] : []) } };
-    }
-    return null;
+  async function doServerLogin(u, p) {
+    const resp = await authApi.login({ username: u, pin: p });
+    try { localStorage.setItem('ptSales:authToken', resp.token); } catch {}
+    return resp;
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
     if (Date.now() >= expiresAt) {
       toast.show('Captcha expired', { type: 'error' });
@@ -71,13 +65,19 @@ function LoginPage() {
       regenerateCaptcha();
       return;
     }
-    const resolved = resolveUser(name, pin);
-    if (!resolved) {
+    let role = null;
+    let landing = '/pos';
+    let user = null;
+    try {
+      const resp = await doServerLogin(name, pin);
+      role = resp.role;
+      landing = resp.landing || landing;
+      user = resp.user;
+    } catch {
       toast.show('Invalid credentials', { type: 'error' });
       regenerateCaptcha();
       return;
     }
-    const { role, landing, user } = resolved;
     if (remember) {
       try { localStorage.setItem('ptSales:rememberName', name); } catch {}
     } else {

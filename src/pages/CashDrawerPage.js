@@ -1,17 +1,38 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { useState } from 'react';
-import { openSession, closeSession, addMovement } from '../store/sessionsSlice';
+import { useEffect, useState } from 'react';
+import { setSession, openSession, closeSession, addMovement } from '../store/sessionsSlice';
 import { downloadText, escposOpenDrawer } from '../utils/escpos';
+import * as cashApi from '../api/cashsessions';
+import { formatCurrency } from '../utils/currency';
 
 function CashDrawerPage() {
   const dispatch = useDispatch();
   const session = useSelector(s => s.sessions);
+  const settings = useSelector(s => s.settings);
   const [floatAmount, setFloatAmount] = useState(0);
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
 
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const me = await cashApi.me();
+        if (alive && me && typeof me === 'object') dispatch(setSession(me));
+      } catch {}
+    })();
+    return () => { alive = false; };
+  }, [dispatch]);
+
   function openDrawer() {
-    dispatch(openSession(Number(floatAmount)));
+    (async () => {
+      try {
+        const doc = await cashApi.open(Number(floatAmount));
+        dispatch(setSession(doc));
+      } catch {
+        dispatch(openSession(Number(floatAmount)));
+      }
+    })();
   }
   function openDrawerNow() {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
@@ -19,9 +40,17 @@ function CashDrawerPage() {
   }
   function record(type) {
     if (!amount) return;
-    dispatch(addMovement({ type, amount: Number(amount), note }));
-    setAmount('');
-    setNote('');
+    (async () => {
+      try {
+        const doc = await cashApi.move(type, Number(amount), note);
+        dispatch(setSession(doc));
+      } catch {
+        dispatch(addMovement({ type, amount: Number(amount), note }));
+      } finally {
+        setAmount('');
+        setNote('');
+      }
+    })();
   }
   const totalIn = session.movements.filter(m => m.type === 'in').reduce((s, m) => s + m.amount, 0);
   const totalOut = session.movements.filter(m => m.type === 'out').reduce((s, m) => s + m.amount, 0);
@@ -39,11 +68,11 @@ function CashDrawerPage() {
             </div>
             <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
               <div style={{ color: '#64748b' }}>Opening Float</div>
-              <div style={{ fontWeight: 700 }}>${session.openingFloat.toFixed(2)}</div>
+              <div style={{ fontWeight: 700 }}>{formatCurrency(session.openingFloat, settings)}</div>
             </div>
             <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
               <div style={{ color: '#64748b' }}>Expected Cash</div>
-              <div style={{ fontWeight: 700 }}>${expected.toFixed(2)}</div>
+              <div style={{ fontWeight: 700 }}>{formatCurrency(expected, settings)}</div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -67,14 +96,23 @@ function CashDrawerPage() {
                 <tr key={i} style={{ borderTop: '1px solid #e2e8f0' }}>
                   <td>{new Date(m.time).toLocaleString()}</td>
                   <td>{m.type}</td>
-                  <td>${m.amount.toFixed(2)}</td>
+                  <td>{formatCurrency(m.amount, settings)}</td>
                   <td>{m.note}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <div style={{ marginTop: 12 }}>
-            <button onClick={() => dispatch(closeSession())}>Close Session</button>
+            <button onClick={() => {
+              (async () => {
+                try {
+                  const doc = await cashApi.close();
+                  dispatch(setSession(doc));
+                } catch {
+                  dispatch(closeSession());
+                }
+              })();
+            }}>Close Session</button>
           </div>
         </>
       ) : (

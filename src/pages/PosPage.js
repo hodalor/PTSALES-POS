@@ -1,6 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { addItem, removeItem, setQuantity, clearCart, setDiscount } from '../store/cartSlice';
-import { enqueue } from '../offline/queue';
 import { adjustStock } from '../store/productsSlice';
 import { recordSale } from '../store/salesSlice';
 import { buildBrandedReceiptHtml, printReceiptHtml } from '../utils/print';
@@ -9,8 +8,8 @@ import { useToast } from '../components/ToastProvider';
 import { formatCurrency } from '../utils/currency';
 import { useMemo, useState } from 'react';
 import { addAudit } from '../store/auditSlice';
-import { setNextInvoiceNumber } from '../store/settingsSlice';
 import { productSpec } from '../utils/productSpec';
+import { createSale } from '../api/sales';
 
 function PosPage() {
   const cart = useSelector(state => state.cart);
@@ -24,6 +23,7 @@ function PosPage() {
   const [view, setView] = useState('grid');
   const [taxOverridePct, setTaxOverridePct] = useState('');
   const [taxOverrideRemark, setTaxOverrideRemark] = useState('');
+  const [saving, setSaving] = useState(false);
   const toast = useToast();
   const sellables = useMemo(() => {
     const out = [];
@@ -94,8 +94,13 @@ function PosPage() {
   }
 
   async function completeSale(escpos = false) {
+    if (saving) return;
     if (due > 0) {
       toast.show('Payment incomplete', { type: 'error' });
+      return;
+    }
+    if (!navigator.onLine) {
+      toast.show('Offline: cannot complete sale. Connect internet and try again.', { type: 'error' });
       return;
     }
     if (canOverrideTax && taxOverridePct !== '' && String(Math.round((taxRate || 0)*100)) !== String(Math.round((settings.taxRate || 0)*100))) {
@@ -105,25 +110,39 @@ function PosPage() {
       }
     }
     const branchName = branches.find(b => b.id === branchId)?.name || branchId;
-    const branchCode = branches.find(b => b.id === branchId)?.code || branchId;
-    const num = Number(settings.nextInvoiceNumber || 1);
-    const invoiceSerial = `${settings.invoicePrefix || 'INV'}-${branchCode}-${String(num).padStart(6,'0')}`;
     const sale = {
-      id: String(Date.now()),
       branchId,
       branchName,
       sellerName: auth.user?.name || 'unknown',
       sellerRole: auth.role || '',
-      items: cart.items.map(i => ({ name: i.name, sku: i.sku, spec: i.spec, qty: i.quantity, price: i.price })),
+      items: cart.items.map(i => ({
+        name: i.name,
+        sku: i.sku,
+        spec: i.spec,
+        qty: i.quantity,
+        price: i.price,
+        productId: i.productId,
+        variantId: i.variantId || null
+      })),
       subtotal,
       discount,
       tax,
       total,
       payment_methods: payments.map(p => ({ type: p.type, amount: Number(p.amount) || 0 })),
       status: 'completed',
-      created_at: new Date().toISOString(),
-      invoiceSerial
+      created_at: new Date().toISOString()
     };
+    setSaving(true);
+    let saved = null;
+    try {
+      saved = await createSale(sale);
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to record sale on server'), { type: 'error' });
+      setSaving(false);
+      return;
+    }
+    const saleForUi = { ...sale, ...saved, branchName };
+    const receiptHtml = buildBrandedReceiptHtml({ settings, sale: saleForUi });
     const skuToRef = new Map();
     sellables.forEach(p => skuToRef.set(p.sku, { productId: p.productId || p.id, variantId: p.variantId || null }));
     cart.items.forEach(i => {
@@ -132,7 +151,13 @@ function PosPage() {
         dispatch(adjustStock({ productId: ref.productId, variantId: ref.variantId, branchId, delta: -i.quantity }));
       }
     });
-    dispatch(recordSale(sale));
+    dispatch(recordSale(saleForUi));
+    dispatch(addAudit({
+      actor: auth.user?.name || 'unknown',
+      actionType: 'stock_sale_deduct',
+      details: { items: sale.items.map(it => ({ sku: it.sku, qty: it.qty })), branchId },
+      branchId
+    }));
     if (canOverrideTax && taxOverridePct !== '' && String(Math.round((taxRate || 0)*100)) !== String(Math.round((settings.taxRate || 0)*100))) {
       dispatch(addAudit({
         actor: auth.user?.name || 'unknown',
@@ -148,20 +173,11 @@ function PosPage() {
       details: { total: sale.total, items: sale.items.length },
       branchId
     }));
-    const receiptHtml = buildBrandedReceiptHtml({ settings, sale });
-    if (!navigator.onLine) {
-      await enqueue('sale', sale);
-      dispatch(clearCart());
-      toast.show('Offline: sale queued for sync.', { type: 'success' });
-      return;
-    }
-    await enqueue('sale', sale);
-    dispatch(setNextInvoiceNumber(num + 1));
     dispatch(clearCart());
     if (escpos) {
       const text = escposReceipt({
-        header: { title: settings.appName, store: settings.receiptHeader, branch: branchName, phone: settings.businessPhone || '', cashier: sale.sellerName, receiptId: sale.id, invoiceSerial: sale.invoiceSerial },
-        items: sale.items,
+        header: { title: settings.appName, store: settings.receiptHeader, branch: branchName, phone: settings.businessPhone || '', cashier: saleForUi.sellerName, receiptId: saleForUi.id || saleForUi._id, receiptNumber: saleForUi.receiptNumber, invoiceSerial: saleForUi.invoiceSerial },
+        items: saleForUi.items,
         totals: { subtotal, discount, tax, total },
         footer: { note: settings.receiptFooter },
         settings
@@ -171,6 +187,7 @@ function PosPage() {
       printReceiptHtml(receiptHtml);
     }
     toast.show('Sale recorded', { type: 'success' });
+    setSaving(false);
   }
 
   function onSearchKeyDown(e) {
@@ -311,13 +328,13 @@ function PosPage() {
           )}
         </div>
         <div style={{ marginTop: 12 }}>
-          <button className="btn btn-primary" onClick={() => completeSale(false)} disabled={cart.items.length === 0 || due > 0}>
+          <button className="btn btn-primary" onClick={() => completeSale(false)} disabled={cart.items.length === 0}>
             <svg viewBox="0 0 24 24" fill="none"><path d="M6 9V3h12v6" stroke="currentColor" strokeWidth="2"/><path d="M6 17h12v4H6z" stroke="currentColor" strokeWidth="2"/><path d="M4 9h16a2 2 0 012 2v2H2v-2a2 2 0 012-2z" stroke="currentColor" strokeWidth="2"/></svg>
-            Complete & Print
+            {saving ? 'Processing…' : 'Complete & Print'}
           </button>
-          <button className="btn" onClick={() => completeSale(true)} style={{ marginLeft: 8 }} disabled={cart.items.length === 0 || due > 0}>
+          <button className="btn" onClick={() => completeSale(true)} style={{ marginLeft: 8 }} disabled={cart.items.length === 0 || saving}>
             <svg viewBox="0 0 24 24" fill="none"><path d="M6 9V3h12v6" stroke="currentColor" strokeWidth="2"/><path d="M6 17h12v4H6z" stroke="currentColor" strokeWidth="2"/><path d="M4 9h16a2 2 0 012 2v2H2v-2a2 2 0 012-2z" stroke="currentColor" strokeWidth="2"/></svg>
-            Complete (ESC/POS)
+            {saving ? 'Processing…' : 'Complete (ESC/POS)'}
           </button>
           <button className="btn" onClick={() => dispatch(clearCart())} style={{ marginLeft: 8 }} disabled={cart.items.length === 0}>
             <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M6 7l1 12h10l1-12M9 7l1-2h4l1 2" stroke="currentColor" strokeWidth="2"/></svg>

@@ -8,6 +8,9 @@ const auditSlice = createSlice({
   name: 'audit',
   initialState,
   reducers: {
+    setEntries(state, action) {
+      state.entries = Array.isArray(action.payload) ? action.payload : [];
+    },
     addAudit(state, action) {
       const { actor, actionType, details, remark, branchId } = action.payload || {};
       state.entries.push({
@@ -26,6 +29,5 @@ const auditSlice = createSlice({
   }
 });
 
-export const { addAudit, clearAudit } = auditSlice.actions;
+export const { setEntries, addAudit, clearAudit } = auditSlice.actions;
 export default auditSlice.reducer;
-

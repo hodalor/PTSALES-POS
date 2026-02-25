@@ -8,6 +8,9 @@ const salesSlice = createSlice({
   name: 'sales',
   initialState,
   reducers: {
+    setSales(state, action) {
+      state.sales = Array.isArray(action.payload) ? action.payload : [];
+    },
     recordSale: {
       reducer(state, action) {
         state.sales.push(action.payload);
@@ -19,5 +22,5 @@ const salesSlice = createSlice({
   }
 });
 
-export const { recordSale } = salesSlice.actions;
+export const { setSales, recordSale } = salesSlice.actions;
 export default salesSlice.reducer;

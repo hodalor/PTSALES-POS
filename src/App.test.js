@@ -3,11 +3,11 @@ import App from './App';
 import { Provider } from 'react-redux';
 import store from './store';
 
-test('renders login heading', () => {
+test('renders login form', () => {
   render(
     <Provider store={store}>
       <App />
     </Provider>
   );
-  expect(screen.getByText(/Login/i)).toBeInTheDocument();
+  expect(screen.getByText(/Log In/i)).toBeInTheDocument();
 });

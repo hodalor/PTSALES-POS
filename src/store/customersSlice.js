@@ -8,6 +8,9 @@ const customersSlice = createSlice({
   name: 'customers',
   initialState,
   reducers: {
+    setCustomers(state, action) {
+      state.customers = Array.isArray(action.payload) ? action.payload : [];
+    },
     addCustomer: {
       reducer(state, action) {
         state.customers.push(action.payload);
@@ -32,6 +35,5 @@ const customersSlice = createSlice({
   }
 });
 
-export const { addCustomer, updateCustomer, removeCustomer } = customersSlice.actions;
+export const { setCustomers, addCustomer, updateCustomer, removeCustomer } = customersSlice.actions;
 export default customersSlice.reducer;
-

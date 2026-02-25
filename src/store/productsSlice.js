@@ -23,16 +23,32 @@ function generateEAN13() {
 }
 
 const initialState = {
-  products: [
-    { id: 'p1', name: 'Soda', sku: 'SODA-330', price: 10, stockByBranch: { main: 50 }, category: 'Beverages', barcode: generateEAN13(), lowStock: 10, image: null, unitKind: 'volume', unitValue: 330, unitSymbol: 'mL', attributes: [], packs: [{ name: 'Case (24)', quantity: 24 }] }
-  ],
-  categories: ['Beverages']
+  products: [],
+  categories: []
 };
 
 const productsSlice = createSlice({
   name: 'products',
   initialState,
   reducers: {
+    setProducts(state, action) {
+      const list = Array.isArray(action.payload) ? action.payload : [];
+      const mapped = list.map(p => {
+        const rawId = p.id || p._id || null;
+        const id = rawId != null ? String(rawId) : null;
+        const variants = Array.isArray(p.variants) ? p.variants.map((v, idx) => ({
+          id: v.id || v.label || String(idx),
+          label: v.label,
+          sku: v.sku || '',
+          price: v.price,
+          stockByBranch: v.stockByBranch || {}
+        })) : [];
+        return { ...p, id: id, stockByBranch: p.stockByBranch || {}, variants };
+      });
+      state.products = mapped;
+      const cats = Array.from(new Set(mapped.map(p => p.category).filter(Boolean)));
+      state.categories = cats.length > 0 ? cats : state.categories;
+    },
     addProduct: {
       reducer(state, action) {
         state.products.push(action.payload);
@@ -90,5 +106,5 @@ const productsSlice = createSlice({
   }
 });
 
-export const { addProduct, updateProduct, removeProduct, setStock, adjustStock, addCategory } = productsSlice.actions;
+export const { setProducts, addProduct, updateProduct, removeProduct, setStock, adjustStock, addCategory } = productsSlice.actions;
 export default productsSlice.reducer;

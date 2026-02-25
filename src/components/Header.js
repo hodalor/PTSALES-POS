@@ -24,7 +24,7 @@ function Header() {
             <span style={{ marginRight: 12 }}>
               {auth.user?.name} — {auth.role}
             </span>
-            <button className="btn" onClick={() => dispatch(logout())}>Logout</button>
+            <button className="btn" onClick={() => { try { localStorage.removeItem('ptSales:authToken'); } catch {} dispatch(logout()); }}>Logout</button>
           </>
         ) : (
           <span>Not signed in</span>

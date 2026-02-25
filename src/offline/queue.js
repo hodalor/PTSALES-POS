@@ -3,6 +3,8 @@ import { openDB } from 'idb';
 const DB_NAME = 'ptSalesOffline';
 const STORE = 'queue';
 
+let syncing = false;
+
 async function getDb() {
   return openDB(DB_NAME, 1, {
     upgrade(db) {
@@ -37,13 +39,19 @@ export async function remove(id) {
 }
 
 export async function attemptSync(syncHandler) {
-  const items = await getAll();
-  const results = await Promise.allSettled(
-    items.map(async item => {
-      await syncHandler(item);
-      await remove(item.id);
-      return true;
-    })
-  );
-  return results.every(r => r.status === 'fulfilled');
+  if (syncing) return false;
+  syncing = true;
+  try {
+    const items = await getAll();
+    const results = await Promise.allSettled(
+      items.map(async item => {
+        await syncHandler(item);
+        await remove(item.id);
+        return true;
+      })
+    );
+    return results.every(r => r.status === 'fulfilled');
+  } finally {
+    syncing = false;
+  }
 }

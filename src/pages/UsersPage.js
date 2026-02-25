@@ -1,9 +1,35 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { addUser, removeUser, updateUser } from '../store/usersSlice';
+import { addUser, removeUser, updateUser, setUsers } from '../store/usersSlice';
 import { addAudit } from '../store/auditSlice';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import { useToast } from '../components/ToastProvider';
 import { promptDialog } from '../utils/dialogs';
+import * as settingsApi from '../api/settings';
+import * as usersApi from '../api/users';
+import { setAllSettings } from '../store/settingsSlice';
+import { setGrants as setAuthGrants } from '../store/authSlice';
+
+const ALL_GRANTS = [
+  { key: 'view_dashboard', label: 'Dashboard' },
+  { key: 'view_pos', label: 'POS' },
+  { key: 'view_sales', label: 'Sales' }, { key: 'add_sales', label: 'Sales: Add' },
+  { key: 'view_products', label: 'Products' }, { key: 'add_products', label: 'Products: Add' }, { key: 'edit_products', label: 'Products: Edit' },
+  { key: 'view_inventory', label: 'Inventory' }, { key: 'edit_inventory', label: 'Inventory: Edit' },
+  { key: 'view_labels', label: 'Labels' },
+  { key: 'view_purchases', label: 'Purchases' }, { key: 'add_purchases', label: 'Purchases: Add' }, { key: 'edit_purchases', label: 'Purchases: Edit' },
+  { key: 'view_transfers', label: 'Transfers' }, { key: 'add_transfers', label: 'Transfers: Add' }, { key: 'edit_transfers', label: 'Transfers: Edit' },
+  { key: 'view_adjustments', label: 'Adjustments' }, { key: 'add_adjustments', label: 'Adjustments: Add' }, { key: 'edit_adjustments', label: 'Adjustments: Edit' },
+  { key: 'view_suppliers', label: 'Suppliers' }, { key: 'add_suppliers', label: 'Suppliers: Add' }, { key: 'edit_suppliers', label: 'Suppliers: Edit' },
+  { key: 'view_customers', label: 'Customers' }, { key: 'add_customers', label: 'Customers: Add' }, { key: 'edit_customers', label: 'Customers: Edit' },
+  { key: 'view_refunds', label: 'Refunds' }, { key: 'add_refunds', label: 'Refunds: Add Request' }, { key: 'approve_refunds', label: 'Refunds: Approve/Reject' },
+  { key: 'view_reports', label: 'Reports' },
+  { key: 'view_stock_records', label: 'Stock Records' },
+  { key: 'view_cashdrawer', label: 'Cash Drawer' },
+  { key: 'view_users', label: 'Users' },
+  { key: 'view_config', label: 'Config' },
+  { key: 'view_audit', label: 'Audit Log' }
+];
+const ALL_GRANTS_KEYS = ALL_GRANTS.map(g => g.key);
 
 function UsersPage() {
   const dispatch = useDispatch();
@@ -14,7 +40,9 @@ function UsersPage() {
   const [name, setName] = useState('');
   const [pin, setPin] = useState('');
   const defaultRoles = ['SuperAdmin','Admin','Branch Manager','Manager','Cashier','Inventory Staff','Auditor','Other'];
-  const rolesForUi = Array.from(new Set([...(roles || []), ...defaultRoles]));
+  const baseRolesForUi = Array.from(new Set([...(roles || []), ...defaultRoles]));
+  const viewerRole = String(auth.role || '');
+  const rolesForUi = (viewerRole === 'Admin') ? baseRolesForUi.filter(r => r !== 'SuperAdmin') : baseRolesForUi;
   const [role, setRole] = useState(rolesForUi[0] || 'Admin');
   const [branchId, setBranchId] = useState(branches[0]?.id || 'main');
   const [allBranches, setAllBranches] = useState(false);
@@ -33,6 +61,36 @@ function UsersPage() {
   const isSuper = String(auth.role || '').toLowerCase() === 'superadmin';
   const superAdminsCount = users.filter(u => u.role === 'SuperAdmin' && u.active !== false).length;
   const toast = useToast();
+  const [editGrants, setEditGrants] = useState([]);
+
+  const settings = useSelector(s => s.settings);
+  const existingGrants = settings?.userGrants || {};
+  const [grants, setGrants] = useState([]);
+  const allGrantKeys = ALL_GRANTS_KEYS;
+  const defaultsForRole = useCallback((r) => {
+    const rl = String(r || '').toLowerCase();
+    if (rl === 'superadmin') return allGrantKeys.slice();
+    if (rl === 'admin') return [
+      'view_dashboard','view_pos','view_sales','view_products','add_products','edit_products','view_inventory','edit_inventory','view_labels','view_purchases','add_purchases','edit_purchases','view_transfers','add_transfers','edit_transfers','view_adjustments','add_adjustments','edit_adjustments','view_suppliers','add_suppliers','edit_suppliers','view_customers','add_customers','edit_customers','view_refunds','approve_refunds','add_refunds','view_reports','view_stock_records','view_cashdrawer','view_users','view_config','view_audit'
+    ];
+    if (rl === 'manager' || rl === 'branch manager') return [
+      'view_dashboard','view_pos','view_sales','view_products','add_products','edit_products','view_inventory','edit_inventory','view_labels','view_purchases','add_purchases','edit_purchases','view_transfers','add_transfers','edit_transfers','view_adjustments','add_adjustments','edit_adjustments','view_suppliers','add_suppliers','edit_suppliers','view_customers','add_customers','edit_customers','view_refunds','approve_refunds','add_refunds','view_reports','view_cashdrawer','view_config'
+    ];
+    if (rl === 'cashier') return ['view_pos','view_sales','add_sales','view_customers','view_refunds','add_refunds','view_cashdrawer'];
+    if (rl === 'inventory staff') return ['view_products','view_inventory','edit_inventory','view_labels','view_purchases','add_purchases','view_transfers','add_transfers','view_adjustments','add_adjustments','view_suppliers'];
+    if (rl === 'auditor') return ['view_reports'];
+    return [];
+  }, [allGrantKeys]);
+  // auto-apply defaults when role is selected on Create User
+  useEffect(() => {
+    setGrants(defaultsForRole(role));
+  }, [role, defaultsForRole]);
+  // if editing role changed to SuperAdmin, ensure all grants are checked
+  useEffect(() => {
+    if (String(editRole || '').toLowerCase() === 'superadmin') {
+      setEditGrants(allGrantKeys.slice());
+    }
+  }, [editRole, allGrantKeys]);
   function canRemoveUser(u) {
     if (isSuper) {
       if (u.role === 'SuperAdmin') return superAdminsCount > 1;
@@ -42,6 +100,11 @@ function UsersPage() {
   }
 
   function add() {
+    const canCreate = ['Admin','SuperAdmin'].includes(viewerRole);
+    if (!canCreate) {
+      toast.show('Not authorized to create users', { type: 'error' });
+      return;
+    }
     const cleanName = name.trim();
     const cleanPin = pin.trim();
     if (!cleanName || !cleanPin) return;
@@ -56,7 +119,30 @@ function UsersPage() {
     const forceAll = role === 'SuperAdmin' || role === 'Admin';
     const assigned = forceAll || allBranches ? 'all' : (selectedBranches.length > 0 ? selectedBranches : [branchId]);
     const primaryBranch = allBranches ? 'main' : (assigned[0] || 'main');
-    dispatch(addUser({ name: cleanName, role, pin: cleanPin, branchId: primaryBranch, assignedBranches: assigned }));
+    if (viewerRole === 'Admin' && role === 'SuperAdmin') {
+      toast.show('Admins cannot create SuperAdmin', { type: 'error' });
+      return;
+    }
+    dispatch(addUser({ name: cleanName, role, branchId: primaryBranch, assignedBranches: assigned }));
+    (async () => {
+      try {
+        await usersApi.create({ name: cleanName, role, pin: cleanPin, branchId: primaryBranch, assignedBranches: assigned });
+        const latest = await usersApi.list().catch(() => null);
+        if (Array.isArray(latest)) dispatch(setUsers(latest));
+      } catch (e) {
+        toast.show('Failed to save user to server', { type: 'error' });
+      }
+    })();
+    (async () => {
+      try {
+        const next = { ...(settings || {}), userGrants: { ...(existingGrants || {}), [cleanName]: grants.slice() } };
+        const saved = await settingsApi.save(next);
+        dispatch(setAllSettings(saved));
+        if ((auth.user?.name || '') === cleanName) {
+          dispatch(setAuthGrants(saved?.userGrants?.[cleanName] || []));
+        }
+      } catch {}
+    })();
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'user_create',
@@ -71,6 +157,10 @@ function UsersPage() {
   }
 
   function startEdit(u) {
+    if (viewerRole === 'Admin' && String(u.role) === 'SuperAdmin') {
+      toast.show('Admins cannot edit SuperAdmin', { type: 'error' });
+      return;
+    }
     setEditingId(u.id);
     setEditName(u.name);
     setEditRole(u.role);
@@ -81,11 +171,21 @@ function UsersPage() {
     setEditBranchId(u.branchId || branches[0]?.id || 'main');
     setEditActive(u.active !== false);
     setEditRemark('');
+    const g = existingGrants?.[u.name] || [];
+    setEditGrants(Array.isArray(g) ? g : []);
   }
 
   function saveEdit() {
     if (!editingId) return;
     const target = users.find(u => u.id === editingId);
+    if (viewerRole !== 'Admin' && viewerRole !== 'SuperAdmin') {
+      toast.show('Not authorized to edit users', { type: 'error' });
+      return;
+    }
+    if (viewerRole === 'Admin' && target && target.role === 'SuperAdmin') {
+      toast.show('Admins cannot edit SuperAdmin', { type: 'error' });
+      return;
+    }
     const fields = { id: editingId, name: editName.trim(), role: editRole, active: !!editActive };
     const p = editPin.trim();
     if (p) {
@@ -117,6 +217,33 @@ function UsersPage() {
       return;
     }
     dispatch(updateUser(fields));
+    (async () => {
+      try {
+        const prevName = target?.name || editName;
+        const payload = { name: fields.name, role: fields.role, active: fields.active, branchId: fields.branchId, assignedBranches: fields.assignedBranches };
+        if (fields.pin) payload.pin = fields.pin;
+        await usersApi.update(prevName, payload);
+        const latest = await usersApi.list().catch(() => null);
+        if (Array.isArray(latest)) dispatch(setUsers(latest));
+      } catch {
+        toast.show('Failed to update user on server', { type: 'error' });
+      }
+    })();
+    (async () => {
+      try {
+        const map = { ...(existingGrants || {}) };
+        if (target && target.name && target.name !== editName) {
+          delete map[target.name];
+        }
+        map[editName] = editGrants.slice();
+        const next = { ...(settings || {}), userGrants: map };
+        const saved = await settingsApi.save(next);
+        dispatch(setAllSettings(saved));
+        if ((auth.user?.name || '') === editName) {
+          dispatch(setAuthGrants(saved?.userGrants?.[editName] || []));
+        }
+      } catch {}
+    })();
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'user_update',
@@ -128,6 +255,14 @@ function UsersPage() {
 
   function toggleActive(u, active) {
     (async () => {
+      if (viewerRole !== 'Admin' && viewerRole !== 'SuperAdmin') {
+        toast.show('Not authorized', { type: 'error' });
+        return;
+      }
+      if (viewerRole === 'Admin' && String(u.role) === 'SuperAdmin') {
+        toast.show('Admins cannot modify SuperAdmin', { type: 'error' });
+        return;
+      }
       const r = await promptDialog(active ? 'Remark for enabling user' : 'Remark for disabling user');
       if (!r || !r.trim()) return;
       dispatch(updateUser({ id: u.id, active }));
@@ -137,6 +272,13 @@ function UsersPage() {
         details: { id: u.id, name: u.name, active },
         remark: r
       }));
+      try {
+        await usersApi.update(u.name, { active });
+        const latest = await usersApi.list().catch(() => null);
+        if (Array.isArray(latest)) dispatch(setUsers(latest));
+      } catch {
+        toast.show('Failed to update status on server', { type: 'error' });
+      }
     })();
   }
 
@@ -186,6 +328,28 @@ function UsersPage() {
               </div>
             </>
           )}
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, marginBottom: 8 }}>
+            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>Feature Access</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              {ALL_GRANTS.map(g => (
+                <label key={g.key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={grants.includes(g.key)}
+                    onChange={e => {
+                      const checked = e.target.checked;
+                      setGrants(prev => {
+                        const set = new Set(prev);
+                        if (checked) set.add(g.key); else set.delete(g.key);
+                        return Array.from(set);
+                      });
+                    }}
+                  />
+                  <span>{g.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
           <input placeholder="Remark (required)" value={remark} onChange={e => setRemark(e.target.value)} style={{ display: 'block', width: '100%', padding: 10, marginBottom: 8 }} />
           <button onClick={add}>Add User</button>
         </div>
@@ -202,7 +366,7 @@ function UsersPage() {
               </tr>
             </thead>
             <tbody>
-              {users.map(u => {
+              {(isSuper ? users : users.filter(u => u.role !== 'SuperAdmin')).map(u => {
                 const access = (u.role === 'SuperAdmin' || u.role === 'Admin' || u.assignedBranches === 'all') ? 'All branches'
                   : (Array.isArray(u.assignedBranches) ? `${u.assignedBranches.length} branches` : (u.branchId || '—'));
                 const active = u.active !== false;
@@ -213,7 +377,7 @@ function UsersPage() {
                     <td>{access}</td>
                     <td>{active ? 'Active' : 'Disabled'}</td>
                     <td style={{ display: 'flex', gap: 8 }}>
-                      <button className="btn" onClick={() => startEdit(u)}>Edit</button>
+                      <button className="btn" onClick={() => startEdit(u)} disabled={!isSuper && u.role === 'SuperAdmin'}>Edit</button>
                       {(isSuper || u.name !== 'superadmin') && (
                         active
                           ? <button className="btn" onClick={() => toggleActive(u, false)}>Disable</button>
@@ -230,6 +394,13 @@ function UsersPage() {
                             const r = await promptDialog('Remark for removing user');
                             if (!r || !r.trim()) return;
                             dispatch(removeUser(u.id));
+                            try {
+                              await usersApi.remove(u.name);
+                              const latest = await usersApi.list().catch(() => null);
+                              if (Array.isArray(latest)) dispatch(setUsers(latest));
+                            } catch {
+                              toast.show('Failed to remove user on server', { type: 'error' });
+                            }
                           })();
                         }}
                         disabled={!canRemoveUser(u)}
@@ -244,9 +415,13 @@ function UsersPage() {
           </table>
         </div>
         {editingId && (
-          <div style={{ gridColumn: '1 / span 2', background: '#fff', borderRadius: 12, padding: 16 }}>
-            <h2>Edit User</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: '90%', maxWidth: 900, background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <h2 style={{ margin: 0 }}>Edit User</h2>
+                <button className="btn" onClick={() => setEditingId(null)}>Close</button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
               <div>
                 <label>Name</label>
                 <input className="input" value={editName} onChange={e => setEditName(e.target.value)} style={{ display: 'block', width: '100%', marginBottom: 8 }} />
@@ -303,12 +478,35 @@ function UsersPage() {
                     <span>Active</span>
                   </label>
                 </div>
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>Feature Access</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    {ALL_GRANTS.map(g => (
+                      <label key={g.key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <input
+                          type="checkbox"
+                          checked={editGrants.includes(g.key)}
+                          onChange={e => {
+                            const checked = e.target.checked;
+                            setEditGrants(prev => {
+                              const set = new Set(prev);
+                              if (checked) set.add(g.key); else set.delete(g.key);
+                              return Array.from(set);
+                            });
+                          }}
+                        />
+                        <span>{g.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
                 <label>Remark (required)</label>
                 <input className="input" value={editRemark} onChange={e => setEditRemark(e.target.value)} style={{ display: 'block', width: '100%', marginBottom: 8 }} />
                 <div>
                   <button className="btn btn-primary" onClick={saveEdit} style={{ marginRight: 8 }}>Save</button>
                   <button className="btn" onClick={() => setEditingId(null)}>Cancel</button>
                 </div>
+              </div>
               </div>
             </div>
           </div>

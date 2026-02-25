@@ -4,10 +4,21 @@ import { addSupplier, updateSupplier, removeSupplier } from '../store/suppliersS
 import { useToast } from '../components/ToastProvider';
 import { addAudit } from '../store/auditSlice';
 import { confirmDialog } from '../utils/dialogs';
+import * as suppliersApi from '../api/suppliers';
 
 function SuppliersPage() {
   const suppliers = useSelector(s => s.suppliers.suppliers);
   const auth = useSelector(s => s.auth);
+  const roleLower = String(auth.role || '').toLowerCase();
+  const grants = Array.isArray(auth.grants) ? auth.grants : [];
+  function has(g) {
+    if (!g) return false;
+    if (roleLower === 'superadmin') return true;
+    return grants.includes(g);
+  }
+  const canAddSuppliers = (['admin','manager'].includes(roleLower)) || has('add_suppliers');
+  const canEditSuppliers = (['admin','manager'].includes(roleLower)) || has('edit_suppliers');
+  const canRemoveSuppliers = (roleLower === 'admin' || roleLower === 'superadmin');
   const [query, setQuery] = useState('');
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
@@ -31,31 +42,41 @@ function SuppliersPage() {
     );
   }, [suppliers, query]);
 
-  function addNew() {
+  async function addNew() {
+    if (!canAddSuppliers) { toast.show('Not authorized to add suppliers', { type: 'error' }); return; }
     if (!name.trim()) { toast.show('Name is required', { type: 'error' }); return; }
-    const action = dispatch(addSupplier({ name: name.trim(), contact: contact.trim(), phone: phone.trim(), email: email.trim(), address: address.trim(), notes: notes.trim() }));
+    const payload = { name: name.trim(), contact: contact.trim(), phone: phone.trim(), email: email.trim(), address: address.trim(), notes: notes.trim() };
+    const action = dispatch(addSupplier(payload));
     const created = action?.payload;
     if (created) {
       dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_add', details: { id: created.id, name: created.name } }));
+    }
+    if (created) {
+      suppliersApi.create({ id: created.id, ...payload }).catch(() => {});
     }
     setName(''); setContact(''); setPhone(''); setEmail(''); setAddress(''); setNotes('');
     toast.show('Supplier added', { type: 'success' });
   }
 
   function startEdit(s) {
+    if (!canEditSuppliers) { toast.show('Not authorized to edit suppliers', { type: 'error' }); return; }
     setEditingId(s.id);
     setEdit({ name: s.name || '', contact: s.contact || '', phone: s.phone || '', email: s.email || '', address: s.address || '', notes: s.notes || '' });
   }
-  function saveEdit() {
+  async function saveEdit() {
+    if (!canEditSuppliers) { toast.show('Not authorized to edit suppliers', { type: 'error' }); return; }
     dispatch(updateSupplier({ id: editingId, ...edit }));
+    suppliersApi.update(editingId, edit).catch(() => {});
     dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_update', details: { id: editingId } }));
     setEditingId(null);
     toast.show('Supplier updated', { type: 'success' });
   }
   async function remove(id) {
+    if (!canRemoveSuppliers) { toast.show('Only Admin can remove suppliers', { type: 'error' }); return; }
     const ok = await confirmDialog('Remove this supplier?');
     if (!ok) return;
     dispatch(removeSupplier(id));
+    suppliersApi.remove(id).catch(() => {});
     dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_remove', details: { id } }));
     toast.show('Supplier removed', { type: 'success' });
   }
@@ -63,6 +84,7 @@ function SuppliersPage() {
   return (
     <div style={{ padding: 16 }}>
       <h1>Suppliers</h1>
+      {canAddSuppliers && (
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
           <input className="input" placeholder="Search suppliers" value={query} onChange={e => setQuery(e.target.value)} style={{ gridColumn: '1 / span 4' }} />
@@ -80,6 +102,7 @@ function SuppliersPage() {
           </div>
         </div>
       </div>
+      )}
       <div className="card">
         <h2 className="section-title">Supplier List</h2>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -129,14 +152,18 @@ function SuppliersPage() {
                 </td>
                 <td>
                   {editingId === s.id ? (
-                    <>
-                      <button className="btn btn-primary" onClick={saveEdit}>Save</button>
-                      <button className="btn" onClick={() => setEditingId(null)} style={{ marginLeft: 6 }}>Cancel</button>
-                    </>
+                    canEditSuppliers ? (
+                      <>
+                        <button className="btn btn-primary" onClick={saveEdit}>Save</button>
+                        <button className="btn" onClick={() => setEditingId(null)} style={{ marginLeft: 6 }}>Cancel</button>
+                      </>
+                    ) : (
+                      <button className="btn" onClick={() => setEditingId(null)}>Cancel</button>
+                    )
                   ) : (
                     <>
-                      <button className="btn" onClick={() => startEdit(s)}>Edit</button>
-                      <button className="btn" onClick={() => remove(s.id)} style={{ marginLeft: 6 }}>Remove</button>
+                      {canEditSuppliers && <button className="btn" onClick={() => startEdit(s)}>Edit</button>}
+                      {canRemoveSuppliers && <button className="btn" onClick={() => remove(s.id)} style={{ marginLeft: 6 }}>Remove</button>}
                     </>
                   )}
                 </td>
