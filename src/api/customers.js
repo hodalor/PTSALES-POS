@@ -1,7 +1,11 @@
 import { fetchJson } from './client';
 
-export function list() {
-  return fetchJson('/api/customers');
+export function list({ q, limit } = {}) {
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (limit != null) params.set('limit', String(limit));
+  const qs = params.toString();
+  return fetchJson(`/api/customers${qs ? `?${qs}` : ''}`);
 }
 export function create(payload) {
   return fetchJson('/api/customers', { method: 'POST', body: JSON.stringify(payload) });

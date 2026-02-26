@@ -53,6 +53,12 @@ export function buildBrandedReceiptHtml({ settings, sale }) {
   const phone = settings?.businessPhone || '';
   const website = settings?.businessWebsite || '';
   const cashier = sale.sellerName || '—';
+  const customerLine = (() => {
+    const name = String(sale.customerName || '').trim();
+    const code = String(sale.customerCode || '').trim();
+    if (!name && !code) return '';
+    return `<div class="small">CUSTOMER: ${[name, code ? `(${code})` : ''].filter(Boolean).join(' ')}</div>`;
+  })();
   const qtySum = (sale.items || []).reduce((s, it) => s + (Number(it.qty)||0), 0);
   const paid = (sale.payment_methods || []).reduce((s, p) => s + (Number(p.amount)||0), 0);
   const change = Math.max(0, paid - (Number(sale.total)||0));
@@ -96,6 +102,7 @@ export function buildBrandedReceiptHtml({ settings, sale }) {
     <div class="center title">${branch}</div>
     ${phone ? `<div class="center small">${phone}</div>` : ''}
     <div class="small">CASHIER: ${cashier}</div>
+    ${customerLine}
     <div class="hr"></div>
     <table>
       <tbody>

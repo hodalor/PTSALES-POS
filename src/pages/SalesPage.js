@@ -56,7 +56,7 @@ function SalesPage() {
   function reprint(sale, escpos = false) {
     if (escpos) {
       const text = escposReceipt({
-        header: { title: settings.appName, store: settings.receiptHeader, branch: branchLabel(sale), phone: settings.businessPhone || '', cashier: sale.sellerName, receiptId: sale.id, receiptNumber: sale.receiptNumber, invoiceSerial: sale.invoiceSerial },
+        header: { title: settings.appName, store: settings.receiptHeader, branch: branchLabel(sale), phone: settings.businessPhone || '', cashier: sale.sellerName, customer: sale.customerName ? `${sale.customerName}${sale.customerCode ? ` (${sale.customerCode})` : ''}` : '', receiptId: sale.id, receiptNumber: sale.receiptNumber, invoiceSerial: sale.invoiceSerial },
         items: sale.items,
         totals: { subtotal: sale.subtotal, discount: sale.discount, tax: sale.tax, total: sale.total },
         footer: { note: settings.receiptFooter },

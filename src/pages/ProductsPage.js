@@ -144,15 +144,49 @@ function ProductsPage() {
   function onFileChange(e) {
     const f = e.target.files?.[0];
     if (!f) { setImagePreview(''); return; }
+    if (f.size > 2 * 1024 * 1024) {
+      toast.show('Image is too large (max 2MB)', { type: 'error' });
+      e.target.value = '';
+      setImagePreview('');
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => setImagePreview(String(reader.result || ''));
     reader.readAsDataURL(f);
   }
 
   async function save() {
+    const errors = [];
+    if (!name.trim()) errors.push('Product name is required');
+    if (!sku.trim()) errors.push('SKU is required');
+    if (!price || Number(price) <= 0) errors.push('Price is required and must be > 0');
+
+    for (let i = 0; i < packs.length; i++) {
+        const p = packs[i];
+        const hasName = p.name && p.name.trim();
+        const hasQty = p.quantity && Number(p.quantity) > 0;
+        const isEmpty = !hasName && !p.quantity;
+        if (isEmpty) continue;
+        if (hasName && !hasQty) errors.push(`Pack #${i+1}: Quantity is required`);
+        else if (!hasName && hasQty) errors.push(`Pack #${i+1}: Name is required`);
+    }
+
+    for (let i = 0; i < variants.length; i++) {
+        const v = variants[i];
+        const hasLabel = v.label && v.label.trim();
+        const hasPrice = v.price !== '' && v.price != null;
+        const isEmpty = !hasLabel && !v.sku && !hasPrice;
+        if (isEmpty) continue;
+        if (!hasLabel) errors.push(`Variant #${i+1}: Label is required (e.g. Size/Color)`);
+    }
+
+    if (errors.length > 0) {
+        toast.show(errors[0], { type: 'error' });
+        return;
+    }
+
     if (modalMode === 'add') {
         if (!canAddProducts) { toast.show('Not authorized to add products', { type: 'error' }); return; }
-        if (!name.trim() || !sku.trim() || !price) return;
         
         const cleanAttrs = (attrs || []).filter(a => a.key && a.value).map(a => ({ key: a.key.trim(), value: a.value.trim() }));
         const payload = {
@@ -734,10 +768,12 @@ function ProductsPage() {
                     <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <label>
                         <div className="label" style={{ color: '#cbd5e1' }}>Cost Price (per unit)</div>
-                        <input className="input" type="number" min="0" step="0.01" value={costPrice} onChange={e => setCostPrice(e.target.value)} />
+                        <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>Your purchase price (capital). Used to calculate profit.</div>
+                        <input className="input" type="number" min="0" step="0.01" placeholder="e.g. 10.00" value={costPrice} onChange={e => setCostPrice(e.target.value)} />
                       </label>
                       <label>
                         <div className="label" style={{ color: '#cbd5e1' }}>Expiry Date</div>
+                        <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>Use for products that expire (alerts and inventory planning).</div>
                         <input className="input" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} />
                       </label>
                     </div>
@@ -757,8 +793,12 @@ function ProductsPage() {
                   </button>
                   {unitsOpen && (
                     <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div style={{ gridColumn: '1 / span 2', color: '#94a3b8', fontSize: 12 }}>
+                        Use this when the same product needs a clear size/measurement shown in POS and invoices.
+                      </div>
                       <label>
                         <div className="label" style={{ color: '#cbd5e1' }}>Type</div>
+                        <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>Choose how to describe the product (e.g. volume for drinks, size for clothing).</div>
                         <select className="select" value={unitKind} onChange={e => setUnitKind(e.target.value)}>
                           <option value="none">None</option>
                           <option value="volume">Volume</option>
@@ -772,7 +812,8 @@ function ProductsPage() {
                         <>
                           <label>
                             <div className="label" style={{ color: '#cbd5e1' }}>Value</div>
-                            <input className="input" type="number" value={unitValue} onChange={e => setUnitValue(e.target.value)} />
+                            <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>Example: 500 with Unit mL means “500mL”.</div>
+                            <input className="input" type="number" placeholder="e.g. 500" value={unitValue} onChange={e => setUnitValue(e.target.value)} />
                           </label>
                           <label>
                             <div className="label" style={{ color: '#cbd5e1' }}>Unit</div>
@@ -786,13 +827,15 @@ function ProductsPage() {
                       {unitKind === 'size' && (
                         <label style={{ gridColumn: '1 / span 2' }}>
                           <div className="label" style={{ color: '#cbd5e1' }}>Size</div>
-                          <input className="input" value={sizeLabel} onChange={e => setSizeLabel(e.target.value)} placeholder="XS, S, M, L, XL, etc." />
+                          <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>Use for clothing sizes (shown on receipts and sales reports).</div>
+                          <input className="input" value={sizeLabel} onChange={e => setSizeLabel(e.target.value)} placeholder="e.g. Shirt: L, XL" />
                         </label>
                       )}
                       {unitKind === 'shoe' && (
                         <label style={{ gridColumn: '1 / span 2' }}>
                           <div className="label" style={{ color: '#cbd5e1' }}>Shoe Size</div>
-                          <input className="input" value={shoeSize} onChange={e => setShoeSize(e.target.value)} placeholder="e.g. 42 EU or 9 US" />
+                          <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>Use when shoes have different sizes (EU/US).</div>
+                          <input className="input" value={shoeSize} onChange={e => setShoeSize(e.target.value)} placeholder="e.g. Shoe EU 46 / US 9" />
                         </label>
                       )}
                     </div>
@@ -812,13 +855,16 @@ function ProductsPage() {
                   </button>
                   {attrsOpen && (
                     <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+                      <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                        Use attributes for extra details like Brand, Color, Model, Material. Helps searching and reporting.
+                      </div>
                       {attrs.map((row, idx) => (
                         <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
-                          <input className="input" placeholder="Key" value={row.key} onChange={e => {
+                          <input className="input" placeholder="Key (e.g. Brand)" value={row.key} onChange={e => {
                             const v = e.target.value;
                             setAttrs(prev => prev.map((r, i) => i === idx ? { ...r, key: v } : r));
                           }} />
-                          <input className="input" placeholder="Value" value={row.value} onChange={e => {
+                          <input className="input" placeholder="Value (e.g. Nike)" value={row.value} onChange={e => {
                             const v = e.target.value;
                             setAttrs(prev => prev.map((r, i) => i === idx ? { ...r, value: v } : r));
                           }} />
@@ -843,13 +889,16 @@ function ProductsPage() {
                   </button>
                   {packsOpen && (
                     <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+                      <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                        Use packs when you sell in multiples (e.g. Carton of 12). POS can use this for faster entry.
+                      </div>
                       {packs.map((row, idx) => (
                         <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 140px auto', gap: 8 }}>
-                          <input className="input" placeholder="Name" value={row.name} onChange={e => {
+                          <input className="input" placeholder="Name (e.g. Carton)" value={row.name} onChange={e => {
                             const v = e.target.value;
                             setPacks(prev => prev.map((r, i) => i === idx ? { ...r, name: v } : r));
                           }} />
-                          <input className="input" type="number" min="1" placeholder="Qty" value={row.quantity} onChange={e => {
+                          <input className="input" type="number" min="1" placeholder="Qty (e.g. 12)" value={row.quantity} onChange={e => {
                             const v = e.target.value;
                             setPacks(prev => prev.map((r, i) => i === idx ? { ...r, quantity: v } : r));
                           }} />
@@ -874,17 +923,20 @@ function ProductsPage() {
                   </button>
                   {variantsOpen && (
                     <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+                      <div style={{ color: '#94a3b8', fontSize: 12 }}>
+                        Use variants when one product has different options with their own SKU/price/stock (e.g. colors, sizes, 500mL vs 1L).
+                      </div>
                       {variants.map((row, idx) => (
                         <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 140px auto', gap: 8 }}>
-                          <input className="input" placeholder="Label" value={row.label} onChange={e => {
+                          <input className="input" placeholder="Label (e.g. Red / XL / 1L)" value={row.label} onChange={e => {
                             const v = e.target.value;
                             setVariants(prev => prev.map((r, i) => i === idx ? { ...r, label: v } : r));
                           }} />
-                          <input className="input" placeholder="SKU" value={row.sku} onChange={e => {
+                          <input className="input" placeholder="SKU (e.g. SKU-RED)" value={row.sku} onChange={e => {
                             const v = e.target.value;
                             setVariants(prev => prev.map((r, i) => i === idx ? { ...r, sku: v } : r));
                           }} />
-                          <input className="input" type="number" placeholder="Price" value={row.price} onChange={e => {
+                          <input className="input" type="number" placeholder="Price (e.g. 25.00)" value={row.price} onChange={e => {
                             const v = e.target.value;
                             setVariants(prev => prev.map((r, i) => i === idx ? { ...r, price: v } : r));
                           }} />

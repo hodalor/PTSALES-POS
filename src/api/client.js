@@ -3,7 +3,7 @@ const LS_KEY = 'apiBaseUrl';
 export function getApiBase() {
   const fromLs = localStorage.getItem(LS_KEY);
   if (fromLs) return fromLs.replace(/\/+$/,'');
-  return 'http://localhost:4000';
+  return process.env.REACT_APP_API_URL || 'http://localhost:4000';
 }
 
 export function setApiBase(url) {

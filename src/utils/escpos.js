@@ -7,6 +7,7 @@ export function escposReceipt({ header, items, totals, footer, settings }) {
   if (header?.branch) lines.push(center(header.branch));
   if (header?.phone) lines.push(center(`Tel: ${header.phone}`));
   if (header?.cashier) lines.push(text(`CASHIER: ${header.cashier}`));
+  if (header?.customer) lines.push(text(`CUSTOMER: ${header.customer}`));
   if (settings?.businessTpin) lines.push(text(`TPIN: ${settings.businessTpin}`));
   if (settings?.sdcId) lines.push(text(`SDC ID: ${settings.sdcId}`));
   if (header?.receiptNumber) lines.push(text(`RCPT: ${header.receiptNumber}`));

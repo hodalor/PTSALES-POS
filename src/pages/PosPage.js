@@ -2,6 +2,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { addItem, removeItem, setQuantity, clearCart, setDiscount } from '../store/cartSlice';
 import { adjustStock } from '../store/productsSlice';
 import { recordSale } from '../store/salesSlice';
+import { updateCustomer } from '../store/customersSlice';
 import { buildBrandedReceiptHtml, printReceiptHtml } from '../utils/print';
 import { escposReceipt, escposOpenDrawer, downloadText } from '../utils/escpos';
 import { useToast } from '../components/ToastProvider';
@@ -14,6 +15,7 @@ import { createSale } from '../api/sales';
 function PosPage() {
   const cart = useSelector(state => state.cart);
   const products = useSelector(s => s.products.products);
+  const customers = useSelector(s => s.customers.customers);
   const branches = useSelector(s => s.branches.branches);
   const branchId = useSelector(s => s.settings.currentBranchId);
   const settings = useSelector(s => s.settings);
@@ -24,6 +26,9 @@ function PosPage() {
   const [taxOverridePct, setTaxOverridePct] = useState('');
   const [taxOverrideRemark, setTaxOverrideRemark] = useState('');
   const [saving, setSaving] = useState(false);
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [redeemPoints, setRedeemPoints] = useState('');
   const toast = useToast();
   const sellables = useMemo(() => {
     const out = [];
@@ -62,10 +67,38 @@ function PosPage() {
   }, [sellables, query]);
   const dispatch = useDispatch();
 
+  const selectedCustomer = useMemo(() => {
+    if (!selectedCustomerId) return null;
+    return customers.find(c => String(c.id) === String(selectedCustomerId)) || null;
+  }, [customers, selectedCustomerId]);
+
+  const customerMatches = useMemo(() => {
+    const q = customerQuery.trim().toLowerCase();
+    if (!q) return [];
+    return customers
+      .filter(c =>
+        (c.name || '').toLowerCase().includes(q) ||
+        (c.phone || '').toLowerCase().includes(q) ||
+        (c.email || '').toLowerCase().includes(q) ||
+        String(c.customerCode || '').toLowerCase().includes(q) ||
+        String(c.idCardNumber || '').toLowerCase().includes(q)
+      )
+      .slice(0, 8);
+  }, [customers, customerQuery]);
+
   const subtotal = cart.items.reduce((sum, i) => sum + (i.price || 0) * (i.quantity || 1), 0);
-  const discount = cart.discount || 0;
+  const manualDiscount = cart.discount || 0;
   const canOverrideTax = ['Admin','Manager'].includes(auth.role) || String(auth.role || '').toLowerCase() === 'superadmin';
   const taxRate = canOverrideTax && taxOverridePct !== '' ? Math.max(0, Math.min(1, Number(taxOverridePct) / 100)) : Number(settings.taxRate ?? 0);
+  const maxRedeemPct = Math.max(0, Math.min(100, Number(settings.loyaltyMaxRedeemPercent ?? 50)));
+  const redeemValue = Number(settings.loyaltyRedeemValue || 0);
+  const availablePoints = Math.max(0, Math.floor(Number(selectedCustomer?.loyaltyPoints || 0)));
+  const reqRedeem = Math.max(0, Math.floor(Number(redeemPoints || 0)));
+  const redeemable = Math.min(reqRedeem, availablePoints);
+  let loyaltyDiscount = (settings.loyaltyEnabled && selectedCustomer && redeemValue > 0) ? (redeemable * redeemValue) : 0;
+  const cap = (subtotal > 0 ? (subtotal * (maxRedeemPct / 100)) : 0);
+  if (loyaltyDiscount > cap) loyaltyDiscount = cap;
+  const discount = Math.max(0, Number(manualDiscount || 0) + Number(loyaltyDiscount || 0));
   const tax = Math.max(0, (subtotal - discount) * taxRate);
   const total = Math.max(0, subtotal - discount + tax);
   const paid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
@@ -115,6 +148,11 @@ function PosPage() {
       branchName,
       sellerName: auth.user?.name || 'unknown',
       sellerRole: auth.role || '',
+      customerId: selectedCustomer ? selectedCustomer.id : '',
+      customerCode: selectedCustomer ? (selectedCustomer.customerCode || '') : '',
+      customerName: selectedCustomer ? (selectedCustomer.name || '') : '',
+      customerPhone: selectedCustomer ? (selectedCustomer.phone || '') : '',
+      loyaltyPointsRedeemed: (settings.loyaltyEnabled && selectedCustomer) ? redeemable : 0,
       items: cart.items.map(i => ({
         name: i.name,
         sku: i.sku,
@@ -152,6 +190,9 @@ function PosPage() {
       }
     });
     dispatch(recordSale(saleForUi));
+    if (selectedCustomer && saleForUi.customerPointsAfter != null) {
+      dispatch(updateCustomer({ id: selectedCustomer.id, loyaltyPoints: Number(saleForUi.customerPointsAfter || 0) }));
+    }
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'stock_sale_deduct',
@@ -174,9 +215,12 @@ function PosPage() {
       branchId
     }));
     dispatch(clearCart());
+    setSelectedCustomerId('');
+    setCustomerQuery('');
+    setRedeemPoints('');
     if (escpos) {
       const text = escposReceipt({
-        header: { title: settings.appName, store: settings.receiptHeader, branch: branchName, phone: settings.businessPhone || '', cashier: saleForUi.sellerName, receiptId: saleForUi.id || saleForUi._id, receiptNumber: saleForUi.receiptNumber, invoiceSerial: saleForUi.invoiceSerial },
+        header: { title: settings.appName, store: settings.receiptHeader, branch: branchName, phone: settings.businessPhone || '', cashier: saleForUi.sellerName, customer: saleForUi.customerName ? `${saleForUi.customerName}${saleForUi.customerCode ? ` (${saleForUi.customerCode})` : ''}` : '', receiptId: saleForUi.id || saleForUi._id, receiptNumber: saleForUi.receiptNumber, invoiceSerial: saleForUi.invoiceSerial },
         items: saleForUi.items,
         totals: { subtotal, discount, tax, total },
         footer: { note: settings.receiptFooter },
@@ -258,6 +302,49 @@ function PosPage() {
       </div>
       <div>
         <h2>Cart</h2>
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Customer (optional)</div>
+          {selectedCustomer ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <div>
+                <div style={{ fontWeight: 700 }}>{selectedCustomer.name}</div>
+                <div style={{ color: '#64748b', fontSize: 12 }}>
+                  {selectedCustomer.customerCode || '—'} {selectedCustomer.phone ? `• ${selectedCustomer.phone}` : ''}
+                </div>
+              </div>
+              <button className="btn" onClick={() => { setSelectedCustomerId(''); setCustomerQuery(''); }}>
+                Clear
+              </button>
+            </div>
+          ) : (
+            <div style={{ position: 'relative' }}>
+              <input
+                className="input"
+                placeholder="Search by phone, customer ID, name, ID card"
+                value={customerQuery}
+                onChange={e => setCustomerQuery(e.target.value)}
+              />
+              {customerMatches.length > 0 && (
+                <div style={{ position: 'absolute', top: 44, left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', zIndex: 20 }}>
+                  {customerMatches.map(c => (
+                    <button
+                      key={c.id}
+                      className="btn"
+                      onClick={() => { setSelectedCustomerId(c.id); setCustomerQuery(''); }}
+                      style={{ width: '100%', justifyContent: 'space-between', borderRadius: 0 }}
+                    >
+                      <span style={{ textAlign: 'left' }}>
+                        <div style={{ fontWeight: 700 }}>{c.name}</div>
+                        <div style={{ color: '#64748b', fontSize: 12 }}>{c.customerCode || '—'} {c.phone ? `• ${c.phone}` : ''}</div>
+                      </span>
+                      <span>Select</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         <ul className="cart-list">
           {cart.items.map(item => (
             <li key={item.id} className="cart-item">
@@ -284,11 +371,22 @@ function PosPage() {
         </ul>
         <div className="totals-box">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <label style={{ color: '#64748b' }}>Discount</label>
-            <input className="input" type="number" min="0" value={discount} onChange={e => dispatch(setDiscount(Number(e.target.value)))} style={{ width: 120 }} />
+            <label style={{ color: '#64748b' }}>Manual discount</label>
+            <input className="input" type="number" min="0" value={manualDiscount} onChange={e => dispatch(setDiscount(Number(e.target.value)))} style={{ width: 140 }} />
           </div>
+          {settings.loyaltyEnabled && selectedCustomer && (
+            <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label style={{ color: '#64748b' }}>Redeem points</label>
+                <input className="input" type="number" min="0" step="1" value={redeemPoints} onChange={e => setRedeemPoints(e.target.value)} style={{ width: 140 }} />
+                <span style={{ color: '#64748b' }}>Available: {availablePoints}</span>
+              </div>
+              <div style={{ color: '#64748b' }}>Loyalty discount: {formatCurrency(loyaltyDiscount, settings)}</div>
+            </div>
+          )}
           <div style={{ marginTop: 8 }}>
             <div>Subtotal: {formatCurrency(subtotal, settings)}</div>
+            <div>Discount: {formatCurrency(discount, settings)}</div>
             <div>Tax ({Math.round((taxRate || 0) * 100)}%): {formatCurrency(tax, settings)}</div>
             <div><strong>Total: {formatCurrency(total, settings)}</strong></div>
           </div>

@@ -14,6 +14,12 @@ export function productSpec(p) {
     .map(a => `${a.key}: ${a.value}`)
     .join(', ');
   if (attrStr) parts.push(attrStr);
+
+  if (Array.isArray(p.variants) && p.variants.length > 0) {
+    const vLabels = p.variants.map(v => v.label).filter(Boolean).slice(0, 5).join(', ');
+    if (vLabels) parts.push(`Variants: ${vLabels}${p.variants.length > 5 ? '...' : ''}`);
+  }
+
   return parts.join(' • ');
 }
 

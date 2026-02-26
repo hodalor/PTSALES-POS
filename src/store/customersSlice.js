@@ -9,17 +9,16 @@ const customersSlice = createSlice({
   initialState,
   reducers: {
     setCustomers(state, action) {
-      state.customers = Array.isArray(action.payload) ? action.payload : [];
+      const list = Array.isArray(action.payload) ? action.payload : [];
+      state.customers = list.map(c => {
+        const id = c?.id || c?._id || nanoid();
+        return { ...c, id: String(id) };
+      });
     },
-    addCustomer: {
-      reducer(state, action) {
-        state.customers.push(action.payload);
-      },
-      prepare(data) {
-        const id = nanoid();
-        const now = new Date().toISOString();
-        return { payload: { id, name: '', phone: '', email: '', address: '', notes: '', loyalty: 0, credit: 0, active: true, createdAt: now, ...data } };
-      }
+    addCustomer(state, action) {
+      const c = action.payload || {};
+      const id = c?.id || c?._id || nanoid();
+      state.customers.unshift({ ...c, id: String(id) });
     },
     updateCustomer(state, action) {
       const { id, ...patch } = action.payload || {};

@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setSdcId, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency } from '../store/settingsSlice';
+import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setSdcId, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent } from '../store/settingsSlice';
 import { addBranch, removeBranch, updateBranch } from '../store/branchesSlice';
 import * as branchesApi from '../api/branches';
 import { useRef, useState } from 'react';
@@ -162,6 +162,38 @@ function ConfigSettingsPage() {
               style={{ display: 'block', width: '100%', marginTop: 6 }}
             />
           </label>
+          <div style={{ marginTop: 12 }}>
+            <h3 className="section-title" style={{ margin: '8px 0' }}>Loyalty Points</h3>
+            <label style={{ display: 'block', marginBottom: 8 }}>
+              <input type="checkbox" checked={!!settings.loyaltyEnabled} onChange={e => dispatch(setLoyaltyEnabled(e.target.checked))} />
+              <span style={{ marginLeft: 8 }}>Enable loyalty points</span>
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <label>
+                Earn: Amount spent
+                <input className="input" type="number" min="0" step="0.01" value={settings.loyaltyEarnAmount || 0} onChange={e => dispatch(setLoyaltyEarnAmount(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} disabled={!settings.loyaltyEnabled} />
+              </label>
+              <label>
+                Earn: Points
+                <input className="input" type="number" min="0" step="1" value={settings.loyaltyEarnPoints || 0} onChange={e => dispatch(setLoyaltyEarnPoints(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} disabled={!settings.loyaltyEnabled} />
+              </label>
+              <label>
+                Redeem value (money per point)
+                <input className="input" type="number" min="0" step="0.01" value={settings.loyaltyRedeemValue || 0} onChange={e => dispatch(setLoyaltyRedeemValue(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} disabled={!settings.loyaltyEnabled} />
+              </label>
+              <label>
+                Minimum redeem points
+                <input className="input" type="number" min="0" step="1" value={settings.loyaltyMinRedeemPoints || 0} onChange={e => dispatch(setLoyaltyMinRedeemPoints(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} disabled={!settings.loyaltyEnabled} />
+              </label>
+              <label>
+                Max redeem (% of sale)
+                <input className="input" type="number" min="0" max="100" step="1" value={settings.loyaltyMaxRedeemPercent ?? 50} onChange={e => dispatch(setLoyaltyMaxRedeemPercent(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} disabled={!settings.loyaltyEnabled} />
+              </label>
+            </div>
+            <div style={{ marginTop: 8, color: '#64748b', fontSize: 12 }}>
+              Example: Earn Amount=100 and Points=5 means every 100 spent earns 5 points. Redeem value controls discount.
+            </div>
+          </div>
           <div style={{ marginTop: 12 }}>
             <h3 className="section-title" style={{ margin: '8px 0' }}>Currency</h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>

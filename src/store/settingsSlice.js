@@ -27,7 +27,13 @@ const initialState = {
   ],
   activeCurrencyCode: 'GHS',
   refreshIntervalSec: 60,
-  userGrants: {}
+  userGrants: {},
+  loyaltyEnabled: false,
+  loyaltyEarnAmount: 0,
+  loyaltyEarnPoints: 0,
+  loyaltyRedeemValue: 0,
+  loyaltyMinRedeemPoints: 0,
+  loyaltyMaxRedeemPercent: 50
 };
 
 const settingsSlice = createSlice({
@@ -164,9 +170,33 @@ const settingsSlice = createSlice({
       if (!Number.isFinite(v) || v < 10) v = 10;
       if (v > 3600) v = 3600;
       state.refreshIntervalSec = Math.floor(v);
+    },
+    setLoyaltyEnabled(state, action) {
+      state.loyaltyEnabled = !!action.payload;
+    },
+    setLoyaltyEarnAmount(state, action) {
+      const v = Number(action.payload);
+      state.loyaltyEarnAmount = Number.isFinite(v) && v >= 0 ? v : 0;
+    },
+    setLoyaltyEarnPoints(state, action) {
+      const v = Number(action.payload);
+      state.loyaltyEarnPoints = Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+    },
+    setLoyaltyRedeemValue(state, action) {
+      const v = Number(action.payload);
+      state.loyaltyRedeemValue = Number.isFinite(v) && v >= 0 ? v : 0;
+    },
+    setLoyaltyMinRedeemPoints(state, action) {
+      const v = Number(action.payload);
+      state.loyaltyMinRedeemPoints = Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0;
+    },
+    setLoyaltyMaxRedeemPercent(state, action) {
+      const v = Number(action.payload);
+      if (!Number.isFinite(v)) return;
+      state.loyaltyMaxRedeemPercent = Math.max(0, Math.min(100, v));
     }
   }
 });
 
-export const { setAllSettings, setUserGrants, setUserGrant, setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setSdcId, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, addCurrency, removeCurrency, setActiveCurrency, setRefreshIntervalSec } = settingsSlice.actions;
+export const { setAllSettings, setUserGrants, setUserGrant, setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setSdcId, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, addCurrency, removeCurrency, setActiveCurrency, setRefreshIntervalSec, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent } = settingsSlice.actions;
 export default settingsSlice.reducer;
