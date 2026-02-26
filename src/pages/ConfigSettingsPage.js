@@ -7,6 +7,8 @@ import { useToast } from '../components/ToastProvider';
 import { addAudit } from '../store/auditSlice';
 import { fetchJson, getApiBase, setApiBase } from '../api/client';
 import * as settingsApi from '../api/settings';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function ConfigSettingsPage() {
   const dispatch = useDispatch();
@@ -23,6 +25,7 @@ function ConfigSettingsPage() {
   const canEditTax = ['Admin','Manager'].includes(auth.role) || String(auth.role || '').toLowerCase() === 'superadmin';
   const roleLower = String(auth.role || '').toLowerCase();
   const canManageBranches = roleLower === 'admin' || roleLower === 'superadmin';
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const [apiBase, setApiBaseState] = useState(() => {
     try { return getApiBase(); } catch { return ''; }
   });
@@ -31,8 +34,25 @@ function ConfigSettingsPage() {
     if (!branchName.trim() || !branchCode.trim()) return;
     const action = dispatch(addBranch({ name: branchName.trim(), code: branchCode.trim() }));
     const created = action?.payload;
+    if (!navigator.onLine && !offlineBackupAllowed) {
+      if (created) dispatch(removeBranch(created.id));
+      toast.show('Offline: connect internet and try again.', { type: 'error' });
+      return;
+    }
     if (created) {
-      branchesApi.create({ id: created.id, name: created.name, code: created.code }).catch(() => {});
+      if (!navigator.onLine) {
+        enqueueHttp({ collection: 'branches', label: 'Branch', path: '/api/branches', method: 'POST', body: { id: created.id, name: created.name, code: created.code } })
+          .catch(() => {
+            dispatch(removeBranch(created.id));
+            toast.show('Failed to save offline', { type: 'error' });
+          });
+      } else {
+        branchesApi.create({ id: created.id, name: created.name, code: created.code })
+          .catch(() => {
+            dispatch(removeBranch(created.id));
+            toast.show('Failed to create branch on server', { type: 'error' });
+          });
+      }
     }
     setBranchName('');
     setBranchCode('');
@@ -48,9 +68,24 @@ function ConfigSettingsPage() {
     if (!newName || !newName.trim()) return;
     const newCode = await promptDialog('Enter new branch code', b.code);
     if (!newCode || !newCode.trim()) return;
-    dispatch(updateBranch({ id: b.id, name: newName.trim(), code: newCode.trim() }));
+    const patch = { name: newName.trim(), code: newCode.trim() };
+    if (!navigator.onLine) {
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: connect internet and try again.', { type: 'error' });
+        return;
+      }
+      dispatch(updateBranch({ id: b.id, ...patch, offline: true }));
+      try {
+        await enqueueHttp({ collection: 'branches', label: 'Branch update', path: `/api/branches/${encodeURIComponent(b.id)}`, method: 'PUT', body: patch });
+        toast.show('Saved offline. Will backup when online.', { type: 'success' });
+      } catch {
+        toast.show('Failed to save offline', { type: 'error' });
+      }
+      return;
+    }
     try {
-      await branchesApi.update(b.id, { name: newName.trim(), code: newCode.trim() });
+      await branchesApi.update(b.id, patch);
+      dispatch(updateBranch({ id: b.id, ...patch }));
       toast.show('Branch updated', { type: 'success' });
     } catch {
       toast.show('Failed to update branch on server', { type: 'error' });
@@ -65,9 +100,23 @@ function ConfigSettingsPage() {
     const { confirmDialog } = await import('../utils/dialogs');
     const ok = await confirmDialog(`Remove branch ${b.name}?`);
     if (!ok) return;
-    dispatch(removeBranch(b.id));
+    if (!navigator.onLine) {
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: connect internet and try again.', { type: 'error' });
+        return;
+      }
+      dispatch(removeBranch(b.id));
+      try {
+        await enqueueHttp({ collection: 'branches', label: 'Branch delete', path: `/api/branches/${encodeURIComponent(b.id)}`, method: 'DELETE', body: {} });
+        toast.show('Saved offline. Will backup when online.', { type: 'success' });
+      } catch {
+        toast.show('Failed to save offline', { type: 'error' });
+      }
+      return;
+    }
     try {
       await branchesApi.remove(b.id);
+      dispatch(removeBranch(b.id));
       toast.show('Branch removed', { type: 'success' });
     } catch {
       toast.show('Failed to remove branch on server', { type: 'error' });
@@ -76,7 +125,13 @@ function ConfigSettingsPage() {
 
   return (
     <div style={{ padding: 16 }}>
-      <h1>Configuration</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>Configuration</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <OfflineQueueIndicator collection="settings" label="Settings queued" />
+          <OfflineQueueIndicator collection="branches" label="Branches queued" />
+        </div>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div className="card">
           <h2 className="section-title">App Identity</h2>
@@ -345,6 +400,15 @@ function ConfigSettingsPage() {
                   initialTaxRef.current = after;
                 }
                 try {
+                  if (!navigator.onLine) {
+                    if (!offlineBackupAllowed) {
+                      toast.show('Offline: connect internet and try again.', { type: 'error' });
+                      return;
+                    }
+                    await enqueueHttp({ collection: 'settings', label: 'Settings', path: '/api/settings', method: 'PUT', body: settings });
+                    toast.show('Saved offline. Will backup when online.', { type: 'success' });
+                    return;
+                  }
                   await settingsApi.save(settings);
                   toast.show('Settings saved', { type: 'success' });
                 } catch {

@@ -4,6 +4,8 @@ import BranchSelect from '../components/BranchSelect';
 import { useToast } from '../components/ToastProvider';
 import { formatCurrency } from '../utils/currency';
 import * as expensesApi from '../api/expenses';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function ExpensesPage() {
   const settings = useSelector(s => s.settings);
@@ -15,6 +17,7 @@ function ExpensesPage() {
   const toast = useToast();
 
   const canManage = (['admin','manager','superadmin'].includes(roleLower)) || grants.includes('add_expenses');
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
 
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -73,13 +76,28 @@ function ExpensesPage() {
     }
     setSaving(true);
     try {
-      const row = await expensesApi.create({
+      const payload = {
         branchId: expenseBranchId,
         date: expenseDate,
         category: expenseCategory,
         amount: amt,
         note: expenseNote
-      });
+      };
+      if (!navigator.onLine) {
+        if (!offlineBackupAllowed) {
+          toast.show('Offline: cannot save expense', { type: 'error' });
+          return;
+        }
+        const clientId = `offline-expense-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const localRow = { ...payload, id: clientId, clientId, offline: true };
+        await enqueueHttp({ collection: 'expenses', label: 'Expense', path: '/api/expenses', method: 'POST', body: { ...payload, clientId } });
+        setRows(prev => [localRow, ...prev]);
+        setExpenseAmount('');
+        setExpenseNote('');
+        toast.show('Saved offline. Will backup when online.', { type: 'success' });
+        return;
+      }
+      const row = await expensesApi.create({ ...payload, clientId: crypto.randomUUID() });
       setRows(prev => [row, ...prev]);
       setExpenseAmount('');
       setExpenseNote('');
@@ -107,7 +125,10 @@ function ExpensesPage() {
 
   return (
     <div style={{ padding: 16 }}>
-      <h1>Expenses</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>Expenses</h1>
+        <OfflineQueueIndicator collection="expenses" label="Expenses queued" />
+      </div>
 
       <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
         <label>
@@ -212,4 +233,3 @@ function ExpensesPage() {
 }
 
 export default ExpensesPage;
-

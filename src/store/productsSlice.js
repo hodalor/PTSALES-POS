@@ -45,7 +45,9 @@ const productsSlice = createSlice({
         })) : [];
         return { ...p, id: id, stockByBranch: p.stockByBranch || {}, variants };
       });
-      state.products = mapped;
+      const seen = new Set(mapped.map(p => p.id).filter(Boolean));
+      const offline = state.products.filter(p => p && p.offline && !seen.has(p.id));
+      state.products = mapped.concat(offline);
       const cats = Array.from(new Set(mapped.map(p => p.category).filter(Boolean)));
       state.categories = cats.length > 0 ? cats : state.categories;
     },
@@ -54,7 +56,8 @@ const productsSlice = createSlice({
         state.products.push(action.payload);
       },
       prepare(product) {
-        const payload = { id: nanoid(), stockByBranch: {}, attributes: [], packs: [], unitKind: 'none', unitValue: null, unitSymbol: '', sizeLabel: '', shoeSize: '', ...product };
+        const id = product?.id != null ? String(product.id) : nanoid();
+        const payload = { id, stockByBranch: {}, attributes: [], packs: [], unitKind: 'none', unitValue: null, unitSymbol: '', sizeLabel: '', shoeSize: '', ...product };
         if (!payload.barcode) {
           payload.barcode = generateEAN13();
         }

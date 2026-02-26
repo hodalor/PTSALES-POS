@@ -7,11 +7,14 @@ import { addAudit } from '../store/auditSlice';
 import { promptDialog } from '../utils/dialogs';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
 import * as stockApi from '../api/stock';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function TransfersPage() {
   const products = useSelector(s => s.products.products);
   const branches = useSelector(s => s.branches.branches);
   const currentBranchId = useSelector(s => s.settings.currentBranchId);
+  const settings = useSelector(s => s.settings);
   const auth = useSelector(s => s.auth);
   const audit = useSelector(s => s.audit.entries);
   const [productId, setProductId] = useState(products[0]?.id || '');
@@ -29,6 +32,7 @@ function TransfersPage() {
   const [pageSize, setPageSize] = useState(25);
   const dispatch = useDispatch();
   const toast = useToast();
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   useEffect(() => {
     setFromId(currentBranchId);
   }, [currentBranchId]);
@@ -102,8 +106,10 @@ function TransfersPage() {
       return;
     }
     if (!navigator.onLine) {
-      toast.show('Offline: cannot sync transfer to server', { type: 'error' });
-      return;
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: cannot sync transfer to server', { type: 'error' });
+        return;
+      }
     }
     if (!productId || !fromId || !toId || fromId === toId || qty <= 0) {
       toast.show('Check product, branches and quantity', { type: 'error' });
@@ -116,20 +122,31 @@ function TransfersPage() {
     }
     const prod = products.find(p => p.id === productId);
     setSaving(true);
-    try {
-      await stockApi.transfer({
-        productId,
-        from: fromId,
-        to: toId,
-        qty: Number(qty),
-        actor: auth.user?.name || 'unknown',
-        remark,
-        variantId: variantId || undefined
-      });
-    } catch (e) {
-      toast.show(String(e?.message || 'Failed to sync transfer to server'), { type: 'error' });
-      setSaving(false);
-      return;
+    const payload = {
+      productId,
+      from: fromId,
+      to: toId,
+      qty: Number(qty),
+      actor: auth.user?.name || 'unknown',
+      remark,
+      variantId: variantId || undefined
+    };
+    if (!navigator.onLine) {
+      try {
+        await enqueueHttp({ collection: 'audits', label: 'Stock transfer', path: '/api/stock/transfer', method: 'POST', body: payload });
+      } catch (e) {
+        toast.show(String(e?.message || 'Failed to save offline'), { type: 'error' });
+        setSaving(false);
+        return;
+      }
+    } else {
+      try {
+        await stockApi.transfer(payload);
+      } catch (e) {
+        toast.show(String(e?.message || 'Failed to sync transfer to server'), { type: 'error' });
+        setSaving(false);
+        return;
+      }
     }
     dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId: fromId, delta: -Number(qty) }));
     dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId: toId, delta: Number(qty) }));
@@ -138,17 +155,21 @@ function TransfersPage() {
       actionType: 'stock_transfer',
       details: { product: prod?.name || productId, variant: (prod?.variants || []).find(v => v.id === variantId)?.label || '', from: fromId, to: toId, qty: Number(qty) },
       remark,
-      branchId: fromId
+      branchId: fromId,
+      offline: !navigator.onLine
     }));
     setQty(1);
     setVariantId('');
-    toast.show('Transfer recorded', { type: 'success' });
+    toast.show(navigator.onLine ? 'Transfer recorded' : 'Saved offline. Will backup when online.', { type: 'success' });
     setSaving(false);
   }
 
   return (
     <div style={{ padding: 16 }}>
-      <h1>Transfers</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>Transfers</h1>
+        <OfflineQueueIndicator collection="audits" label="Stock queued" />
+      </div>
       <div className="card" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <select className="select" value={productId} onChange={e => { setProductId(e.target.value); setVariantId(''); }}>
           {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}

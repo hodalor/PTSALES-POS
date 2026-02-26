@@ -15,11 +15,12 @@ const usersSlice = createSlice({
       reducer(state, action) {
         state.users.push(action.payload);
       },
-      prepare({ name, role, branchId, assignedBranches }) {
+      prepare(data) {
+        const { id, name, role, branchId, assignedBranches } = data || {};
         let assigned = assignedBranches;
         if (assigned === undefined) assigned = branchId ? [branchId] : [];
         if (assigned !== 'all' && !Array.isArray(assigned)) assigned = [assigned];
-        const payload = { id: nanoid(), name, role, branchId, assignedBranches: assigned, active: true };
+        const payload = { id: id != null ? String(id) : nanoid(), name, role, branchId, assignedBranches: assigned, active: true, ...data };
         return { payload };
       }
     },
@@ -31,7 +32,10 @@ const usersSlice = createSlice({
       state.users = state.users.filter(u => u.id !== action.payload);
     },
     setUsers(state, action) {
-      state.users = Array.isArray(action.payload) ? action.payload : [];
+      const server = Array.isArray(action.payload) ? action.payload : [];
+      const seenNames = new Set(server.map(u => String(u?.name || '')).filter(Boolean));
+      const offline = state.users.filter(u => u && u.offline && !seenNames.has(String(u.name || '')));
+      state.users = server.concat(offline);
     }
   }
 });

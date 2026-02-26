@@ -4,11 +4,16 @@ import { setSession, openSession, closeSession, addMovement } from '../store/ses
 import { downloadText, escposOpenDrawer } from '../utils/escpos';
 import * as cashApi from '../api/cashsessions';
 import { formatCurrency } from '../utils/currency';
+import { useToast } from '../components/ToastProvider';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function CashDrawerPage() {
   const dispatch = useDispatch();
   const session = useSelector(s => s.sessions);
   const settings = useSelector(s => s.settings);
+  const toast = useToast();
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const [floatAmount, setFloatAmount] = useState(0);
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
@@ -26,11 +31,25 @@ function CashDrawerPage() {
 
   function openDrawer() {
     (async () => {
+      if (!navigator.onLine) {
+        if (!offlineBackupAllowed) {
+          toast.show('Offline: connect internet and try again.', { type: 'error' });
+          return;
+        }
+        dispatch(openSession(Number(floatAmount)));
+        try {
+          await enqueueHttp({ collection: 'cashsessions', label: 'Cash session open', path: '/api/cashsessions/open', method: 'POST', body: { openingFloat: Number(floatAmount) } });
+          toast.show('Saved offline. Will backup when online.', { type: 'success' });
+        } catch {
+          toast.show('Failed to save offline', { type: 'error' });
+        }
+        return;
+      }
       try {
         const doc = await cashApi.open(Number(floatAmount));
         dispatch(setSession(doc));
       } catch {
-        dispatch(openSession(Number(floatAmount)));
+        toast.show('Failed to open session on server', { type: 'error' });
       }
     })();
   }
@@ -41,11 +60,28 @@ function CashDrawerPage() {
   function record(type) {
     if (!amount) return;
     (async () => {
+      if (!navigator.onLine) {
+        if (!offlineBackupAllowed) {
+          toast.show('Offline: connect internet and try again.', { type: 'error' });
+          return;
+        }
+        dispatch(addMovement({ type, amount: Number(amount), note }));
+        try {
+          await enqueueHttp({ collection: 'cashsessions', label: 'Cash session move', path: '/api/cashsessions/move', method: 'POST', body: { type, amount: Number(amount), note } });
+          toast.show('Saved offline. Will backup when online.', { type: 'success' });
+        } catch {
+          toast.show('Failed to save offline', { type: 'error' });
+        } finally {
+          setAmount('');
+          setNote('');
+        }
+        return;
+      }
       try {
         const doc = await cashApi.move(type, Number(amount), note);
         dispatch(setSession(doc));
       } catch {
-        dispatch(addMovement({ type, amount: Number(amount), note }));
+        toast.show('Failed to record movement on server', { type: 'error' });
       } finally {
         setAmount('');
         setNote('');
@@ -58,7 +94,10 @@ function CashDrawerPage() {
 
   return (
     <div style={{ padding: 16 }}>
-      <h1>Cash Drawer</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>Cash Drawer</h1>
+        <OfflineQueueIndicator collection="cashsessions" label="Cash queued" />
+      </div>
       {session.isOpen ? (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 16 }}>
@@ -105,11 +144,25 @@ function CashDrawerPage() {
           <div style={{ marginTop: 12 }}>
             <button onClick={() => {
               (async () => {
+                if (!navigator.onLine) {
+                  if (!offlineBackupAllowed) {
+                    toast.show('Offline: connect internet and try again.', { type: 'error' });
+                    return;
+                  }
+                  dispatch(closeSession());
+                  try {
+                    await enqueueHttp({ collection: 'cashsessions', label: 'Cash session close', path: '/api/cashsessions/close', method: 'POST', body: {} });
+                    toast.show('Saved offline. Will backup when online.', { type: 'success' });
+                  } catch {
+                    toast.show('Failed to save offline', { type: 'error' });
+                  }
+                  return;
+                }
                 try {
                   const doc = await cashApi.close();
                   dispatch(setSession(doc));
                 } catch {
-                  dispatch(closeSession());
+                  toast.show('Failed to close session on server', { type: 'error' });
                 }
               })();
             }}>Close Session</button>

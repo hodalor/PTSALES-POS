@@ -6,6 +6,8 @@ import { formatCurrency } from '../utils/currency';
 import { useToast } from '../components/ToastProvider';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
 import * as refundsApi from '../api/refunds';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function toDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -20,6 +22,7 @@ function RefundsPage() {
   const dispatch = useDispatch();
   const toast = useToast();
   const settings = useSelector(s => s.settings);
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const auth = useSelector(s => s.auth);
   const sales = useSelector(s => s.sales.sales);
   const branches = useSelector(s => s.branches.branches);
@@ -111,23 +114,41 @@ function RefundsPage() {
       images,
       restock: refundType === 'full' ? !!restock : false
     };
-    dispatch(createRefundRequest(payload));
-    try {
-      await refundsApi.createRequest(payload);
-    } catch (e) {
-      toast.show('Failed to sync to server', { type: 'error' });
+    if (!navigator.onLine) {
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: cannot submit refund request', { type: 'error' });
+        return;
+      }
+      const clientId = `offline-refund-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const localPayload = { ...payload, id: clientId, clientId, offline: true, created_at: new Date().toISOString(), status: 'pending_approval' };
+      dispatch(createRefundRequest(localPayload));
+      try {
+        await enqueueHttp({ collection: 'refundrequests', label: 'Refund request', path: '/api/refunds/requests', method: 'POST', body: { ...payload, clientId } });
+      } catch (e) {
+        toast.show('Failed to save offline', { type: 'error' });
+        return;
+      }
+      toast.show('Saved offline. Will backup when online.', { type: 'success' });
+    } else {
+      dispatch(createRefundRequest(payload));
+      try {
+        await refundsApi.createRequest({ ...payload, clientId: crypto.randomUUID() });
+      } catch (e) {
+        toast.show('Failed to sync to server', { type: 'error' });
+      }
     }
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'refund_initiated',
       details: { saleId: sale.id, amount: requestedAmount, type: refundType },
       remark,
-      branchId: sale.branchId
+      branchId: sale.branchId,
+      offline: !navigator.onLine
     }));
     setRemark('');
     setAmount('');
     setImages([]);
-    toast.show('Refund request submitted for approval', { type: 'success' });
+    if (navigator.onLine) toast.show('Refund request submitted for approval', { type: 'success' });
   }
 
   // no approve/reject here; approvals moved to Refund Approvals page
@@ -173,7 +194,10 @@ function RefundsPage() {
 
   return (
     <div style={{ padding: 16 }}>
-      <h1>Refunds</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>Refunds</h1>
+        <OfflineQueueIndicator collection="refundrequests" label="Refunds queued" />
+      </div>
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'end' }}>
           <label>

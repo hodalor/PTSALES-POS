@@ -7,12 +7,15 @@ import { addAudit } from '../store/auditSlice';
 import { promptDialog } from '../utils/dialogs';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
 import * as stockApi from '../api/stock';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function AdjustmentsPage() {
   const products = useSelector(s => s.products.products);
   const branches = useSelector(s => s.branches.branches);
   const audit = useSelector(s => s.audit.entries);
   const currentBranchId = useSelector(s => s.settings.currentBranchId);
+  const settings = useSelector(s => s.settings);
   const auth = useSelector(s => s.auth);
   const [productId, setProductId] = useState(products[0]?.id || '');
   const [variantId, setVariantId] = useState('');
@@ -27,6 +30,7 @@ function AdjustmentsPage() {
   const [savingRemove, setSavingRemove] = useState(false);
   const dispatch = useDispatch();
   const toast = useToast();
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   useEffect(() => { setBranchId(currentBranchId); }, [currentBranchId]);
   useEffect(() => { setRBranchId(currentBranchId); }, [currentBranchId]);
 
@@ -114,8 +118,10 @@ function AdjustmentsPage() {
       return;
     }
     if (!navigator.onLine) {
-      toast.show('Offline: cannot sync adjustment to server', { type: 'error' });
-      return;
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: cannot sync adjustment to server', { type: 'error' });
+        return;
+      }
     }
     if (!productId || !branchId || delta === 0) {
       toast.show('Select product/branch and enter non-zero delta', { type: 'error' });
@@ -128,19 +134,30 @@ function AdjustmentsPage() {
     }
     const prod = products.find(p => p.id === productId);
     setSavingAdjust(true);
-    try {
-      await stockApi.adjust({
-        productId,
-        branchId,
-        delta: Number(delta),
-        actor: auth.user?.name || 'unknown',
-        variantId: variantId || undefined,
-        remark
-      });
-    } catch (e) {
-      toast.show(String(e?.message || 'Failed to sync adjustment to server'), { type: 'error' });
-      setSavingAdjust(false);
-      return;
+    const payload = {
+      productId,
+      branchId,
+      delta: Number(delta),
+      actor: auth.user?.name || 'unknown',
+      variantId: variantId || undefined,
+      remark
+    };
+    if (!navigator.onLine) {
+      try {
+        await enqueueHttp({ collection: 'audits', label: 'Stock adjust', path: '/api/stock/adjust', method: 'POST', body: payload });
+      } catch (e) {
+        toast.show(String(e?.message || 'Failed to save offline'), { type: 'error' });
+        setSavingAdjust(false);
+        return;
+      }
+    } else {
+      try {
+        await stockApi.adjust(payload);
+      } catch (e) {
+        toast.show(String(e?.message || 'Failed to sync adjustment to server'), { type: 'error' });
+        setSavingAdjust(false);
+        return;
+      }
     }
     dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId, delta: Number(delta) }));
     dispatch(addAudit({
@@ -148,11 +165,12 @@ function AdjustmentsPage() {
       actionType: 'stock_adjust',
       details: { product: prod?.name || productId, variant: (prod?.variants || []).find(v => v.id === variantId)?.label || '', delta: Number(delta), branchId },
       remark,
-      branchId
+      branchId,
+      offline: !navigator.onLine
     }));
     setDelta(0);
     setVariantId('');
-    toast.show('Adjustment applied', { type: 'success' });
+    toast.show(navigator.onLine ? 'Adjustment applied' : 'Saved offline. Will backup when online.', { type: 'success' });
     setSavingAdjust(false);
   }
 
@@ -172,24 +190,37 @@ function AdjustmentsPage() {
       return;
     }
     if (!navigator.onLine) {
-      toast.show('Offline: cannot sync removal to server', { type: 'error' });
-      return;
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: cannot sync removal to server', { type: 'error' });
+        return;
+      }
     }
     const prod = products.find(p => p.id === rProductId);
     setSavingRemove(true);
-    try {
-      await stockApi.damageRemove({
-        productId: rProductId,
-        branchId: rBranchId,
-        qty: Math.abs(q),
-        actor: auth.user?.name || 'unknown',
-        variantId: rVariantId || undefined,
-        remark: rRemark
-      });
-    } catch (e) {
-      toast.show(String(e?.message || 'Failed to sync removal to server'), { type: 'error' });
-      setSavingRemove(false);
-      return;
+    const payload = {
+      productId: rProductId,
+      branchId: rBranchId,
+      qty: Math.abs(q),
+      actor: auth.user?.name || 'unknown',
+      variantId: rVariantId || undefined,
+      remark: rRemark
+    };
+    if (!navigator.onLine) {
+      try {
+        await enqueueHttp({ collection: 'audits', label: 'Stock damage remove', path: '/api/stock/damage-remove', method: 'POST', body: payload });
+      } catch (e) {
+        toast.show(String(e?.message || 'Failed to save offline'), { type: 'error' });
+        setSavingRemove(false);
+        return;
+      }
+    } else {
+      try {
+        await stockApi.damageRemove(payload);
+      } catch (e) {
+        toast.show(String(e?.message || 'Failed to sync removal to server'), { type: 'error' });
+        setSavingRemove(false);
+        return;
+      }
     }
     dispatch(adjustStock({ productId: rProductId, variantId: rVariantId || undefined, branchId: rBranchId, delta: -Math.abs(q) }));
     dispatch(addAudit({
@@ -197,18 +228,22 @@ function AdjustmentsPage() {
       actionType: 'stock_damage_remove',
       details: { product: prod?.name || rProductId, variant: (prod?.variants || []).find(v => v.id === rVariantId)?.label || '', qty: Math.abs(q), branchId: rBranchId },
       remark: rRemark,
-      branchId: rBranchId
+      branchId: rBranchId,
+      offline: !navigator.onLine
     }));
     setRQty('');
     setRRemark('');
     setRVariantId('');
-    toast.show('Stock removed for damage/expiry', { type: 'success' });
+    toast.show(navigator.onLine ? 'Stock removed for damage/expiry' : 'Saved offline. Will backup when online.', { type: 'success' });
     setSavingRemove(false);
   }
 
   return (
     <div style={{ padding: 16 }}>
-      <h1>Adjustments</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>Adjustments</h1>
+        <OfflineQueueIndicator collection="audits" label="Stock queued" />
+      </div>
       <div className="card" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <select className="select" value={productId} onChange={e => { setProductId(e.target.value); setVariantId(''); }}>
           {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}

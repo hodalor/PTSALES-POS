@@ -9,6 +9,8 @@ import { promptDialog } from '../utils/dialogs';
 import { useToast } from '../components/ToastProvider';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
 import * as refundsApi from '../api/refunds';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function RefundApprovalsPage() {
   const dispatch = useDispatch();
@@ -18,6 +20,7 @@ function RefundApprovalsPage() {
   const sales = useSelector(s => s.sales.sales);
   const products = useSelector(s => s.products.products);
   const settings = useSelector(s => s.settings);
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const branches = useSelector(s => s.branches.branches);
   const [filter, setFilter] = useState('pending');
   const [selectedId, setSelectedId] = useState(null);
@@ -101,23 +104,40 @@ function RefundApprovalsPage() {
       toast.show('Rejection reason is required', { type: 'error' });
       return;
     }
-    dispatch(rejectRefund({ id: refundId(r), approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark }));
-    try {
-      await refundsApi.reject({ id: refundId(r), approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark });
-    } catch (e) {
-      toast.show('Failed to sync to server', { type: 'error' });
+    const payload = { id: refundId(r), approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark };
+    if (!navigator.onLine) {
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: connect internet and try again.', { type: 'error' });
+        return;
+      }
+      dispatch(rejectRefund(payload));
+      try {
+        await enqueueHttp({ collection: 'refundrequests', label: 'Refund reject', path: '/api/refunds/reject', method: 'POST', body: payload });
+      } catch (e) {
+        toast.show('Failed to save offline', { type: 'error' });
+        return;
+      }
+    } else {
+      try {
+        await refundsApi.reject(payload);
+        dispatch(rejectRefund(payload));
+      } catch (e) {
+        toast.show('Failed to sync to server', { type: 'error' });
+        return;
+      }
     }
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'refund_rejected',
       details: { refundId: r.id, saleId: r.saleId },
       remark,
-      branchId: r.branchId
+      branchId: r.branchId,
+      offline: !navigator.onLine
     }));
-    toast.show('Refund rejected', { type: 'success' });
+    toast.show(navigator.onLine ? 'Refund rejected' : 'Saved offline. Will backup when online.', { type: 'success' });
   }
 
-  function onApprove(r) {
+  async function onApprove(r) {
     if (!canApprove) return;
     const isSelf = r.initiatorName && (auth.user?.name || '') === r.initiatorName;
     if (isSelf && roleLower !== 'superadmin' && roleLower !== 'admin') {
@@ -142,8 +162,27 @@ function RefundApprovalsPage() {
       restockMode,
       restockItems
     };
-    dispatch(approveRefund(payload));
-    refundsApi.approve(payload).catch(() => {});
+    if (!navigator.onLine) {
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: connect internet and try again.', { type: 'error' });
+        return;
+      }
+      dispatch(approveRefund(payload));
+      try {
+        await enqueueHttp({ collection: 'refundrequests', label: 'Refund approve', path: '/api/refunds/approve', method: 'POST', body: payload });
+      } catch {
+        toast.show('Failed to save offline', { type: 'error' });
+        return;
+      }
+    } else {
+      try {
+        await refundsApi.approve(payload);
+        dispatch(approveRefund(payload));
+      } catch {
+        toast.show('Failed to sync to server', { type: 'error' });
+        return;
+      }
+    }
     if (saleRef) {
       const amt = Math.round((Number(r.requestedAmount) || 0) * 100) / 100;
       dispatch(recordSale({
@@ -189,7 +228,8 @@ function RefundApprovalsPage() {
           actionType: 'stock_restock_refund',
           details: { items: itemsToRestock, totalUnits, saleId: r.saleId },
           remark: approvalRemark || '',
-          branchId: saleRef.branchId
+          branchId: saleRef.branchId,
+          offline: !navigator.onLine
         }));
       }
     }
@@ -197,9 +237,10 @@ function RefundApprovalsPage() {
       actor: auth.user?.name || 'unknown',
       actionType: 'refund_approved',
       details: { refundId: refundId(r), saleId: r.saleId, amount: r.requestedAmount, restockMode },
-      branchId: r.branchId
+      branchId: r.branchId,
+      offline: !navigator.onLine
     }));
-    toast.show('Refund approved and recorded', { type: 'success' });
+    toast.show(navigator.onLine ? 'Refund approved and recorded' : 'Saved offline. Will backup when online.', { type: 'success' });
     setSelectedId(null);
     setRestockMode('none');
     setPartialMap({});
@@ -224,7 +265,10 @@ function RefundApprovalsPage() {
 
   return (
     <div style={{ padding: 16 }}>
-      <h1>Refund Approvals</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>Refund Approvals</h1>
+        <OfflineQueueIndicator collection="refundrequests" label="Refunds queued" />
+      </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
         <button className={`btn ${filter==='pending' ? 'btn-primary' : ''}`} onClick={() => setFilter('pending')}>Pending</button>
         <button className={`btn ${filter==='approved' ? 'btn-primary' : ''}`} onClick={() => setFilter('approved')}>Approved</button>

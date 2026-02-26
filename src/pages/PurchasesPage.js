@@ -8,6 +8,8 @@ import { formatCurrency } from '../utils/currency';
 import { useSelector as useReduxSelector } from 'react-redux';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
 import * as stockApi from '../api/stock';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function PurchasesPage() {
   const products = useSelector(s => s.products.products);
@@ -34,6 +36,7 @@ function PurchasesPage() {
   const [saving, setSaving] = useState(false);
   const dispatch = useDispatch();
   const toast = useToast();
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   useEffect(() => { setBranchId(currentBranchId); }, [currentBranchId]);
   useEffect(() => { setFBranch(currentBranchId); }, [currentBranchId]);
 
@@ -108,8 +111,10 @@ function PurchasesPage() {
       return;
     }
     if (!navigator.onLine) {
-      toast.show('Offline: cannot sync purchase to server', { type: 'error' });
-      return;
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: cannot sync purchase to server', { type: 'error' });
+        return;
+      }
     }
     if (!productId || !branchId || qty <= 0) {
       toast.show('Select product/branch and quantity', { type: 'error' });
@@ -122,23 +127,34 @@ function PurchasesPage() {
     const baseUnits = Number(qty) * factor;
     const cpu = factor > 0 ? (price / factor) : price;
     setSaving(true);
-    try {
-      await stockApi.receive({
-        productId,
-        branchId,
-        baseUnits,
-        actor: auth.user?.name || 'unknown',
-        supplier: supplier.trim() || '',
-        cost: price,
-        costPerUnit: cpu,
-        expiryDate: expiryDate || undefined,
-        remark: note.trim() || '',
-        variantId: variantId || undefined
-      });
-    } catch (e) {
-      toast.show(String(e?.message || 'Failed to sync to server'), { type: 'error' });
-      setSaving(false);
-      return;
+    const payload = {
+      productId,
+      branchId,
+      baseUnits,
+      actor: auth.user?.name || 'unknown',
+      supplier: supplier.trim() || '',
+      cost: price,
+      costPerUnit: cpu,
+      expiryDate: expiryDate || undefined,
+      remark: note.trim() || '',
+      variantId: variantId || undefined
+    };
+    if (!navigator.onLine) {
+      try {
+        await enqueueHttp({ collection: 'audits', label: 'Stock receive', path: '/api/stock/receive', method: 'POST', body: payload });
+      } catch (e) {
+        toast.show(String(e?.message || 'Failed to save offline'), { type: 'error' });
+        setSaving(false);
+        return;
+      }
+    } else {
+      try {
+        await stockApi.receive(payload);
+      } catch (e) {
+        toast.show(String(e?.message || 'Failed to sync to server'), { type: 'error' });
+        setSaving(false);
+        return;
+      }
     }
     dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId, delta: baseUnits }));
     dispatch(addAudit({
@@ -146,7 +162,8 @@ function PurchasesPage() {
       actionType: 'stock_receive',
       details: { product: prod?.name || productId, variant: (prod?.variants || []).find(v => v.id === variantId)?.label || '', qty: Number(qty), pack: pack ? pack.name : 'Base Unit', factor, baseUnits, branchId, supplier: supplier.trim() || '', cost: price, costPerUnit: cpu, expiryDate: expiryDate || null },
       remark: note.trim() || '',
-      branchId
+      branchId,
+      offline: !navigator.onLine
     }));
     setQty(1);
     setPackName('');
@@ -155,13 +172,16 @@ function PurchasesPage() {
     setCost('');
     setExpiryDate('');
     setNote('');
-    toast.show('Stock received', { type: 'success' });
+    toast.show(navigator.onLine ? 'Stock received' : 'Saved offline. Will backup when online.', { type: 'success' });
     setSaving(false);
   }
 
   return (
     <div style={{ padding: 16 }}>
-      <h1>Purchases (Receive Stock)</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>Purchases (Receive Stock)</h1>
+        <OfflineQueueIndicator collection="audits" label="Stock queued" />
+      </div>
       <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
         <label>
           <div style={{ marginBottom: 6, color: '#64748b' }}>Product</div>

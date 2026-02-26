@@ -14,6 +14,7 @@ export const FEATURE_CATALOG = [
   { key: 'modules.refunds', label: 'Refunds', group: 'Main Menus' },
   { key: 'modules.refundApprovals', label: 'Refund Approvals', group: 'Main Menus' },
   { key: 'modules.reports', label: 'Reports', group: 'Main Menus' },
+  { key: 'modules.backup', label: 'Backup', group: 'Main Menus' },
 
   { key: 'admin.users', label: 'Users', group: 'Admin Menus' },
   { key: 'admin.manual', label: 'Manual', group: 'Admin Menus' },
@@ -23,6 +24,8 @@ export const FEATURE_CATALOG = [
   { key: 'admin.cashDrawer', label: 'Cash Drawer', group: 'Admin Menus' },
   { key: 'admin.config', label: 'Config', group: 'Admin Menus' },
   { key: 'admin.godhand', label: 'GodHand', group: 'Admin Menus' },
+
+  { key: 'features.offlineBackup', label: 'Offline usage (queue + backup)', group: 'Features' },
 
   { key: 'tabs.customerPurchaseHistory', label: 'Customer Purchase History', group: 'Tabs' }
 ];

@@ -10,10 +10,14 @@ const customersSlice = createSlice({
   reducers: {
     setCustomers(state, action) {
       const list = Array.isArray(action.payload) ? action.payload : [];
-      state.customers = list.map(c => {
+      const server = list.map(c => {
         const id = c?.id || c?._id || nanoid();
         return { ...c, id: String(id) };
       });
+      const serverIds = new Set(server.map(c => c.id).filter(Boolean));
+      const serverClientIds = new Set(server.map(c => c?.clientId).filter(Boolean).map(String));
+      const offline = state.customers.filter(c => c && c.offline && !serverIds.has(String(c.id)) && (!c.clientId || !serverClientIds.has(String(c.clientId))));
+      state.customers = server.concat(offline);
     },
     addCustomer(state, action) {
       const c = action.payload || {};

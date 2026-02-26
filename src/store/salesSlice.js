@@ -10,10 +10,12 @@ const salesSlice = createSlice({
   reducers: {
     setSales(state, action) {
       const list = Array.isArray(action.payload) ? action.payload : [];
-      state.sales = list.map(s => {
+      const server = list.map(s => {
         const id = s?.id || s?._id || nanoid();
         return { ...s, id: String(id) };
       });
+      const offline = state.sales.filter(s => s && s.offline);
+      state.sales = server.concat(offline);
     },
     recordSale: {
       reducer(state, action) {

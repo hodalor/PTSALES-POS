@@ -9,18 +9,27 @@ const refundsSlice = createSlice({
   initialState,
   reducers: {
     setRequests(state, action) {
-      state.requests = Array.isArray(action.payload) ? action.payload : [];
+      const list = Array.isArray(action.payload) ? action.payload : [];
+      const server = list.map(r => {
+        const id = r?.id || r?._id || nanoid();
+        return { ...r, id: String(id) };
+      });
+      const serverIds = new Set(server.map(r => r.id).filter(Boolean));
+      const serverClientIds = new Set(server.map(r => r?.clientId).filter(Boolean).map(String));
+      const offline = state.requests.filter(r => r && r.offline && !serverIds.has(String(r.id)) && (!r.clientId || !serverClientIds.has(String(r.clientId))));
+      state.requests = server.concat(offline);
     },
     createRefundRequest: {
       reducer(state, action) {
         state.requests.push(action.payload);
       },
       prepare(req) {
+        const id = req?.id != null ? String(req.id) : nanoid();
         return {
           payload: {
-            id: nanoid(),
-            status: 'pending_approval',
-            created_at: new Date().toISOString(),
+            id,
+            status: req?.status || 'pending_approval',
+            created_at: req?.created_at || new Date().toISOString(),
             ...req
           }
         };

@@ -11,6 +11,7 @@ import salesReducer from './salesSlice';
 import sessionsReducer from './sessionsSlice';
 import auditReducer from './auditSlice';
 import refundsReducer from './refundsSlice';
+import offlineQueueReducer from './offlineQueueSlice';
 // persistence disabled
 
 const preloadedState = undefined;
@@ -27,7 +28,8 @@ const store = configureStore({
     sales: salesReducer,
     audit: auditReducer,
     sessions: sessionsReducer,
-    refunds: refundsReducer
+    refunds: refundsReducer,
+    offlineQueue: offlineQueueReducer
   },
   preloadedState
 });

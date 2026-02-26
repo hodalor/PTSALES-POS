@@ -9,22 +9,29 @@ const branchesSlice = createSlice({
   initialState,
   reducers: {
     setBranches(state, action) {
-      state.branches = Array.isArray(action.payload) && action.payload.length > 0 ? action.payload : state.branches;
+      const server = Array.isArray(action.payload) && action.payload.length > 0 ? action.payload : null;
+      if (!server) return;
+      const seen = new Set(server.map(b => b?.id).filter(Boolean).map(String));
+      const offline = state.branches.filter(b => b && b.offline && !seen.has(String(b.id)));
+      state.branches = server.concat(offline);
     },
     addBranch: {
       reducer(state, action) {
         state.branches.push(action.payload);
       },
-      prepare({ name, code }) {
-        return { payload: { id: nanoid(), name, code } };
+      prepare(data) {
+        const id = data?.id != null ? String(data.id) : nanoid();
+        const payload = { id, name: '', code: '', ...data };
+        return { payload };
       }
     },
     updateBranch(state, action) {
-      const { id, name, code } = action.payload;
+      const { id, name, code, offline } = action.payload;
       const b = state.branches.find(x => x.id === id);
       if (b) {
         b.name = name;
         b.code = code;
+        if (typeof offline === 'boolean') b.offline = offline;
       }
     },
     removeBranch(state, action) {

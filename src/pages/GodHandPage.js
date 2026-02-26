@@ -4,11 +4,14 @@ import { useToast } from '../components/ToastProvider';
 import * as settingsApi from '../api/settings';
 import { setAllSettings } from '../store/settingsSlice';
 import { FEATURE_CATALOG, setFeatureFlag } from '../utils/featureFlags';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function GodHandPage() {
   const dispatch = useDispatch();
   const toast = useToast();
   const settings = useSelector(s => s.settings);
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const [query, setQuery] = useState('');
   const [saving, setSaving] = useState(false);
   const [localFlags, setLocalFlags] = useState(() => settings.featureFlags || {});
@@ -42,6 +45,16 @@ function GodHandPage() {
     setSaving(true);
     const data = { ...settings, featureFlags: localFlags };
     try {
+      if (!navigator.onLine) {
+        if (!offlineBackupAllowed) {
+          toast.show('Offline: connect internet and try again.', { type: 'error' });
+          return;
+        }
+        await enqueueHttp({ collection: 'settings', label: 'Settings', path: '/api/settings', method: 'PUT', body: data });
+        dispatch(setAllSettings(data));
+        toast.show('Saved offline. Will backup when online.', { type: 'success' });
+        return;
+      }
       const out = await settingsApi.save(data);
       dispatch(setAllSettings(out));
       toast.show('Features saved', { type: 'success' });
@@ -58,7 +71,10 @@ function GodHandPage() {
 
   return (
     <div style={{ padding: 16 }}>
-      <h1>GodHand</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>GodHand</h1>
+        <OfflineQueueIndicator collection="settings" label="Settings queued" />
+      </div>
       <div style={{ color: '#64748b', marginTop: 6, marginBottom: 12 }}>
         Toggle features ON/OFF for the whole system. Hidden features are removed from menus and blocked by routes.
       </div>

@@ -7,9 +7,7 @@ import InventoryPage from './pages/InventoryPage';
 import ReportsPage from './pages/ReportsPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ProtectedRoute from './components/ProtectedRoute';
-import useAutoSync from './offline/useAutoSync';
-import { createSale } from './api/sales';
-import { useCallback, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import * as productsApi from './api/products';
 import * as suppliersApi from './api/suppliers';
@@ -45,6 +43,7 @@ import StockRecordsPage from './pages/StockRecordsPage';
 import ServerLogsPage from './pages/ServerLogsPage';
 import ExpensesPage from './pages/ExpensesPage';
 import GodHandPage from './pages/GodHandPage';
+import BackupPage from './pages/BackupPage';
 import * as authApi from './api/auth';
 import { loginSuccess, setGrants, setInitialized, logout } from './store/authSlice';
 import * as settingsApi from './api/settings';
@@ -149,12 +148,6 @@ function App() {
       } catch {}
     })();
   }, [isAuthed]);
-  const syncHandler = useCallback(async (item) => {
-    if (item.type === 'sale') {
-      await createSale(item.payload);
-    }
-  }, []);
-  useAutoSync(syncHandler);
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -184,7 +177,8 @@ function App() {
   }, [dispatch, isAuthed]);
   useEffect(() => {
     if (!isAuthed) return;
-    const g = (settings && settings.userGrants && userName) ? (settings.userGrants[userName] || []) : [];
+    const userGrants = settings?.userGrants;
+    const g = (userGrants && userName) ? (userGrants[userName] || []) : [];
     dispatch(setGrants(Array.isArray(g) ? g : []));
   }, [isAuthed, settings?.userGrants, userName, dispatch]);
   useEffect(() => {
@@ -260,6 +254,7 @@ function App() {
             <Route path="/suppliers" element={<ProtectedRoute feature="modules.suppliers" roles={['Admin','Manager','Inventory Staff']} grant={['view_suppliers','see_suppliers']}><SuppliersPage /></ProtectedRoute>} />
             <Route path="/labels" element={<ProtectedRoute feature="modules.labels" roles={['Admin','Manager','Inventory Staff']} grant={['view_labels','see_labels']}><LabelsPage /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute feature="modules.reports" roles={['Admin','Manager','Auditor']} grant={['view_reports','see_reports']}><ReportsPage /></ProtectedRoute>} />
+            <Route path="/backup" element={<ProtectedRoute feature="modules.backup" roles={['Admin','Manager','SuperAdmin']}><BackupPage /></ProtectedRoute>} />
             <Route path="/customers" element={<ProtectedRoute feature="modules.customers" roles={['Admin','Manager','Cashier']} grant={['view_customers','see_customers']}><CustomersPage /></ProtectedRoute>} />
             <Route path="/refunds" element={<ProtectedRoute feature="modules.refunds" roles={['Admin','Manager','Cashier']} grant={['view_refunds','see_refunds']}><RefundsPage /></ProtectedRoute>} />
             <Route path="/refund-approvals" element={<ProtectedRoute feature="modules.refundApprovals" roles={['Admin','Manager','SuperAdmin']} grant="approve_refunds"><RefundApprovalsPage /></ProtectedRoute>} />

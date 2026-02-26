@@ -3,10 +3,41 @@ import Header from './Header';
 import OfflineBanner from './OfflineBanner';
 import Sidebar from './Sidebar';
 import Breadcrumbs from './Breadcrumbs';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
+import { useEffect } from 'react';
+import { setQueueSummary } from '../store/offlineQueueSlice';
+import { getQueueSummary, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import { attemptSync } from '../offline/queue';
+import { syncQueuedItem } from '../offline/syncHandlers';
 
 function Layout() {
+  const dispatch = useDispatch();
   const footer = useSelector(s => s.settings.footerText);
+  const settings = useSelector(s => s.settings);
+  useEffect(() => {
+    let alive = true;
+    async function refresh() {
+      try {
+        const summary = await getQueueSummary();
+        if (alive) dispatch(setQueueSummary(summary));
+        if (navigator.onLine && summary.total > 0 && isOfflineBackupEnabled(settings)) {
+          await attemptSync(syncQueuedItem);
+          const after = await getQueueSummary();
+          if (alive) dispatch(setQueueSummary(after));
+        }
+      } catch {}
+    }
+    refresh();
+    const id = setInterval(refresh, 5000);
+    window.addEventListener('online', refresh);
+    window.addEventListener('offline', refresh);
+    return () => {
+      alive = false;
+      clearInterval(id);
+      window.removeEventListener('online', refresh);
+      window.removeEventListener('offline', refresh);
+    };
+  }, [dispatch, settings]);
   return (
     <div className="layout">
       <Sidebar />

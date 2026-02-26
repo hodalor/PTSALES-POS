@@ -5,9 +5,12 @@ import { useToast } from '../components/ToastProvider';
 import { addAudit } from '../store/auditSlice';
 import { confirmDialog } from '../utils/dialogs';
 import * as suppliersApi from '../api/suppliers';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function SuppliersPage() {
   const suppliers = useSelector(s => s.suppliers.suppliers);
+  const settings = useSelector(s => s.settings);
   const auth = useSelector(s => s.auth);
   const roleLower = String(auth.role || '').toLowerCase();
   const grants = Array.isArray(auth.grants) ? auth.grants : [];
@@ -30,6 +33,7 @@ function SuppliersPage() {
   const [edit, setEdit] = useState({ name: '', contact: '', phone: '', email: '', address: '', notes: '' });
   const dispatch = useDispatch();
   const toast = useToast();
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -46,16 +50,30 @@ function SuppliersPage() {
     if (!canAddSuppliers) { toast.show('Not authorized to add suppliers', { type: 'error' }); return; }
     if (!name.trim()) { toast.show('Name is required', { type: 'error' }); return; }
     const payload = { name: name.trim(), contact: contact.trim(), phone: phone.trim(), email: email.trim(), address: address.trim(), notes: notes.trim() };
-    const action = dispatch(addSupplier(payload));
-    const created = action?.payload;
-    if (created) {
-      dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_add', details: { id: created.id, name: created.name } }));
+    if (!navigator.onLine) {
+      if (!offlineBackupAllowed) { toast.show('Offline: connect internet and try again.', { type: 'error' }); return; }
+      const clientId = `offline-supplier-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      dispatch(addSupplier({ id: clientId, clientId, offline: true, ...payload }));
+      dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_add', details: { id: clientId, name: payload.name }, offline: true }));
+      try {
+        await enqueueHttp({ collection: 'suppliers', label: 'Supplier', path: '/api/suppliers', method: 'POST', body: { ...payload, clientId } });
+      } catch {
+        toast.show('Failed to save offline', { type: 'error' });
+        return;
+      }
+      setName(''); setContact(''); setPhone(''); setEmail(''); setAddress(''); setNotes('');
+      toast.show('Saved offline. Will backup when online.', { type: 'success' });
+      return;
     }
-    if (created) {
-      suppliersApi.create({ id: created.id, ...payload }).catch(() => {});
+    try {
+      const created = await suppliersApi.create({ ...payload, clientId: crypto.randomUUID() });
+      dispatch(addSupplier(created));
+      dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_add', details: { id: created.id || created._id, name: created.name } }));
+      setName(''); setContact(''); setPhone(''); setEmail(''); setAddress(''); setNotes('');
+      toast.show('Supplier added', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to save supplier'), { type: 'error' });
     }
-    setName(''); setContact(''); setPhone(''); setEmail(''); setAddress(''); setNotes('');
-    toast.show('Supplier added', { type: 'success' });
   }
 
   function startEdit(s) {
@@ -65,25 +83,64 @@ function SuppliersPage() {
   }
   async function saveEdit() {
     if (!canEditSuppliers) { toast.show('Not authorized to edit suppliers', { type: 'error' }); return; }
-    dispatch(updateSupplier({ id: editingId, ...edit }));
-    suppliersApi.update(editingId, edit).catch(() => {});
-    dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_update', details: { id: editingId } }));
-    setEditingId(null);
-    toast.show('Supplier updated', { type: 'success' });
+    if (!editingId) return;
+    if (!navigator.onLine) {
+      if (!offlineBackupAllowed) { toast.show('Offline: connect internet and try again.', { type: 'error' }); return; }
+      dispatch(updateSupplier({ id: editingId, ...edit, offline: true }));
+      dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_update', details: { id: editingId }, offline: true }));
+      try {
+        await enqueueHttp({ collection: 'suppliers', label: 'Supplier update', path: `/api/suppliers/${encodeURIComponent(editingId)}`, method: 'PUT', body: edit });
+      } catch {
+        toast.show('Failed to save offline', { type: 'error' });
+        return;
+      }
+      setEditingId(null);
+      toast.show('Saved offline. Will backup when online.', { type: 'success' });
+      return;
+    }
+    try {
+      const updated = await suppliersApi.update(editingId, edit);
+      dispatch(updateSupplier({ id: editingId, ...(updated || edit), offline: false }));
+      dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_update', details: { id: editingId } }));
+      setEditingId(null);
+      toast.show('Supplier updated', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to update supplier'), { type: 'error' });
+    }
   }
   async function remove(id) {
     if (!canRemoveSuppliers) { toast.show('Only Admin can remove suppliers', { type: 'error' }); return; }
     const ok = await confirmDialog('Remove this supplier?');
     if (!ok) return;
-    dispatch(removeSupplier(id));
-    suppliersApi.remove(id).catch(() => {});
-    dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_remove', details: { id } }));
-    toast.show('Supplier removed', { type: 'success' });
+    if (!navigator.onLine) {
+      if (!offlineBackupAllowed) { toast.show('Offline: connect internet and try again.', { type: 'error' }); return; }
+      dispatch(removeSupplier(id));
+      dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_remove', details: { id }, offline: true }));
+      try {
+        await enqueueHttp({ collection: 'suppliers', label: 'Supplier delete', path: `/api/suppliers/${encodeURIComponent(id)}`, method: 'DELETE', body: {} });
+      } catch {
+        toast.show('Failed to save offline', { type: 'error' });
+        return;
+      }
+      toast.show('Saved offline. Will backup when online.', { type: 'success' });
+      return;
+    }
+    try {
+      await suppliersApi.remove(id);
+      dispatch(removeSupplier(id));
+      dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_remove', details: { id } }));
+      toast.show('Supplier removed', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to remove supplier'), { type: 'error' });
+    }
   }
 
   return (
     <div style={{ padding: 16 }}>
-      <h1>Suppliers</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>Suppliers</h1>
+        <OfflineQueueIndicator collection="suppliers" label="Suppliers queued" />
+      </div>
       {canAddSuppliers && (
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>

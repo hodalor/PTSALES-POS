@@ -7,13 +7,16 @@ import { confirmDialog } from '../utils/dialogs';
 import * as customersApi from '../api/customers';
 import { formatCurrency } from '../utils/currency';
 import { isFeatureEnabled } from '../utils/featureFlags';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import Modal from '../components/Modal';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function CustomersPage() {
   const customers = useSelector(s => s.customers.customers);
   const sales = useSelector(s => s.sales.sales);
   const settings = useSelector(s => s.settings);
   const auth = useSelector(s => s.auth);
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const roleLower = String(auth.role || '').toLowerCase();
   const grants = Array.isArray(auth.grants) ? auth.grants : [];
   function has(g) {
@@ -158,17 +161,33 @@ function CustomersPage() {
         vip: Boolean(createForm.vip),
         photo: createForm.photo || ''
       };
-      const created = await customersApi.create(payload);
-      dispatch(addCustomer(created));
-      dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'customer_add', details: { id: created.id || created._id, name: created.name } }));
-      setSelectedId(String(created.id || created._id));
-      setSelectedTab('profile');
-      toast.show('Customer added', { type: 'success' });
-      try {
-        const list = await customersApi.list({ limit: 2000 });
-        dispatch(setCustomers(list));
-      } catch {}
-      setModalMode('view');
+      if (!navigator.onLine) {
+        if (!offlineBackupAllowed) {
+          toast.show('Offline: connect internet and try again.', { type: 'error' });
+          return;
+        }
+        const clientId = `offline-customer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const offlineRow = { ...payload, id: clientId, clientId, customerCode: `OFF-${String(Date.now()).slice(-6)}`, loyaltyPoints: 0, offline: true };
+        dispatch(addCustomer(offlineRow));
+        dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'customer_add', details: { id: clientId, name: payload.name }, offline: true }));
+        await enqueueHttp({ collection: 'customers', label: 'Customer', path: '/api/customers', method: 'POST', body: { ...payload, clientId } });
+        setSelectedId(String(clientId));
+        setSelectedTab('profile');
+        setModalMode('view');
+        toast.show('Saved offline. Will backup when online.', { type: 'success' });
+      } else {
+        const created = await customersApi.create({ ...payload, clientId: crypto.randomUUID() });
+        dispatch(addCustomer(created));
+        dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'customer_add', details: { id: created.id || created._id, name: created.name } }));
+        setSelectedId(String(created.id || created._id));
+        setSelectedTab('profile');
+        toast.show('Customer added', { type: 'success' });
+        try {
+          const list = await customersApi.list({ limit: 2000 });
+          dispatch(setCustomers(list));
+        } catch {}
+        setModalMode('view');
+      }
     } catch (e) {
       toast.show(String(e?.message || 'Failed to add customer'), { type: 'error' });
     } finally {
@@ -211,14 +230,25 @@ function CustomersPage() {
         vip: Boolean(editForm.vip),
         photo: editForm.photo || ''
       };
-      const updated = await customersApi.update(selected.id, payload);
-      dispatch(updateCustomer({ id: selected.id, ...updated }));
-      dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'customer_update', details: { id: selected.id } }));
-      toast.show('Customer updated', { type: 'success' });
-      try {
-        const list = await customersApi.list({ limit: 2000 });
-        dispatch(setCustomers(list));
-      } catch {}
+      if (!navigator.onLine) {
+        if (!offlineBackupAllowed) {
+          toast.show('Offline: connect internet and try again.', { type: 'error' });
+          return;
+        }
+        dispatch(updateCustomer({ id: selected.id, ...payload, offline: true }));
+        dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'customer_update', details: { id: selected.id }, offline: true }));
+        await enqueueHttp({ collection: 'customers', label: 'Customer update', path: `/api/customers/${encodeURIComponent(selected.id)}`, method: 'PUT', body: payload });
+        toast.show('Saved offline. Will backup when online.', { type: 'success' });
+      } else {
+        const updated = await customersApi.update(selected.id, payload);
+        dispatch(updateCustomer({ id: selected.id, ...updated }));
+        dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'customer_update', details: { id: selected.id } }));
+        toast.show('Customer updated', { type: 'success' });
+        try {
+          const list = await customersApi.list({ limit: 2000 });
+          dispatch(setCustomers(list));
+        } catch {}
+      }
     } catch (e) {
       toast.show(String(e?.message || 'Failed to update customer'), { type: 'error' });
     } finally {
@@ -230,15 +260,27 @@ function CustomersPage() {
     const ok = await confirmDialog('Remove this customer?');
     if (!ok) return;
     try {
-      await customersApi.remove(id);
-      dispatch(removeCustomer(id));
-      dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'customer_remove', details: { id } }));
-      if (String(selectedId) === String(id)) setSelectedId(null);
-      toast.show('Customer removed', { type: 'success' });
-      try {
-        const list = await customersApi.list({ limit: 2000 });
-        dispatch(setCustomers(list));
-      } catch {}
+      if (!navigator.onLine) {
+        if (!offlineBackupAllowed) {
+          toast.show('Offline: connect internet and try again.', { type: 'error' });
+          return;
+        }
+        dispatch(removeCustomer(id));
+        dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'customer_remove', details: { id }, offline: true }));
+        await enqueueHttp({ collection: 'customers', label: 'Customer delete', path: `/api/customers/${encodeURIComponent(id)}`, method: 'DELETE', body: {} });
+        if (String(selectedId) === String(id)) setSelectedId(null);
+        toast.show('Saved offline. Will backup when online.', { type: 'success' });
+      } else {
+        await customersApi.remove(id);
+        dispatch(removeCustomer(id));
+        dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'customer_remove', details: { id } }));
+        if (String(selectedId) === String(id)) setSelectedId(null);
+        toast.show('Customer removed', { type: 'success' });
+        try {
+          const list = await customersApi.list({ limit: 2000 });
+          dispatch(setCustomers(list));
+        } catch {}
+      }
     } catch (e) {
       toast.show(String(e?.message || 'Failed to remove customer'), { type: 'error' });
     }
@@ -248,12 +290,15 @@ function CustomersPage() {
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h1 style={{ margin: 0 }}>Customers</h1>
-        {canAddCustomers && (
-          <button className="btn btn-primary" onClick={openCreate}>
-            <svg viewBox="0 0 24 24" fill="none" style={{ marginRight: 6 }}><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2"/></svg>
-            Add Customer
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <OfflineQueueIndicator collection="customers" label="Customers queued" />
+          {canAddCustomers && (
+            <button className="btn btn-primary" onClick={openCreate}>
+              <svg viewBox="0 0 24 24" fill="none" style={{ marginRight: 6 }}><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2"/></svg>
+              Add Customer
+            </button>
+          )}
+        </div>
       </div>
       <p>Manage customer profiles and purchase history.</p>
 

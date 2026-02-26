@@ -9,18 +9,21 @@ const auditSlice = createSlice({
   initialState,
   reducers: {
     setEntries(state, action) {
-      state.entries = Array.isArray(action.payload) ? action.payload : [];
+      const server = Array.isArray(action.payload) ? action.payload : [];
+      const offline = state.entries.filter(e => e && e.offline);
+      state.entries = server.concat(offline);
     },
     addAudit(state, action) {
-      const { actor, actionType, details, remark, branchId } = action.payload || {};
+      const { actor, actionType, details, remark, branchId, ts, offline } = action.payload || {};
       state.entries.push({
         id: nanoid(),
-        ts: new Date().toISOString(),
+        ts: ts || new Date().toISOString(),
         actor: actor || 'unknown',
         actionType,
         details: details || null,
         remark: remark || '',
-        branchId: branchId || null
+        branchId: branchId || null,
+        offline: !!offline
       });
     },
     clearAudit(state) {

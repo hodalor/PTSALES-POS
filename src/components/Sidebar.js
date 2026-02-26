@@ -8,6 +8,7 @@ function Sidebar() {
   const settings = useSelector(s => s.settings);
   const role = useSelector(s => s.auth.role);
   const grants = useSelector(s => s.auth.grants);
+  const offlineTotal = useSelector(s => s.offlineQueue.total);
   const rl = String(role || '').toLowerCase();
   const can = (list, grant) => {
     if (!Array.isArray(list) || list.length === 0) return true;
@@ -120,6 +121,19 @@ function Sidebar() {
         <NavLink to="/reports" className="sidebar-link">
           <svg viewBox="0 0 24 24" fill="none"><path d="M5 3h14v18H5z" stroke="currentColor" strokeWidth="2"/><path d="M9 17V9M13 17v-7M17 17v-4" stroke="currentColor" strokeWidth="2"/></svg>
           Reports
+        </NavLink>
+        )}
+        {isFeatureEnabled(settings, 'modules.backup') && can(['Admin','Manager','SuperAdmin'], null) && (
+        <NavLink to="/backup" className="sidebar-link" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16v10H4V7z" stroke="currentColor" strokeWidth="2"/><path d="M8 11h8" stroke="currentColor" strokeWidth="2"/></svg>
+            Backup
+          </span>
+          {Number(offlineTotal || 0) > 0 && (
+            <span style={{ minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+              {Number(offlineTotal || 0)}
+            </span>
+          )}
         </NavLink>
         )}
         <AdminGroup />

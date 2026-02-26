@@ -11,6 +11,8 @@ import { useMemo, useState } from 'react';
 import { addAudit } from '../store/auditSlice';
 import { productSpec } from '../utils/productSpec';
 import { createSale } from '../api/sales';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function PosPage() {
   const cart = useSelector(state => state.cart);
@@ -104,6 +106,7 @@ function PosPage() {
   const paid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const due = Math.max(0, total - paid);
   const change = Math.max(0, paid - total);
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
 
   function addToCart(p) {
     const available = p.stockByBranch?.[branchId] || 0;
@@ -133,8 +136,10 @@ function PosPage() {
       return;
     }
     if (!navigator.onLine) {
-      toast.show('Offline: cannot complete sale. Connect internet and try again.', { type: 'error' });
-      return;
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: connect internet and try again.', { type: 'error' });
+        return;
+      }
     }
     if (canOverrideTax && taxOverridePct !== '' && String(Math.round((taxRate || 0)*100)) !== String(Math.round((settings.taxRate || 0)*100))) {
       if (!taxOverrideRemark.trim()) {
@@ -171,15 +176,31 @@ function PosPage() {
       created_at: new Date().toISOString()
     };
     setSaving(true);
-    let saved = null;
-    try {
-      saved = await createSale(sale);
-    } catch (e) {
-      toast.show(String(e?.message || 'Failed to record sale on server'), { type: 'error' });
-      setSaving(false);
-      return;
+    let saleForUi = null;
+    if (!navigator.onLine) {
+      const offlineId = `offline-sale-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      sale.clientId = offlineId;
+      const ref = `OFF-${String(Date.now()).padStart(6, '0').slice(-6)}`;
+      try {
+        await enqueueHttp({ collection: 'sales', label: 'Sale', path: '/api/sales', method: 'POST', body: sale });
+      } catch (e) {
+        toast.show(String(e?.message || 'Failed to save offline'), { type: 'error' });
+        setSaving(false);
+        return;
+      }
+      saleForUi = { ...sale, id: offlineId, invoiceSerial: ref, receiptNumber: ref, branchName, offline: true };
+    } else {
+      let saved = null;
+      try {
+        sale.clientId = crypto.randomUUID();
+        saved = await createSale(sale);
+      } catch (e) {
+        toast.show(String(e?.message || 'Failed to record sale on server'), { type: 'error' });
+        setSaving(false);
+        return;
+      }
+      saleForUi = { ...sale, ...saved, branchName };
     }
-    const saleForUi = { ...sale, ...saved, branchName };
     const receiptHtml = buildBrandedReceiptHtml({ settings, sale: saleForUi });
     const skuToRef = new Map();
     sellables.forEach(p => skuToRef.set(p.sku, { productId: p.productId || p.id, variantId: p.variantId || null }));
@@ -190,14 +211,15 @@ function PosPage() {
       }
     });
     dispatch(recordSale(saleForUi));
-    if (selectedCustomer && saleForUi.customerPointsAfter != null) {
+    if (navigator.onLine && selectedCustomer && saleForUi.customerPointsAfter != null) {
       dispatch(updateCustomer({ id: selectedCustomer.id, loyaltyPoints: Number(saleForUi.customerPointsAfter || 0) }));
     }
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'stock_sale_deduct',
       details: { items: sale.items.map(it => ({ sku: it.sku, qty: it.qty })), branchId },
-      branchId
+      branchId,
+      offline: !navigator.onLine
     }));
     if (canOverrideTax && taxOverridePct !== '' && String(Math.round((taxRate || 0)*100)) !== String(Math.round((settings.taxRate || 0)*100))) {
       dispatch(addAudit({
@@ -205,14 +227,16 @@ function PosPage() {
         actionType: 'pos_tax_override',
         details: { from: Math.round((settings.taxRate || 0) * 100), to: Math.round(taxRate * 100) },
         remark: taxOverrideRemark,
-        branchId
+        branchId,
+        offline: !navigator.onLine
       }));
     }
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'sale_complete',
       details: { total: sale.total, items: sale.items.length },
-      branchId
+      branchId,
+      offline: !navigator.onLine
     }));
     dispatch(clearCart());
     setSelectedCustomerId('');
@@ -230,7 +254,7 @@ function PosPage() {
     } else {
       printReceiptHtml(receiptHtml);
     }
-    toast.show('Sale recorded', { type: 'success' });
+    toast.show(navigator.onLine ? 'Sale recorded' : 'Saved offline. Will backup when online.', { type: 'success' });
     setSaving(false);
   }
 
@@ -252,7 +276,10 @@ function PosPage() {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, padding: 16 }}>
       <div>
-        <h2>Products</h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2>Products</h2>
+          <OfflineQueueIndicator collection="sales" label="Sales queued" />
+        </div>
         <div className="toolbar">
           <input className="input" placeholder="Search name, SKU or scan barcode" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onSearchKeyDown} style={{ width: '100%' }} />
           <div style={{ display: 'flex', gap: 6 }}>

@@ -8,6 +8,8 @@ import * as settingsApi from '../api/settings';
 import * as usersApi from '../api/users';
 import { setAllSettings } from '../store/settingsSlice';
 import { setGrants as setAuthGrants } from '../store/authSlice';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 const ALL_GRANTS = [
   { key: 'view_dashboard', label: 'Dashboard' },
@@ -64,6 +66,7 @@ function UsersPage() {
   const [editGrants, setEditGrants] = useState([]);
 
   const settings = useSelector(s => s.settings);
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const existingGrants = settings?.userGrants || {};
   const [grants, setGrants] = useState([]);
   const allGrantKeys = ALL_GRANTS_KEYS;
@@ -99,7 +102,7 @@ function UsersPage() {
     return u.name !== 'superadmin';
   }
 
-  function add() {
+  async function add() {
     const canCreate = ['Admin','SuperAdmin'].includes(viewerRole);
     if (!canCreate) {
       toast.show('Not authorized to create users', { type: 'error' });
@@ -123,26 +126,49 @@ function UsersPage() {
       toast.show('Admins cannot create SuperAdmin', { type: 'error' });
       return;
     }
-    dispatch(addUser({ name: cleanName, role, branchId: primaryBranch, assignedBranches: assigned }));
-    (async () => {
-      try {
-        await usersApi.create({ name: cleanName, role, pin: cleanPin, branchId: primaryBranch, assignedBranches: assigned });
-        const latest = await usersApi.list().catch(() => null);
-        if (Array.isArray(latest)) dispatch(setUsers(latest));
-      } catch (e) {
-        toast.show('Failed to save user to server', { type: 'error' });
+    if (!navigator.onLine) {
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: connect internet and try again.', { type: 'error' });
+        return;
       }
-    })();
-    (async () => {
+      dispatch(addUser({ id: cleanName, name: cleanName, role, branchId: primaryBranch, assignedBranches: assigned, offline: true }));
       try {
+        await enqueueHttp({ collection: 'users', label: 'User', path: '/api/users', method: 'POST', body: { name: cleanName, role, pin: cleanPin, branchId: primaryBranch, assignedBranches: assigned } });
         const next = { ...(settings || {}), userGrants: { ...(existingGrants || {}), [cleanName]: grants.slice() } };
-        const saved = await settingsApi.save(next);
-        dispatch(setAllSettings(saved));
-        if ((auth.user?.name || '') === cleanName) {
-          dispatch(setAuthGrants(saved?.userGrants?.[cleanName] || []));
-        }
-      } catch {}
-    })();
+        await enqueueHttp({ collection: 'settings', label: 'User grants', path: '/api/settings', method: 'PUT', body: next });
+      } catch {
+        toast.show('Failed to save offline', { type: 'error' });
+        return;
+      }
+      dispatch(addAudit({
+        actor: auth.user?.name || 'unknown',
+        actionType: 'user_create',
+        details: { name: cleanName, role, branches: allBranches ? 'all' : assigned },
+        remark,
+        offline: true
+      }));
+      setName('');
+      setPin('');
+      setRemark('');
+      setAllBranches(false);
+      setSelectedBranches([]);
+      toast.show('Saved offline. Will backup when online.', { type: 'success' });
+      return;
+    }
+    try {
+      await usersApi.create({ name: cleanName, role, pin: cleanPin, branchId: primaryBranch, assignedBranches: assigned });
+      const next = { ...(settings || {}), userGrants: { ...(existingGrants || {}), [cleanName]: grants.slice() } };
+      const saved = await settingsApi.save(next);
+      dispatch(setAllSettings(saved));
+      if ((auth.user?.name || '') === cleanName) {
+        dispatch(setAuthGrants(saved?.userGrants?.[cleanName] || []));
+      }
+      const latest = await usersApi.list().catch(() => null);
+      if (Array.isArray(latest)) dispatch(setUsers(latest));
+    } catch {
+      toast.show('Failed to save user to server', { type: 'error' });
+      return;
+    }
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'user_create',
@@ -175,7 +201,7 @@ function UsersPage() {
     setEditGrants(Array.isArray(g) ? g : []);
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     if (!editingId) return;
     const target = users.find(u => u.id === editingId);
     if (viewerRole !== 'Admin' && viewerRole !== 'SuperAdmin') {
@@ -216,34 +242,58 @@ function UsersPage() {
       toast.show('Please enter a remark for audit logging', { type: 'error' });
       return;
     }
-    dispatch(updateUser(fields));
-    (async () => {
-      try {
-        const prevName = target?.name || editName;
-        const payload = { name: fields.name, role: fields.role, active: fields.active, branchId: fields.branchId, assignedBranches: fields.assignedBranches };
-        if (fields.pin) payload.pin = fields.pin;
-        await usersApi.update(prevName, payload);
-        const latest = await usersApi.list().catch(() => null);
-        if (Array.isArray(latest)) dispatch(setUsers(latest));
-      } catch {
-        toast.show('Failed to update user on server', { type: 'error' });
+    const prevName = target?.name || editName;
+    const payload = { name: fields.name, role: fields.role, active: fields.active, branchId: fields.branchId, assignedBranches: fields.assignedBranches };
+    if (fields.pin) payload.pin = fields.pin;
+    if (!navigator.onLine) {
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: connect internet and try again.', { type: 'error' });
+        return;
       }
-    })();
-    (async () => {
+      dispatch(updateUser({ ...fields, offline: true }));
       try {
+        await enqueueHttp({ collection: 'users', label: 'User update', path: `/api/users/${encodeURIComponent(prevName)}`, method: 'PUT', body: payload });
         const map = { ...(existingGrants || {}) };
         if (target && target.name && target.name !== editName) {
           delete map[target.name];
         }
         map[editName] = editGrants.slice();
         const next = { ...(settings || {}), userGrants: map };
-        const saved = await settingsApi.save(next);
-        dispatch(setAllSettings(saved));
-        if ((auth.user?.name || '') === editName) {
-          dispatch(setAuthGrants(saved?.userGrants?.[editName] || []));
-        }
-      } catch {}
-    })();
+        await enqueueHttp({ collection: 'settings', label: 'User grants', path: '/api/settings', method: 'PUT', body: next });
+      } catch {
+        toast.show('Failed to save offline', { type: 'error' });
+        return;
+      }
+      dispatch(addAudit({
+        actor: auth.user?.name || 'unknown',
+        actionType: 'user_update',
+        details: { id: editingId, role: fields.role, active: fields.active, branches: fields.assignedBranches },
+        remark: editRemark,
+        offline: true
+      }));
+      setEditingId(null);
+      toast.show('Saved offline. Will backup when online.', { type: 'success' });
+      return;
+    }
+    try {
+      await usersApi.update(prevName, payload);
+      const map = { ...(existingGrants || {}) };
+      if (target && target.name && target.name !== editName) {
+        delete map[target.name];
+      }
+      map[editName] = editGrants.slice();
+      const next = { ...(settings || {}), userGrants: map };
+      const saved = await settingsApi.save(next);
+      dispatch(setAllSettings(saved));
+      if ((auth.user?.name || '') === editName) {
+        dispatch(setAuthGrants(saved?.userGrants?.[editName] || []));
+      }
+      const latest = await usersApi.list().catch(() => null);
+      if (Array.isArray(latest)) dispatch(setUsers(latest));
+    } catch {
+      toast.show('Failed to update user on server', { type: 'error' });
+      return;
+    }
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'user_update',
@@ -253,38 +303,63 @@ function UsersPage() {
     setEditingId(null);
   }
 
-  function toggleActive(u, active) {
-    (async () => {
-      if (viewerRole !== 'Admin' && viewerRole !== 'SuperAdmin') {
-        toast.show('Not authorized', { type: 'error' });
+  async function toggleActive(u, active) {
+    if (viewerRole !== 'Admin' && viewerRole !== 'SuperAdmin') {
+      toast.show('Not authorized', { type: 'error' });
+      return;
+    }
+    if (viewerRole === 'Admin' && String(u.role) === 'SuperAdmin') {
+      toast.show('Admins cannot modify SuperAdmin', { type: 'error' });
+      return;
+    }
+    const r = await promptDialog(active ? 'Remark for enabling user' : 'Remark for disabling user');
+    if (!r || !r.trim()) return;
+    if (!navigator.onLine) {
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: connect internet and try again.', { type: 'error' });
         return;
       }
-      if (viewerRole === 'Admin' && String(u.role) === 'SuperAdmin') {
-        toast.show('Admins cannot modify SuperAdmin', { type: 'error' });
+      dispatch(updateUser({ id: u.id, active, offline: true }));
+      dispatch(addAudit({
+        actor: auth.user?.name || 'unknown',
+        actionType: 'user_status',
+        details: { id: u.id, name: u.name, active },
+        remark: r,
+        offline: true
+      }));
+      try {
+        await enqueueHttp({ collection: 'users', label: 'User status', path: `/api/users/${encodeURIComponent(u.name)}`, method: 'PUT', body: { active } });
+      } catch {
+        toast.show('Failed to save offline', { type: 'error' });
         return;
       }
-      const r = await promptDialog(active ? 'Remark for enabling user' : 'Remark for disabling user');
-      if (!r || !r.trim()) return;
-      dispatch(updateUser({ id: u.id, active }));
+      toast.show('Saved offline. Will backup when online.', { type: 'success' });
+      return;
+    }
+    try {
+      await usersApi.update(u.name, { active });
+      const latest = await usersApi.list().catch(() => null);
+      if (Array.isArray(latest)) dispatch(setUsers(latest));
       dispatch(addAudit({
         actor: auth.user?.name || 'unknown',
         actionType: 'user_status',
         details: { id: u.id, name: u.name, active },
         remark: r
       }));
-      try {
-        await usersApi.update(u.name, { active });
-        const latest = await usersApi.list().catch(() => null);
-        if (Array.isArray(latest)) dispatch(setUsers(latest));
-      } catch {
-        toast.show('Failed to update status on server', { type: 'error' });
-      }
-    })();
+    } catch {
+      toast.show('Failed to update status on server', { type: 'error' });
+    }
   }
 
   return (
     <div style={{ padding: 16 }}>
-      <h1>Users</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>Users</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <OfflineQueueIndicator collection="users" label="Users queued" />
+          <OfflineQueueIndicator collection="settings" label="Settings queued" />
+        </div>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }}>
         <div style={{ background: '#fff', borderRadius: 12, padding: 16 }}>
           <h2>Create User</h2>
@@ -393,11 +468,36 @@ function UsersPage() {
                           (async () => {
                             const r = await promptDialog('Remark for removing user');
                             if (!r || !r.trim()) return;
-                            dispatch(removeUser(u.id));
+                            if (!navigator.onLine) {
+                              if (!offlineBackupAllowed) {
+                                toast.show('Offline: connect internet and try again.', { type: 'error' });
+                                return;
+                              }
+                              dispatch(removeUser(u.id));
+                              dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'user_remove', details: { id: u.id, name: u.name }, remark: r, offline: true }));
+                              try {
+                                await enqueueHttp({ collection: 'users', label: 'User delete', path: `/api/users/${encodeURIComponent(u.name)}`, method: 'DELETE', body: {} });
+                                const map = { ...(existingGrants || {}) };
+                                delete map[u.name];
+                                const next = { ...(settings || {}), userGrants: map };
+                                await enqueueHttp({ collection: 'settings', label: 'User grants', path: '/api/settings', method: 'PUT', body: next });
+                              } catch {
+                                toast.show('Failed to save offline', { type: 'error' });
+                                return;
+                              }
+                              toast.show('Saved offline. Will backup when online.', { type: 'success' });
+                              return;
+                            }
                             try {
                               await usersApi.remove(u.name);
+                              const map = { ...(existingGrants || {}) };
+                              delete map[u.name];
+                              const next = { ...(settings || {}), userGrants: map };
+                              const saved = await settingsApi.save(next);
+                              dispatch(setAllSettings(saved));
                               const latest = await usersApi.list().catch(() => null);
                               if (Array.isArray(latest)) dispatch(setUsers(latest));
+                              dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'user_remove', details: { id: u.id, name: u.name }, remark: r }));
                             } catch {
                               toast.show('Failed to remove user on server', { type: 'error' });
                             }

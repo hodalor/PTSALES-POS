@@ -6,6 +6,8 @@ import BranchSelect from '../components/BranchSelect';
 import * as stockApi from '../api/stock';
 import { formatCurrency } from '../utils/currency';
 import { useToast } from '../components/ToastProvider';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function InventoryPage() {
   const products = useSelector(s => s.products.products);
@@ -13,6 +15,7 @@ function InventoryPage() {
   const currentBranchId = useSelector(s => s.settings.currentBranchId);
   const settings = useSelector(s => s.settings);
   const auth = useSelector(s => s.auth);
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const [branchId, setBranchId] = useState(currentBranchId);
   const [modalId, setModalId] = useState(null);
   const [openVariantsFor, setOpenVariantsFor] = useState(null);
@@ -31,29 +34,49 @@ function InventoryPage() {
       : (p.stockByBranch?.[bId] || 0);
     const delta = Number(quantity) - Number(oldQty);
     const key = `${p.id}:${variantId || 'base'}:${bId}`;
+    if (!navigator.onLine && !offlineBackupAllowed) {
+      toast.show('Offline: cannot save stock changes', { type: 'error' });
+      return;
+    }
     setSavingKey(key);
     dispatch(setStock({ productId: p.id, variantId: variantId || undefined, branchId: bId, quantity: Number(quantity) }));
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'stock_set_manual',
       details: { product: p.name, variant: (p.variants || []).find(v => v.id === variantId)?.label || '', quantity: Number(quantity), delta, branchId: bId },
-      branchId: bId
+      branchId: bId,
+      offline: !navigator.onLine
     }));
-    stockApi.setStock({
+    const payload = {
       productId: p.id,
       branchId: bId,
       quantity: Number(quantity),
       actor: auth.user?.name || 'unknown',
       variantId: variantId || undefined
-    }).catch((e) => {
-      dispatch(setStock({ productId: p.id, variantId: variantId || undefined, branchId: bId, quantity: Number(oldQty) }));
-      toast.show(String(e?.message || 'Failed to save stock'), { type: 'error' });
-    }).finally(() => setSavingKey(k => (k === key ? null : k)));
+    };
+    if (!navigator.onLine) {
+      enqueueHttp({ collection: 'audits', label: 'Stock set', path: '/api/stock/set', method: 'POST', body: payload })
+        .catch(() => {
+          dispatch(setStock({ productId: p.id, variantId: variantId || undefined, branchId: bId, quantity: Number(oldQty) }));
+          toast.show('Failed to save offline', { type: 'error' });
+        })
+        .finally(() => setSavingKey(k => (k === key ? null : k)));
+      return;
+    }
+    stockApi.setStock(payload)
+      .catch((e) => {
+        dispatch(setStock({ productId: p.id, variantId: variantId || undefined, branchId: bId, quantity: Number(oldQty) }));
+        toast.show(String(e?.message || 'Failed to save stock'), { type: 'error' });
+      })
+      .finally(() => setSavingKey(k => (k === key ? null : k)));
   }
 
   return (
     <div style={{ padding: 16 }}>
-      <h1>Inventory</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <h1 style={{ margin: 0 }}>Inventory</h1>
+        <OfflineQueueIndicator collection="audits" label="Stock queued" />
+      </div>
       <div className="card" style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <label style={{ fontSize: 12, color: '#64748b' }}>Branch</label>

@@ -1,0 +1,149 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
+import { useToast } from '../components/ToastProvider';
+import { attemptSync } from '../offline/queue';
+import { COLLECTIONS, listQueuedByCollection } from '../offline/offlineBackup';
+import { syncQueuedItem } from '../offline/syncHandlers';
+
+function BackupPage() {
+  const toast = useToast();
+  const settings = useSelector(s => s.settings);
+  const summary = useSelector(s => s.offlineQueue);
+  const [selected, setSelected] = useState('sales');
+  const [loading, setLoading] = useState(false);
+  const [itemsByCollection, setItemsByCollection] = useState(new Map());
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      try {
+        const map = await listQueuedByCollection();
+        if (alive) setItemsByCollection(map);
+      } catch {
+        if (alive) setItemsByCollection(new Map());
+      }
+    }
+    load();
+    const id = setInterval(load, 5000);
+    window.addEventListener('online', load);
+    window.addEventListener('offline', load);
+    return () => {
+      alive = false;
+      clearInterval(id);
+      window.removeEventListener('online', load);
+      window.removeEventListener('offline', load);
+    };
+  }, []);
+
+  const collections = useMemo(() => {
+    const by = summary?.byCollection || {};
+    return COLLECTIONS.map(c => ({ ...c, count: Number(by[c.key] || 0) }));
+  }, [summary]);
+
+  const rows = useMemo(() => {
+    const list = itemsByCollection.get(selected) || [];
+    return list.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  }, [itemsByCollection, selected]);
+
+  async function onBackupNow() {
+    if (loading) return;
+    if (!navigator.onLine) {
+      toast.show('Offline: connect internet to backup', { type: 'error' });
+      return;
+    }
+    setLoading(true);
+    try {
+      const ok = await attemptSync(syncQueuedItem);
+      if (ok) toast.show('Backup completed', { type: 'success' });
+      else toast.show('Some items failed to backup', { type: 'error' });
+    } catch {
+      toast.show('Backup failed', { type: 'error' });
+    } finally {
+      try {
+        const map = await listQueuedByCollection();
+        setItemsByCollection(map);
+      } catch {}
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ padding: 16 }}>
+      <div className="card" style={{ padding: 16, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div>
+          <h1 style={{ margin: 0 }}>Backup</h1>
+          <div style={{ color: '#64748b', marginTop: 6 }}>
+            Offline queue for cloud-first syncing. Pending: {Number(summary?.total || 0)}
+          </div>
+        </div>
+        <button className="btn btn-primary" onClick={onBackupNow} disabled={loading || !navigator.onLine || Number(summary?.total || 0) === 0}>
+          {loading ? 'Backing up…' : 'Backup Now'}
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 12, alignItems: 'start' }}>
+        <div className="card" style={{ padding: 10 }}>
+          {collections.map(c => (
+            <button
+              key={c.key}
+              className="btn"
+              onClick={() => setSelected(c.key)}
+              style={{
+                width: '100%',
+                justifyContent: 'space-between',
+                marginBottom: 8,
+                background: selected === c.key ? '#0b1220' : undefined,
+                color: selected === c.key ? '#fff' : undefined,
+                borderColor: selected === c.key ? '#0b1220' : undefined
+              }}
+            >
+              <span style={{ textTransform: 'lowercase' }}>{c.label}</span>
+              {c.count > 0 ? (
+                <span style={{ minWidth: 26, height: 22, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+                  {c.count}
+                </span>
+              ) : (
+                <span style={{ color: selected === c.key ? '#cbd5e1' : '#94a3b8', fontSize: 12 }}>0</span>
+              )}
+            </button>
+          ))}
+          <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 8 }}>
+            Offline mode: {String(settings?.featureFlags?.['features.offlineBackup'] === false ? 'disabled' : 'enabled')}
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 12 }}>
+          <h2 className="section-title" style={{ marginTop: 0, textTransform: 'lowercase' }}>{selected}</h2>
+          <table className="table">
+            <thead>
+              <tr>
+                <th align="left">Time</th>
+                <th align="left">Action</th>
+                <th align="left">Target</th>
+                <th align="left">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(it => (
+                <tr key={it.id}>
+                  <td>{new Date(it.ts || Date.now()).toLocaleString()}</td>
+                  <td>{it?.payload?.label || it.type}</td>
+                  <td><code style={{ fontSize: 12 }}>{it?.payload?.path || ''}</code></td>
+                  <td><span style={{ color: '#f59e0b', fontWeight: 700 }}>pending</span></td>
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan="4" style={{ padding: 12, color: '#94a3b8' }}>No pending offline records</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default BackupPage;
+

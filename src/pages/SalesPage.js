@@ -4,6 +4,7 @@ import { buildBrandedReceiptHtml, printReceiptHtml } from '../utils/print';
 import { escposReceipt, downloadText } from '../utils/escpos';
 import { formatCurrency } from '../utils/currency';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function SalesPage() {
   const sales = useSelector(s => s.sales.sales);
@@ -94,12 +95,15 @@ function SalesPage() {
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h1 style={{ margin: 0 }}>Sales</h1>
-        {canSeeAll && (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)} />
-            <span>All branches</span>
-          </label>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <OfflineQueueIndicator collection="sales" label="Sales queued" />
+          {canSeeAll && (
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)} />
+              <span>All branches</span>
+            </label>
+          )}
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 6, marginTop: 10, marginBottom: 8, flexWrap: 'wrap' }}>
         <button className={tab === 'sales' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('sales')}>Sales</button>

@@ -9,6 +9,8 @@ import { productSpec } from '../utils/productSpec';
 import * as productsApi from '../api/products';
 import * as stockApi from '../api/stock';
 import Modal from '../components/Modal';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
 function ProductsPage() {
   const dispatch = useDispatch();
@@ -31,6 +33,7 @@ function ProductsPage() {
   const canAddProducts = (['admin','manager'].includes(roleLower)) || has('add_products');
   const canEditProducts = (['admin','manager'].includes(roleLower)) || has('edit_products');
   const canEditStock = (['admin','manager','inventory staff'].includes(roleLower)) || has('edit_inventory');
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
 
   const [modalMode, setModalMode] = useState('none'); // none, add, edit
   const [editingId, setEditingId] = useState(null);
@@ -208,37 +211,67 @@ function ProductsPage() {
             variants: (variants || []).filter(v => v.label).map(v => ({ id: crypto.randomUUID(), label: v.label.trim(), sku: v.sku?.trim() || '', price: v.price !== '' ? Number(v.price) : undefined, stockByBranch: {} }))
         };
 
-        const action = dispatch(addProduct(payload));
-        const serverPayload = { id: action?.payload?.id, ...payload };
-        productsApi.create(serverPayload).catch(() => {});
+        if (!navigator.onLine && !offlineBackupAllowed) {
+            toast.show('Offline: connect internet and try again.', { type: 'error' });
+            return;
+        }
+
+        const action = dispatch(addProduct({ ...payload, offline: !navigator.onLine }));
         const newId = action?.payload?.id;
+        const barcode = action?.payload?.barcode;
+        const serverPayload = { id: newId, barcode, ...payload };
+        if (!navigator.onLine) {
+            try {
+                await enqueueHttp({ collection: 'products', label: 'Product', path: '/api/products', method: 'POST', body: serverPayload });
+            } catch {
+                if (newId) dispatch(removeProduct(newId));
+                toast.show('Failed to save offline', { type: 'error' });
+                return;
+            }
+        } else {
+            try {
+                await productsApi.create(serverPayload);
+            } catch (e) {
+                if (newId) dispatch(removeProduct(newId));
+                toast.show(String(e?.message || 'Failed to add product'), { type: 'error' });
+                return;
+            }
+        }
         
         if (newId && (Number(initialStock) || 0) > 0) {
             const qty = Number(initialStock) || 0;
-            dispatch(setStock({ productId: newId, branchId: currentBranchId, quantity: qty }));
             dispatch(addAudit({
                 actor: auth.user?.name || 'unknown',
                 actionType: 'stock_set_initial',
                 details: { product: name.trim(), quantity: qty, branchId: currentBranchId },
-                branchId: currentBranchId
-            }));
-            stockApi.setStock({
-                productId: newId,
                 branchId: currentBranchId,
-                quantity: qty,
-                actor: auth.user?.name || 'unknown'
-            }).catch(() => {});
+                offline: !navigator.onLine
+            }));
+            if (!navigator.onLine) {
+                dispatch(setStock({ productId: newId, branchId: currentBranchId, quantity: qty }));
+                try {
+                    await enqueueHttp({ collection: 'audits', label: 'Stock set initial', path: '/api/stock/set', method: 'POST', body: { productId: newId, branchId: currentBranchId, quantity: qty, actor: auth.user?.name || 'unknown' } });
+                } catch {}
+            } else {
+                try {
+                    await stockApi.setStock({ productId: newId, branchId: currentBranchId, quantity: qty, actor: auth.user?.name || 'unknown' });
+                    dispatch(setStock({ productId: newId, branchId: currentBranchId, quantity: qty }));
+                } catch {
+                    toast.show('Failed to save initial stock', { type: 'error' });
+                }
+            }
         }
         
         dispatch(addAudit({
             actor: auth.user?.name || 'unknown',
             actionType: 'product_add',
             details: { name: name.trim(), sku: sku.trim(), price: Number(price) },
-            branchId: currentBranchId
+            branchId: currentBranchId,
+            offline: !navigator.onLine
         }));
         
         closeModal();
-        toast.show('Product added', { type: 'success' });
+        toast.show(navigator.onLine ? 'Product added' : 'Saved offline. Will backup when online.', { type: 'success' });
 
     } else if (modalMode === 'edit') {
         if (!canEditProducts) { toast.show('Not authorized to edit products', { type: 'error' }); return; }
@@ -285,27 +318,63 @@ function ProductsPage() {
 
         const localId = original?.id || original?._id || editingId;
         const updated = { id: localId, ...updatedBaseLocal };
-        dispatch(updateProduct(updated));
         
         const serverId = original?._id || original?.id || null;
+        if (!navigator.onLine && !offlineBackupAllowed) {
+            toast.show('Offline: connect internet and try again.', { type: 'error' });
+            return;
+        }
         if (serverId) {
-            productsApi.update(serverId, { id: original?.id, ...updatedBaseServer }).catch(() => {});
+            if (!navigator.onLine) {
+                dispatch(updateProduct({ ...updated, offline: true }));
+                try {
+                    await enqueueHttp({ collection: 'products', label: 'Product update', path: `/api/products/${encodeURIComponent(serverId)}`, method: 'PUT', body: { id: original?.id, ...updatedBaseServer } });
+                } catch {
+                    toast.show('Failed to save offline', { type: 'error' });
+                    return;
+                }
+            } else {
+                try {
+                    await productsApi.update(serverId, { id: original?.id, ...updatedBaseServer });
+                    dispatch(updateProduct(updated));
+                } catch (e) {
+                    toast.show(String(e?.message || 'Failed to update product'), { type: 'error' });
+                    return;
+                }
+            }
+        } else {
+            dispatch(updateProduct({ ...updated, offline: !navigator.onLine }));
         }
         if (canEditStock && original) {
             const pid = original.id || original._id || editingId;
             const prev = Number(original.stockByBranch?.[currentBranchId] || 0);
             const next = Number(editStockQty) || 0;
             if (prev !== next) {
-                dispatch(setStock({ productId: pid, branchId: currentBranchId, quantity: next }));
-                stockApi.setStock({
-                    productId: original._id || original.id || pid,
-                    branchId: currentBranchId,
-                    quantity: next,
-                    actor: auth.user?.name || 'unknown'
-                }).catch(() => {
-                    dispatch(setStock({ productId: pid, branchId: currentBranchId, quantity: prev }));
-                    toast.show('Failed to save stock. Check your permission or connection.', { type: 'error' });
-                });
+                if (!navigator.onLine) {
+                    if (!offlineBackupAllowed) {
+                        toast.show('Offline: cannot save stock. Connect internet and try again.', { type: 'error' });
+                        return;
+                    }
+                    dispatch(setStock({ productId: pid, branchId: currentBranchId, quantity: next }));
+                    try {
+                        await enqueueHttp({ collection: 'audits', label: 'Stock set', path: '/api/stock/set', method: 'POST', body: { productId: original._id || original.id || pid, branchId: currentBranchId, quantity: next, actor: auth.user?.name || 'unknown' } });
+                    } catch {
+                        dispatch(setStock({ productId: pid, branchId: currentBranchId, quantity: prev }));
+                        toast.show('Failed to save offline', { type: 'error' });
+                        return;
+                    }
+                } else {
+                    dispatch(setStock({ productId: pid, branchId: currentBranchId, quantity: next }));
+                    stockApi.setStock({
+                        productId: original._id || original.id || pid,
+                        branchId: currentBranchId,
+                        quantity: next,
+                        actor: auth.user?.name || 'unknown'
+                    }).catch(() => {
+                        dispatch(setStock({ productId: pid, branchId: currentBranchId, quantity: prev }));
+                        toast.show('Failed to save stock. Check your permission or connection.', { type: 'error' });
+                    });
+                }
             }
         }
 
@@ -327,11 +396,12 @@ function ProductsPage() {
             actionType: 'product_update',
             details: { id: editingId, changed },
             remark,
-            branchId: currentBranchId
+            branchId: currentBranchId,
+            offline: !navigator.onLine
         }));
         
         closeModal();
-        toast.show('Product updated', { type: 'success' });
+        toast.show(navigator.onLine ? 'Product updated' : 'Saved offline. Will backup when online.', { type: 'success' });
     }
   }
 
@@ -418,12 +488,16 @@ function ProductsPage() {
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h1>Products</h1>
-        {canAddProducts && (
-          <button className="btn btn-primary" onClick={openAdd}>
-            <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2"/></svg>
-            Add Product
-          </button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <OfflineQueueIndicator collection="products" label="Products queued" />
+          <OfflineQueueIndicator collection="audits" label="Stock queued" />
+          {canAddProducts && (
+            <button className="btn btn-primary" onClick={openAdd}>
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2"/></svg>
+              Add Product
+            </button>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -587,6 +661,19 @@ function ProductsPage() {
                       const q = Number(e.target.value);
                       const pid = p.id || p._id || p.sku;
                       const prev = p.stockByBranch?.[currentBranchId] || 0;
+                      if (!navigator.onLine) {
+                        if (!offlineBackupAllowed) {
+                          toast.show('Offline: connect internet and try again.', { type: 'error' });
+                          return;
+                        }
+                        dispatch(setStock({ productId: pid, branchId: currentBranchId, quantity: q }));
+                        enqueueHttp({ collection: 'audits', label: 'Stock set', path: '/api/stock/set', method: 'POST', body: { productId: p.id || p._id || p.sku, branchId: currentBranchId, quantity: q, actor: auth.user?.name || 'unknown' } })
+                          .catch(() => {
+                            dispatch(setStock({ productId: pid, branchId: currentBranchId, quantity: prev }));
+                            toast.show('Failed to save offline', { type: 'error' });
+                          });
+                        return;
+                      }
                       dispatch(setStock({ productId: pid, branchId: currentBranchId, quantity: q }));
                       stockApi.setStock({
                         productId: p.id || p._id || p.sku,
@@ -616,8 +703,28 @@ function ProductsPage() {
                     onClick={() => {
                       const localKey = p.id || p._id || p.sku;
                       const serverKey = p._id || p.id;
-                      dispatch(removeProduct(localKey));
-                      if (serverKey) productsApi.remove(serverKey).catch(() => {});
+                      (async () => {
+                        if (!navigator.onLine) {
+                          if (!offlineBackupAllowed) {
+                            toast.show('Offline: connect internet and try again.', { type: 'error' });
+                            return;
+                          }
+                          dispatch(removeProduct(localKey));
+                          try {
+                            await enqueueHttp({ collection: 'products', label: 'Product delete', path: `/api/products/${encodeURIComponent(serverKey || localKey)}`, method: 'DELETE', body: {} });
+                            toast.show('Saved offline. Will backup when online.', { type: 'success' });
+                          } catch {
+                            toast.show('Failed to save offline', { type: 'error' });
+                          }
+                          return;
+                        }
+                        try {
+                          if (serverKey) await productsApi.remove(serverKey);
+                          dispatch(removeProduct(localKey));
+                        } catch {
+                          toast.show('Failed to remove product on server', { type: 'error' });
+                        }
+                      })();
                     }}
                     style={{ marginLeft: 6 }}
                   >
@@ -649,6 +756,19 @@ function ProductsPage() {
                               const q = Number(e.target.value);
                               const pid = p.id || p._id || p.sku;
                               const prev = v.stockByBranch?.[currentBranchId] || 0;
+                              if (!navigator.onLine) {
+                                if (!offlineBackupAllowed) {
+                                  toast.show('Offline: connect internet and try again.', { type: 'error' });
+                                  return;
+                                }
+                                dispatch(setStock({ productId: p.id || p._id || p.sku, variantId: v.id, branchId: currentBranchId, quantity: q }));
+                                enqueueHttp({ collection: 'audits', label: 'Variant stock set', path: '/api/stock/set', method: 'POST', body: { productId: p.id || p._id || p.sku, variantId: v.id, branchId: currentBranchId, quantity: q, actor: auth.user?.name || 'unknown' } })
+                                  .catch(() => {
+                                    dispatch(setStock({ productId: pid, variantId: v.id, branchId: currentBranchId, quantity: prev }));
+                                    toast.show('Failed to save offline', { type: 'error' });
+                                  });
+                                return;
+                              }
                               dispatch(setStock({ productId: p.id || p._id || p.sku, variantId: v.id, branchId: currentBranchId, quantity: q }));
                               stockApi.setStock({
                                 productId: p.id || p._id || p.sku,
