@@ -4,7 +4,7 @@ import cartReducer from './cartSlice';
 import settingsReducer from './settingsSlice';
 import branchesReducer from './branchesSlice';
 import productsReducer from './productsSlice';
-import usersReducer, { updateUser, addUser, removeUser } from './usersSlice';
+import usersReducer from './usersSlice';
 import suppliersReducer from './suppliersSlice';
 import customersReducer from './customersSlice';
 import salesReducer from './salesSlice';

@@ -154,7 +154,7 @@ function AdminGroup() {
       </button>
       {open && (
         <div className="sidebar-subgroup">
-          {(Array.isArray(grants) && (grants.includes('view_users') || grants.includes('see_users')) || ['Admin','SuperAdmin'].includes(role)) && (
+          {((Array.isArray(grants) && (grants.includes('view_users') || grants.includes('see_users'))) || ['Admin','SuperAdmin'].includes(role)) && (
           <NavLink to="/users" className="sidebar-link">
             <svg viewBox="0 0 24 24" fill="none"><path d="M12 6a4 4 0 110 8 4 4 0 010-8z" stroke="currentColor" strokeWidth="2"/><path d="M4 20a8 8 0 0116 0" stroke="currentColor" strokeWidth="2"/></svg>
             Users
@@ -164,7 +164,7 @@ function AdminGroup() {
             <svg viewBox="0 0 24 24" fill="none"><path d="M5 4h14v16H5z" stroke="currentColor" strokeWidth="2"/><path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" strokeWidth="2"/></svg>
             Manual
           </NavLink>
-          {(Array.isArray(grants) && (grants.includes('view_audit') || grants.includes('see_audit')) || ['Admin','SuperAdmin'].includes(role)) && (
+          {((Array.isArray(grants) && (grants.includes('view_audit') || grants.includes('see_audit'))) || ['Admin','SuperAdmin'].includes(role)) && (
           <NavLink to="/audit" className="sidebar-link">
             <svg viewBox="0 0 24 24" fill="none"><path d="M5 3h14v18H5z" stroke="currentColor" strokeWidth="2"/><path d="M9 17V9M13 17v-7M17 17v-4" stroke="currentColor" strokeWidth="2"/></svg>
             Audit Log
@@ -176,19 +176,19 @@ function AdminGroup() {
             Server Logs
           </NavLink>
           )}
-          {(Array.isArray(grants) && (grants.includes('view_stock_records') || grants.includes('see_stock_records')) || ['Admin','SuperAdmin'].includes(role)) && (
+          {((Array.isArray(grants) && (grants.includes('view_stock_records') || grants.includes('see_stock_records'))) || ['Admin','SuperAdmin'].includes(role)) && (
           <NavLink to="/stock-records" className="sidebar-link">
             <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16v10H4z" stroke="currentColor" strokeWidth="2"/><path d="M7 10h10M7 14h6" stroke="currentColor" strokeWidth="2"/></svg>
             Stock Records
           </NavLink>
           )}
-          {(Array.isArray(grants) && (grants.includes('view_cashdrawer') || grants.includes('see_cashdrawer')) || ['Admin','SuperAdmin'].includes(role)) && (
+          {((Array.isArray(grants) && (grants.includes('view_cashdrawer') || grants.includes('see_cashdrawer'))) || ['Admin','SuperAdmin'].includes(role)) && (
           <NavLink to="/cashdrawer" className="sidebar-link">
             <svg viewBox="0 0 24 24" fill="none"><path d="M3 7h18v10H3V7z" stroke="currentColor" strokeWidth="2"/><path d="M7 11h2M15 11h2" stroke="currentColor" strokeWidth="2"/></svg>
             Cash Drawer
           </NavLink>
           )}
-          {(Array.isArray(grants) && (grants.includes('view_config') || grants.includes('see_config')) || ['Admin','SuperAdmin'].includes(role)) && (
+          {((Array.isArray(grants) && (grants.includes('view_config') || grants.includes('see_config'))) || ['Admin','SuperAdmin'].includes(role)) && (
           <NavLink to="/config" className="sidebar-link">
             <svg viewBox="0 0 24 24" fill="none"><path d="M12 15.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7z" stroke="currentColor" strokeWidth="2"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0l-.06-.06A1.65 1.65 0 008.6 19.4a1.65 1.65 0 00-1.82-.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 8.6c.37 0 .73-.13 1.02-.36l.06-.06a2 2 0 012.83 0l.06.06c.29.23.65.36 1.02.36.37 0 .73-.13 1.02-.36l.06-.06a2 2 0 012.83 2.83l-.06.06c-.23.29-.36.65-.36 1.02 0 .37.13.73.36 1.02l.06.06z" stroke="currentColor" strokeWidth="2"/></svg>
             Config

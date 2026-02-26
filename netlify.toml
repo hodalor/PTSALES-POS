@@ -10,7 +10,7 @@
   publish = "build"
 
   # Default build command.
-  command = "npm run build"
+  command = "CI=false npm run build"
 
 # Redirects for Single Page Application (SPA) client-side routing
 # This ensures that all paths are served by index.html so React Router can handle them.

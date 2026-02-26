@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import BranchSelect from '../components/BranchSelect';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
@@ -17,7 +17,6 @@ function ReportsPage() {
   const products = useSelector(s => s.products.products);
   const branches = useSelector(s => s.branches.branches);
   const settings = useSelector(s => s.settings);
-  const auth = useSelector(s => s.auth);
 
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -50,15 +49,15 @@ function ReportsPage() {
     branches.forEach(b => map.set(b.id, b.name || b.code || b.id));
     return map;
   }, [branches]);
-  const inRange = (iso) => {
+  const inRange = useCallback((iso) => {
     const ts = new Date(iso).getTime();
     const fromTs = dateFrom ? new Date(dateFrom).getTime() : 0;
     const toTs = dateTo ? new Date(dateTo).getTime() : Number.MAX_SAFE_INTEGER;
     return ts >= fromTs && ts <= toTs;
-  };
-  const matchBranch = (id) => !branchId || id === branchId;
+  }, [dateFrom, dateTo]);
+  const matchBranch = useCallback((id) => !branchId || id === branchId, [branchId]);
 
-  const filteredSales = useMemo(() => sales.filter(s => inRange(s.created_at) && matchBranch(s.branchId)), [sales, dateFrom, dateTo, branchId]);
+  const filteredSales = useMemo(() => sales.filter(s => inRange(s.created_at) && matchBranch(s.branchId)), [sales, inRange, matchBranch]);
   const analytics = useMemo(() => {
     const productUnits = {};
     const categoryUnits = {};
@@ -91,7 +90,7 @@ function ReportsPage() {
     const cost = filteredSales.reduce((s, x) => s + (Number(x.costTotal) || 0), 0);
     const marginPct = revenue > 0 ? Math.round((profit / revenue) * 10000) / 100 : 0;
     const expenseTotal = expenses.reduce((s, x) => s + (Number(x.amount) || 0), 0);
-    const net = revenue - expenseTotal;
+    const net = profit - expenseTotal;
     const fromTs = dateFrom ? new Date(dateFrom).getTime() : (Date.now() - 30 * 24 * 3600 * 1000);
     const toTs = dateTo ? new Date(dateTo).getTime() : Date.now();
     const days = Math.max(1, Math.floor((toTs - fromTs) / (24 * 3600 * 1000)) + 1);

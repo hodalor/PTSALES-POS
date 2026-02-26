@@ -22,7 +22,6 @@ function RefundsPage() {
   const settings = useSelector(s => s.settings);
   const auth = useSelector(s => s.auth);
   const sales = useSelector(s => s.sales.sales);
-  const products = useSelector(s => s.products.products);
   const branches = useSelector(s => s.branches.branches);
   const refunds = useSelector(s => s.refunds.requests);
   const [query, setQuery] = useState('');
@@ -31,7 +30,6 @@ function RefundsPage() {
   const [remark, setRemark] = useState('');
   const [images, setImages] = useState([]);
   const [restock, setRestock] = useState(true);
-  const [restockChoice, setRestockChoice] = useState({});
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const sale = useMemo(() => {
@@ -40,7 +38,7 @@ function RefundsPage() {
     return sales.find(s =>
       String(s.invoiceSerial || '').toLowerCase() === q.toLowerCase() ||
       String(s.receiptNumber || '').toLowerCase() === q.toLowerCase() ||
-      String(s.id) === q
+      String(s._id || s.id) === q
     ) || null;
   }, [query, sales]);
   const eligible = useMemo(() => {

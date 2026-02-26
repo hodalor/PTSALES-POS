@@ -95,17 +95,7 @@ const settingsSlice = createSlice({
       state.invoicePrefix = String(action.payload || 'INV');
     },
     setNextInvoiceNumber(state, action) {
-      let v = Number(action.payload);
-      if (!Number.isFinite(v) || v < 1) v = 1;
-      state.nextInvoiceNumber = Math.floor(v);
-    },
-    setReceiptPrefix(state, action) {
-      state.receiptPrefix = String(action.payload || 'RCPT');
-    },
-    setNextReceiptNumber(state, action) {
-      let v = Number(action.payload);
-      if (!Number.isFinite(v) || v < 1) v = 1;
-      state.nextReceiptNumber = Math.floor(v);
+      state.nextInvoiceNumber = action.payload;
     },
     setReceiptPrefix(state, action) {
       state.receiptPrefix = String(action.payload || 'RCPT');

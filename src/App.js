@@ -79,18 +79,20 @@ function App() {
   }, [dispatch]);
   useEffect(() => {
     (async () => {
-      if (!isAuthed) return;
       try {
-        const serverSettings = await settingsApi.get();
-        if (serverSettings && Object.keys(serverSettings).length > 0) {
-          dispatch(setAllSettings(serverSettings));
+        const remote = await settingsApi.get();
+        if (remote && Object.keys(remote).length > 0) {
+          dispatch(setAllSettings(remote));
         } else {
-          const saved = await settingsApi.save(settings);
-          dispatch(setAllSettings(saved));
+          // push defaults
+          await settingsApi.save(settings);
         }
-      } catch {}
+      } catch (e) {
+        console.error('Settings init error:', e);
+      }
     })();
-  }, [isAuthed, dispatch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatch]);
   useEffect(() => {
     (async () => {
       if (!isAuthed) return;

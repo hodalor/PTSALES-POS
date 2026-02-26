@@ -10,8 +10,6 @@ function Section({ title, children }) {
 }
 
 function AdminManualPage() {
-  const settings = useSelector(s => s.settings);
-  const branches = useSelector(s => s.branches.branches);
   return (
     <div style={{ padding: 16, display: 'grid', gap: 12 }}>
       <div className="card" style={{ padding: 16 }}>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { loginSuccess } from '../store/authSlice';
@@ -15,7 +15,6 @@ function LoginPage() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
-  const users = useSelector(s => s.users.users);
   const appName = useSelector(s => s.settings.appName);
   const from = location.state?.from?.pathname;
   const toast = useToast();
@@ -27,25 +26,25 @@ function LoginPage() {
     } catch {}
   }, []);
 
-  function regenerateCaptcha() {
+  const regenerateCaptcha = useCallback(() => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let str = '';
     for (let i = 0; i < 4; i += 1) str += chars[Math.floor(Math.random() * chars.length)];
     setCaptcha(str);
     setExpiresAt(Date.now() + 60_000);
     setCaptchaInput('');
-  }
+  }, []);
 
   useEffect(() => {
     regenerateCaptcha();
-  }, []);
+  }, [regenerateCaptcha]);
 
   useEffect(() => {
     const id = setInterval(() => {
       if (Date.now() >= expiresAt) regenerateCaptcha();
     }, 1000);
     return () => clearInterval(id);
-  }, [expiresAt]);
+  }, [expiresAt, regenerateCaptcha]);
 
   async function doServerLogin(u, p) {
     const resp = await authApi.login({ username: u, pin: p });

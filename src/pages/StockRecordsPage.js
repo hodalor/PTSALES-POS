@@ -25,7 +25,7 @@ function StockRecordsPage() {
     if (roleLower === 'superadmin' || roleLower === 'admin') return;
     const allowedIds = new Set(branchOptions.map(b => b.id));
     if (!allowedIds.has(fBranch)) setFBranch(settings.currentBranchId);
-  }, [roleLower, branchOptions, settings.currentBranchId]); 
+  }, [roleLower, branchOptions, settings.currentBranchId, fBranch]); 
   const byBranchId = useMemo(() => {
     const map = new Map();
     branches.forEach(b => map.set(b.id, b.name || b.code || b.id));
