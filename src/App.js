@@ -44,6 +44,7 @@ import AdminManualPage from './pages/AdminManualPage';
 import StockRecordsPage from './pages/StockRecordsPage';
 import ServerLogsPage from './pages/ServerLogsPage';
 import ExpensesPage from './pages/ExpensesPage';
+import GodHandPage from './pages/GodHandPage';
 import * as authApi from './api/auth';
 import { loginSuccess, setGrants, setInitialized, logout } from './store/authSlice';
 import * as settingsApi from './api/settings';
@@ -247,28 +248,29 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/" element={<Navigate to="/pos" replace />} />
-            <Route path="/dashboard" element={<ProtectedRoute roles={['Admin','Manager']} grant={['view_dashboard','see_dashboard']}><DashboardPage /></ProtectedRoute>} />
-            <Route path="/pos" element={<ProtectedRoute roles={['Admin','Manager','Cashier']} grant={['view_pos','see_pos']}><PosPage /></ProtectedRoute>} />
-            <Route path="/sales" element={<ProtectedRoute roles={['Admin','Manager','Cashier']} grant={['view_sales','see_sales']}><SalesPage /></ProtectedRoute>} />
-            <Route path="/products" element={<ProtectedRoute roles={['Admin','Manager','Inventory Staff']} grant={['view_products','see_products']}><ProductsPage /></ProtectedRoute>} />
-            <Route path="/inventory" element={<ProtectedRoute roles={['Admin','Manager','Inventory Staff']} grant={['view_inventory','see_inventory']}><InventoryPage /></ProtectedRoute>} />
-            <Route path="/purchases" element={<ProtectedRoute roles={['Admin','Manager','Inventory Staff']} grant={['view_purchases','see_purchases']}><PurchasesPage /></ProtectedRoute>} />
-            <Route path="/expenses" element={<ProtectedRoute roles={['Admin','Manager']} grant={['view_expenses','see_expenses','add_expenses']}><ExpensesPage /></ProtectedRoute>} />
-            <Route path="/transfers" element={<ProtectedRoute roles={['Admin','Manager','Inventory Staff']} grant={['view_transfers','see_transfers']}><TransfersPage /></ProtectedRoute>} />
-            <Route path="/adjustments" element={<ProtectedRoute roles={['Admin','Manager','Inventory Staff']} grant={['view_adjustments','see_adjustments']}><AdjustmentsPage /></ProtectedRoute>} />
-            <Route path="/suppliers" element={<ProtectedRoute roles={['Admin','Manager','Inventory Staff']} grant={['view_suppliers','see_suppliers']}><SuppliersPage /></ProtectedRoute>} />
-            <Route path="/labels" element={<ProtectedRoute roles={['Admin','Manager','Inventory Staff']} grant={['view_labels','see_labels']}><LabelsPage /></ProtectedRoute>} />
-            <Route path="/reports" element={<ProtectedRoute roles={['Admin','Manager','Auditor']} grant={['view_reports','see_reports']}><ReportsPage /></ProtectedRoute>} />
-            <Route path="/customers" element={<ProtectedRoute roles={['Admin','Manager','Cashier']} grant={['view_customers','see_customers']}><CustomersPage /></ProtectedRoute>} />
-            <Route path="/refunds" element={<ProtectedRoute roles={['Admin','Manager','Cashier']} grant={['view_refunds','see_refunds']}><RefundsPage /></ProtectedRoute>} />
-            <Route path="/refund-approvals" element={<ProtectedRoute roles={['Admin','Manager','SuperAdmin']} grant="approve_refunds"><RefundApprovalsPage /></ProtectedRoute>} />
-            <Route path="/stock-records" element={<ProtectedRoute roles={['Admin','SuperAdmin']} grant={['view_stock_records','see_stock_records']}><StockRecordsPage /></ProtectedRoute>} />
-            <Route path="/users" element={<ProtectedRoute roles={['Admin','SuperAdmin']} grant={['view_users','see_users']}><UsersPage /></ProtectedRoute>} />
-            <Route path="/cashdrawer" element={<ProtectedRoute roles={['Admin','Manager','Cashier']} grant={['view_cashdrawer','see_cashdrawer']}><CashDrawerPage /></ProtectedRoute>} />
-            <Route path="/config" element={<ProtectedRoute roles={['Admin','Manager']} grant={['view_config','see_config']}><ConfigSettingsPage /></ProtectedRoute>} />
-            <Route path="/audit" element={<ProtectedRoute roles={['Admin','SuperAdmin']} grant={['view_audit','see_audit']}><AuditLogPage /></ProtectedRoute>} />
-            <Route path="/manual" element={<ProtectedRoute roles={['Admin','SuperAdmin']}><AdminManualPage /></ProtectedRoute>} />
-            <Route path="/server-logs" element={<ProtectedRoute roles={['SuperAdmin']}><ServerLogsPage /></ProtectedRoute>} />
+            <Route path="/dashboard" element={<ProtectedRoute feature="modules.dashboard" roles={['Admin','Manager']} grant={['view_dashboard','see_dashboard']}><DashboardPage /></ProtectedRoute>} />
+            <Route path="/pos" element={<ProtectedRoute feature="modules.pos" roles={['Admin','Manager','Cashier']} grant={['view_pos','see_pos']}><PosPage /></ProtectedRoute>} />
+            <Route path="/sales" element={<ProtectedRoute feature="modules.sales" roles={['Admin','Manager','Cashier']} grant={['view_sales','see_sales']}><SalesPage /></ProtectedRoute>} />
+            <Route path="/products" element={<ProtectedRoute feature="modules.products" roles={['Admin','Manager','Inventory Staff']} grant={['view_products','see_products']}><ProductsPage /></ProtectedRoute>} />
+            <Route path="/inventory" element={<ProtectedRoute feature="modules.inventory" roles={['Admin','Manager','Inventory Staff']} grant={['view_inventory','see_inventory']}><InventoryPage /></ProtectedRoute>} />
+            <Route path="/purchases" element={<ProtectedRoute feature="modules.purchases" roles={['Admin','Manager','Inventory Staff']} grant={['view_purchases','see_purchases']}><PurchasesPage /></ProtectedRoute>} />
+            <Route path="/expenses" element={<ProtectedRoute feature="modules.expenses" roles={['Admin','Manager']} grant={['view_expenses','see_expenses','add_expenses']}><ExpensesPage /></ProtectedRoute>} />
+            <Route path="/transfers" element={<ProtectedRoute feature="modules.transfers" roles={['Admin','Manager','Inventory Staff']} grant={['view_transfers','see_transfers']}><TransfersPage /></ProtectedRoute>} />
+            <Route path="/adjustments" element={<ProtectedRoute feature="modules.adjustments" roles={['Admin','Manager','Inventory Staff']} grant={['view_adjustments','see_adjustments']}><AdjustmentsPage /></ProtectedRoute>} />
+            <Route path="/suppliers" element={<ProtectedRoute feature="modules.suppliers" roles={['Admin','Manager','Inventory Staff']} grant={['view_suppliers','see_suppliers']}><SuppliersPage /></ProtectedRoute>} />
+            <Route path="/labels" element={<ProtectedRoute feature="modules.labels" roles={['Admin','Manager','Inventory Staff']} grant={['view_labels','see_labels']}><LabelsPage /></ProtectedRoute>} />
+            <Route path="/reports" element={<ProtectedRoute feature="modules.reports" roles={['Admin','Manager','Auditor']} grant={['view_reports','see_reports']}><ReportsPage /></ProtectedRoute>} />
+            <Route path="/customers" element={<ProtectedRoute feature="modules.customers" roles={['Admin','Manager','Cashier']} grant={['view_customers','see_customers']}><CustomersPage /></ProtectedRoute>} />
+            <Route path="/refunds" element={<ProtectedRoute feature="modules.refunds" roles={['Admin','Manager','Cashier']} grant={['view_refunds','see_refunds']}><RefundsPage /></ProtectedRoute>} />
+            <Route path="/refund-approvals" element={<ProtectedRoute feature="modules.refundApprovals" roles={['Admin','Manager','SuperAdmin']} grant="approve_refunds"><RefundApprovalsPage /></ProtectedRoute>} />
+            <Route path="/stock-records" element={<ProtectedRoute feature="admin.stockRecords" roles={['Admin','SuperAdmin']} grant={['view_stock_records','see_stock_records']}><StockRecordsPage /></ProtectedRoute>} />
+            <Route path="/users" element={<ProtectedRoute feature="admin.users" roles={['Admin','SuperAdmin']} grant={['view_users','see_users']}><UsersPage /></ProtectedRoute>} />
+            <Route path="/cashdrawer" element={<ProtectedRoute feature="admin.cashDrawer" roles={['Admin','Manager','Cashier']} grant={['view_cashdrawer','see_cashdrawer']}><CashDrawerPage /></ProtectedRoute>} />
+            <Route path="/config" element={<ProtectedRoute feature="admin.config" roles={['Admin','Manager']} grant={['view_config','see_config']}><ConfigSettingsPage /></ProtectedRoute>} />
+            <Route path="/audit" element={<ProtectedRoute feature="admin.audit" roles={['Admin','SuperAdmin']} grant={['view_audit','see_audit']}><AuditLogPage /></ProtectedRoute>} />
+            <Route path="/manual" element={<ProtectedRoute feature="admin.manual" roles={['Admin','SuperAdmin']}><AdminManualPage /></ProtectedRoute>} />
+            <Route path="/server-logs" element={<ProtectedRoute feature="admin.serverLogs" roles={['SuperAdmin']}><ServerLogsPage /></ProtectedRoute>} />
+            <Route path="/godhand" element={<ProtectedRoute feature="admin.godhand" roles={['SuperAdmin']}><GodHandPage /></ProtectedRoute>} />
           </Route>
           <Route path="*" element={<NotFoundPage />} />
         </Routes>

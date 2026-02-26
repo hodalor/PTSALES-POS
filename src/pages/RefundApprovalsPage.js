@@ -30,7 +30,13 @@ function RefundApprovalsPage() {
 
   const roleLower = String(auth.role || '').toLowerCase();
   const canApprove = ['admin','manager','superadmin'].includes(roleLower);
-  const canSelfApprove = ['admin','superadmin'].includes(roleLower);
+  // Remove restriction: anyone with permission should be able to approve, 
+  // but logic inside onApprove will block self-approval if needed.
+  // canSelfApprove logic remains in onApprove.
+
+  function refundId(x) {
+    return String(x?.id || x?._id || '');
+  }
 
   const filtered = useMemo(() => {
     const currentBranchId = settings.currentBranchId;
@@ -95,9 +101,9 @@ function RefundApprovalsPage() {
       toast.show('Rejection reason is required', { type: 'error' });
       return;
     }
-    dispatch(rejectRefund({ id: r.id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark }));
+    dispatch(rejectRefund({ id: refundId(r), approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark }));
     try {
-      await refundsApi.reject({ id: r.id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark });
+      await refundsApi.reject({ id: refundId(r), approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark });
     } catch (e) {
       toast.show('Failed to sync to server', { type: 'error' });
     }
@@ -113,7 +119,8 @@ function RefundApprovalsPage() {
 
   function onApprove(r) {
     if (!canApprove) return;
-    if (!canSelfApprove && r.initiatorName && (auth.user?.name || '') === r.initiatorName) {
+    const isSelf = r.initiatorName && (auth.user?.name || '') === r.initiatorName;
+    if (isSelf && roleLower !== 'superadmin' && roleLower !== 'admin') {
       toast.show('Initiator cannot approve own refund', { type: 'error' });
       return;
     }
@@ -128,7 +135,7 @@ function RefundApprovalsPage() {
         .filter(x => x.qty > 0);
     }
     const payload = {
-      id: r.id,
+      id: refundId(r),
       approverName: auth.user?.name || 'unknown',
       approverRole: auth.role || '',
       approvalRemark: approvalRemark || '',
@@ -140,7 +147,7 @@ function RefundApprovalsPage() {
     if (saleRef) {
       const amt = Math.round((Number(r.requestedAmount) || 0) * 100) / 100;
       dispatch(recordSale({
-        id: `refund-${r.id}`,
+        id: `refund-${refundId(r)}`,
         branchId: saleRef.branchId,
         branchName: saleRef.branchName || branchLabel(saleRef.branchId),
         sellerName: auth.user?.name || 'unknown',
@@ -189,7 +196,7 @@ function RefundApprovalsPage() {
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'refund_approved',
-      details: { refundId: r.id, saleId: r.saleId, amount: r.requestedAmount, restockMode },
+      details: { refundId: refundId(r), saleId: r.saleId, amount: r.requestedAmount, restockMode },
       branchId: r.branchId
     }));
     toast.show('Refund approved and recorded', { type: 'success' });
@@ -197,6 +204,22 @@ function RefundApprovalsPage() {
     setRestockMode('none');
     setPartialMap({});
     setApprovalRemark('');
+  }
+
+  function openReview(e, id) {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setSelectedId(String(id || ''));
+    setRestockMode('none');
+    setPartialMap({});
+    setApprovalRemark('');
+  }
+
+  function closeReview(e) {
+    if (e) e.stopPropagation();
+    setSelectedId(null);
   }
 
   return (
@@ -235,11 +258,12 @@ function RefundApprovalsPage() {
               <th align="left">Approver</th>
               <th align="left">Decision</th>
               <th align="left">Remark</th>
+              <th align="right">Action</th>
             </tr>
           </thead>
           <tbody>
             {filtered.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map(r => (
-              <tr key={r.id} onClick={() => { setSelectedId(r.id); setRestockMode('none'); setPartialMap({}); setApprovalRemark(''); }} style={{ cursor: 'pointer' }}>
+              <tr key={refundId(r)} onClick={(e) => openReview(e, refundId(r))} style={{ cursor: 'pointer' }}>
                 <td>{r.invoiceSerial || r.receiptNumber || r.saleId}</td>
                 <td>{r.initiatorName}</td>
                 <td>{branchLabel(r.branchId)}</td>
@@ -250,6 +274,9 @@ function RefundApprovalsPage() {
                 <td>{r.approverName || '—'}</td>
                 <td>{r.restockMode ? r.restockMode : (r.usedRestock ? 'full' : 'none')}</td>
                 <td>{r.status === 'approved' ? (r.approvalRemark || '—') : r.status === 'rejected' ? (r.rejectionRemark || '—') : (r.remark || '—')}</td>
+                <td align="right">
+                  <button className="btn btn-sm" onClick={(e) => openReview(e, refundId(r))}>Review</button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -272,18 +299,18 @@ function RefundApprovalsPage() {
         </div>
       </div>
       {selectedId && (() => {
-        const r = refunds.find(x => x.id === selectedId);
+        const r = refunds.find(x => refundId(x) === String(selectedId || ''));
         const saleRef = r ? sales.find(s => s.id === r.saleId) : null;
         const items = saleRef?.items || [];
         return r ? (
           <div
-            onClick={() => setSelectedId(null)}
+            onClick={closeReview}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           >
-            <div className="card" onClick={e => e.stopPropagation()} style={{ width: 'min(920px, 95vw)', maxHeight: '85vh', overflow: 'auto' }}>
+            <div className="card" onClick={e => e.stopPropagation()} style={{ width: 'min(920px, 95vw)', maxHeight: '85vh', overflow: 'auto', position: 'relative', background: '#fff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2 className="section-title" style={{ margin: 0 }}>Review Refund</h2>
-                <button className="btn" onClick={() => setSelectedId(null)}>Close</button>
+                <button className="btn" onClick={closeReview}>Close</button>
               </div>
               <div style={{ color: '#64748b', marginTop: 6 }}>
                 {r.invoiceSerial || r.receiptNumber || r.saleId} • {branchLabel(r.branchId)} • Initiated by {r.initiatorName} on {new Date(r.created_at).toLocaleString()}
@@ -337,24 +364,35 @@ function RefundApprovalsPage() {
                 </table>
               </div>
               {r.status === 'pending_approval' && canApprove && (
-                <div style={{ marginTop: 12 }}>
-                  <div style={{ fontWeight: 700, marginBottom: 6 }}>Restock Decision</div>
-                  <label style={{ marginRight: 12 }}>
-                    <input type="radio" name="restockMode" checked={restockMode === 'none'} onChange={() => setRestockMode('none')} /> <span style={{ marginLeft: 6 }}>No Restock</span>
-                  </label>
-                  <label style={{ marginRight: 12 }}>
-                    <input type="radio" name="restockMode" checked={restockMode === 'full'} onChange={() => setRestockMode('full')} /> <span style={{ marginLeft: 6 }}>Restock Fully</span>
-                  </label>
-                  <label>
-                    <input type="radio" name="restockMode" checked={restockMode === 'partial'} onChange={() => setRestockMode('partial')} /> <span style={{ marginLeft: 6 }}>Restock Partially</span>
-                  </label>
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ fontWeight: 700 }}>Approver Remark</div>
-                    <input className="input" placeholder="Optional remark" value={approvalRemark} onChange={e => setApprovalRemark(e.target.value)} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+                <div style={{ marginTop: 12, padding: 12, border: '1px solid #e2e8f0', borderRadius: 6, background: '#f8fafc' }}>
+                  <div style={{ fontWeight: 700, marginBottom: 8 }}>Decision</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                      <input type="radio" name={`restock-${r.id}`} checked={restockMode === 'none'} onChange={() => setRestockMode('none')} />
+                      <span style={{ marginLeft: 8 }}>No Restock</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                      <input type="radio" name={`restock-${r.id}`} checked={restockMode === 'full'} onChange={() => setRestockMode('full')} />
+                      <span style={{ marginLeft: 8 }}>Restock Fully</span>
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
+                      <input type="radio" name={`restock-${r.id}`} checked={restockMode === 'partial'} onChange={() => setRestockMode('partial')} />
+                      <span style={{ marginLeft: 8 }}>Restock Partially</span>
+                    </label>
                   </div>
-                  <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                    <button className="btn btn-primary" onClick={() => onApprove(r)}>Approve</button>
-                    <button className="btn" onClick={() => onReject(r)}>Reject</button>
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>Approver Remark</div>
+                    <input
+                      className="input"
+                      placeholder="Optional remark"
+                      value={approvalRemark}
+                      onChange={e => setApprovalRemark(e.target.value)}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                  <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
+                    <button className="btn btn-primary" onClick={() => onApprove(r)} style={{ flex: 1 }}>Approve</button>
+                    <button className="btn btn-danger" onClick={() => onReject(r)} style={{ flex: 1 }}>Reject</button>
                   </div>
                 </div>
               )}

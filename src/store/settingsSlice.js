@@ -28,6 +28,7 @@ const initialState = {
   activeCurrencyCode: 'GHS',
   refreshIntervalSec: 60,
   userGrants: {},
+  featureFlags: {},
   loyaltyEnabled: false,
   loyaltyEarnAmount: 0,
   loyaltyEarnPoints: 0,

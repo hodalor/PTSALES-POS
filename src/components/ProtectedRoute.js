@@ -1,14 +1,20 @@
 import { useSelector } from 'react-redux';
 import { Navigate, useLocation } from 'react-router-dom';
+import { isFeatureEnabled } from '../utils/featureFlags';
 
-function ProtectedRoute({ roles, grant, children }) {
+function ProtectedRoute({ roles, grant, feature, children }) {
   const auth = useSelector(state => state.auth);
+  const settings = useSelector(state => state.settings);
   const location = useLocation();
   if (!auth.initialized) {
     return null;
   }
   if (!auth.isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  if (feature && !isFeatureEnabled(settings, feature)) {
+    const fallback = location.pathname === '/pos' ? '/dashboard' : '/pos';
+    return <Navigate to={fallback} replace />;
   }
   const isSuper = String(auth.role || '').toLowerCase() === 'superadmin';
   const grants = Array.isArray(auth.grants) ? auth.grants : [];

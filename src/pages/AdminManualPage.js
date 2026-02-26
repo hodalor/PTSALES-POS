@@ -1,5 +1,3 @@
-import { useSelector } from 'react-redux';
-
 function Section({ title, children }) {
   return (
     <section className="card" style={{ padding: 16 }}>
@@ -39,6 +37,7 @@ function AdminManualPage() {
           <li>Config: Store info, receipt header/footer, taxes, invoice serials, phone, website.</li>
           <li>Audit Log: Track sensitive actions (stock, sales, overrides).</li>
           <li>Server Logs: Backend diagnostics (SuperAdmin).</li>
+          <li>GodHand: Feature toggle panel (SuperAdmin) to hide/show paid modules.</li>
         </ul>
       </Section>
 
@@ -206,6 +205,24 @@ function AdminManualPage() {
           <li>Inventory Staff: Products, Inventory, Purchases, Transfers, Adjustments, Labels.</li>
           <li>Cashier: POS, Sales, Cash Drawer, Customers.</li>
           <li>SuperAdmin: All Admin features plus Server Logs.</li>
+        </ul>
+      </Section>
+
+      <Section title="Reset PIN (Password Reset)">
+        <ul>
+          <li>This system uses a numeric PIN (4–6 digits) instead of an email password.</li>
+          <li>Only Admin/SuperAdmin can reset a user PIN.</li>
+          <li>From the login screen: click “Reset PIN (Admin)” → enter Admin username + Admin PIN → enter the username to reset → set the new PIN → Reset.</li>
+          <li>From the Users page: open Admin → Users → edit the user → enter “New PIN” → save changes.</li>
+        </ul>
+      </Section>
+
+      <Section title="GodHand – Feature Gating (SuperAdmin)">
+        <ul>
+          <li>Purpose: Hide/show modules, admin menus, and selected tabs based on what a company has paid for.</li>
+          <li>Location: Admin → GodHand (SuperAdmin only).</li>
+          <li>Effect: Disabled features are removed from the sidebar and blocked by routes (direct URL access is prevented).</li>
+          <li>Recommendation: Enable only the modules the customer is subscribed to; keep core navigation (like POS) enabled.</li>
         </ul>
       </Section>
       

@@ -6,6 +6,7 @@ import { useToast } from '../components/ToastProvider';
 import { confirmDialog } from '../utils/dialogs';
 import * as customersApi from '../api/customers';
 import { formatCurrency } from '../utils/currency';
+import { isFeatureEnabled } from '../utils/featureFlags';
 import Modal from '../components/Modal';
 
 function CustomersPage() {
@@ -31,6 +32,12 @@ function CustomersPage() {
   const [selectedTab, setSelectedTab] = useState('profile'); // profile, history
   const [savingCreate, setSavingCreate] = useState(false);
   const [savingUpdate, setSavingUpdate] = useState(false);
+  const purchaseHistoryEnabled = isFeatureEnabled(settings, 'tabs.customerPurchaseHistory');
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    if (selectedTab === 'history' && !purchaseHistoryEnabled) setSelectedTab('profile');
+  }, [modalOpen, selectedTab, purchaseHistoryEnabled]);
   const [createForm, setCreateForm] = useState({
     name: '',
     phone: '',
@@ -311,7 +318,7 @@ function CustomersPage() {
         >
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <button className={selectedTab === 'profile' ? 'btn btn-primary' : 'btn'} onClick={() => setSelectedTab('profile')}>Profile</button>
-            {modalMode !== 'create' && (
+            {modalMode !== 'create' && purchaseHistoryEnabled && (
               <button className={selectedTab === 'history' ? 'btn btn-primary' : 'btn'} onClick={() => setSelectedTab('history')}>Purchase History</button>
             )}
           </div>

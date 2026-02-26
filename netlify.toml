@@ -19,6 +19,16 @@
   to = "/index.html"
   status = 200
 
+[[headers]]
+  for = "/service-worker.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+    Cache-Control = "no-cache"
+
 # Optional: Proxy API requests to your backend (if you want to avoid CORS issues during development/production)
 # You can uncomment and update the URL below to point to your deployed backend on Render.
 # [[redirects]]

@@ -4,6 +4,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { loginSuccess } from '../store/authSlice';
 import * as authApi from '../api/auth';
 import { useToast } from '../components/ToastProvider';
+import Modal from '../components/Modal';
+import * as usersApi from '../api/users';
 
 function LoginPage() {
   const [name, setName] = useState('');
@@ -13,6 +15,12 @@ function LoginPage() {
   const [captcha, setCaptcha] = useState('');
   const [expiresAt, setExpiresAt] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetAdminName, setResetAdminName] = useState('');
+  const [resetAdminPin, setResetAdminPin] = useState('');
+  const [resetUserName, setResetUserName] = useState('');
+  const [resetNewPin, setResetNewPin] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
@@ -51,6 +59,54 @@ function LoginPage() {
     const resp = await authApi.login({ username: u, pin: p });
     try { localStorage.setItem('ptSales:authToken', resp.token); } catch {}
     return resp;
+  }
+
+  async function onResetPin() {
+    if (resetLoading) return;
+    const adminName = resetAdminName.trim();
+    const adminPin = resetAdminPin.trim();
+    const userName = resetUserName.trim();
+    const newPin = resetNewPin.trim();
+    if (!adminName || !adminPin || !userName || !newPin) {
+      toast.show('Fill all fields', { type: 'error' });
+      return;
+    }
+    if (!/^\d{4,6}$/.test(adminPin)) {
+      toast.show('Admin PIN must be 4-6 digits', { type: 'error' });
+      return;
+    }
+    if (!/^\d{4,6}$/.test(newPin)) {
+      toast.show('New PIN must be 4-6 digits', { type: 'error' });
+      return;
+    }
+    let prevToken = null;
+    try {
+      prevToken = localStorage.getItem('ptSales:authToken');
+    } catch {}
+    setResetLoading(true);
+    try {
+      const resp = await authApi.login({ username: adminName, pin: adminPin });
+      const role = String(resp?.role || '').toLowerCase();
+      if (role !== 'admin' && role !== 'superadmin') {
+        toast.show('Only Admin/SuperAdmin can reset PIN', { type: 'error' });
+        return;
+      }
+      try { localStorage.setItem('ptSales:authToken', resp.token); } catch {}
+      await usersApi.update(userName, { pin: newPin });
+      toast.show('PIN reset successful', { type: 'success' });
+      setResetOpen(false);
+      setResetAdminPin('');
+      setResetUserName('');
+      setResetNewPin('');
+    } catch (e) {
+      toast.show(e?.message || 'Failed to reset PIN', { type: 'error' });
+    } finally {
+      try {
+        if (prevToken) localStorage.setItem('ptSales:authToken', prevToken);
+        else localStorage.removeItem('ptSales:authToken');
+      } catch {}
+      setResetLoading(false);
+    }
   }
 
   async function handleSubmit(e) {
@@ -117,8 +173,44 @@ function LoginPage() {
             {loading ? 'Logging in...' : 'Log In'}
           </button>
         </form>
-        <button className="outline">Reset PIN (Admin)</button>
+        <button className="outline" type="button" onClick={() => setResetOpen(true)}>Reset PIN (Admin)</button>
       </div>
+      {resetOpen && (
+        <Modal
+          title="Reset PIN (Admin)"
+          onClose={() => { if (!resetLoading) setResetOpen(false); }}
+          footer={
+            <>
+              <button className="btn" onClick={() => setResetOpen(false)} disabled={resetLoading}>Cancel</button>
+              <button className="btn btn-primary" onClick={onResetPin} disabled={resetLoading}>
+                {resetLoading ? 'Resetting…' : 'Reset PIN'}
+              </button>
+            </>
+          }
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 10 }}>
+            <div style={{ color: '#94a3b8', fontSize: 13 }}>
+              Enter Admin credentials, then set a new PIN for the user.
+            </div>
+            <label>
+              Admin username
+              <input className="input" value={resetAdminName} onChange={e => setResetAdminName(e.target.value)} disabled={resetLoading} />
+            </label>
+            <label>
+              Admin PIN
+              <input className="input" type="password" value={resetAdminPin} onChange={e => setResetAdminPin(e.target.value)} disabled={resetLoading} />
+            </label>
+            <label>
+              Username to reset
+              <input className="input" value={resetUserName} onChange={e => setResetUserName(e.target.value)} disabled={resetLoading} />
+            </label>
+            <label>
+              New PIN (4-6 digits)
+              <input className="input" type="password" value={resetNewPin} onChange={e => setResetNewPin(e.target.value)} disabled={resetLoading} />
+            </label>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
