@@ -1,0 +1,215 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
+import BranchSelect from '../components/BranchSelect';
+import { useToast } from '../components/ToastProvider';
+import { formatCurrency } from '../utils/currency';
+import * as expensesApi from '../api/expenses';
+
+function ExpensesPage() {
+  const settings = useSelector(s => s.settings);
+  const branches = useSelector(s => s.branches.branches);
+  const currentBranchId = useSelector(s => s.settings.currentBranchId);
+  const auth = useSelector(s => s.auth);
+  const roleLower = String(auth.role || '').toLowerCase();
+  const grants = Array.isArray(auth.grants) ? auth.grants : [];
+  const toast = useToast();
+
+  const canManage = (['admin','manager','superadmin'].includes(roleLower)) || grants.includes('add_expenses');
+
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [branchId, setBranchId] = useState(currentBranchId);
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const [expenseBranchId, setExpenseBranchId] = useState(currentBranchId);
+  const [expenseDate, setExpenseDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [expenseCategory, setExpenseCategory] = useState('General');
+  const [expenseAmount, setExpenseAmount] = useState('');
+  const [expenseNote, setExpenseNote] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => setBranchId(currentBranchId), [currentBranchId]);
+  useEffect(() => setExpenseBranchId(currentBranchId), [currentBranchId]);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    (async () => {
+      try {
+        const list = await expensesApi.list({ branchId, from: dateFrom || undefined, to: dateTo || undefined });
+        if (!alive) return;
+        setRows(Array.isArray(list) ? list : []);
+      } catch (e) {
+        if (!alive) return;
+        setRows([]);
+        toast.show(String(e?.message || 'Failed to load expenses'), { type: 'error' });
+      } finally {
+        if (!alive) return;
+        setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [branchId, dateFrom, dateTo, toast]);
+
+  const byId = useMemo(() => {
+    const map = new Map();
+    branches.forEach(b => map.set(b.id, b.name || b.code || b.id));
+    return map;
+  }, [branches]);
+
+  const total = useMemo(() => rows.reduce((s, r) => s + (Number(r.amount) || 0), 0), [rows]);
+
+  async function addExpense() {
+    if (!canManage) {
+      toast.show('Not authorized to add expenses', { type: 'error' });
+      return;
+    }
+    if (saving) return;
+    const amt = Number(expenseAmount);
+    if (!expenseBranchId || !expenseDate || !expenseCategory || !Number.isFinite(amt) || amt <= 0) {
+      toast.show('Enter valid branch/date/category/amount', { type: 'error' });
+      return;
+    }
+    setSaving(true);
+    try {
+      const row = await expensesApi.create({
+        branchId: expenseBranchId,
+        date: expenseDate,
+        category: expenseCategory,
+        amount: amt,
+        note: expenseNote
+      });
+      setRows(prev => [row, ...prev]);
+      setExpenseAmount('');
+      setExpenseNote('');
+      toast.show('Expense saved', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to save expense'), { type: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteExpense(id) {
+    if (!canManage) {
+      toast.show('Not authorized to delete expenses', { type: 'error' });
+      return;
+    }
+    try {
+      await expensesApi.remove(id);
+      setRows(prev => prev.filter(r => String(r._id || r.id) !== String(id)));
+      toast.show('Expense deleted', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to delete expense'), { type: 'error' });
+    }
+  }
+
+  return (
+    <div style={{ padding: 16 }}>
+      <h1>Expenses</h1>
+
+      <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
+        <label>
+          From
+          <input className="input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+        </label>
+        <label>
+          To
+          <input className="input" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+        </label>
+        <label>
+          Branch
+          <BranchSelect value={branchId} onChange={setBranchId} />
+        </label>
+      </div>
+
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <div className="muted small">Total</div>
+            <div style={{ fontWeight: 700, fontSize: 18 }}>{formatCurrency(total, settings)}</div>
+          </div>
+          <div>
+            <div className="muted small">Records</div>
+            <div style={{ fontWeight: 700, fontSize: 18 }}>{rows.length}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 12 }}>
+        <h2 className="section-title">Add Expense</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, alignItems: 'end' }}>
+          <label>
+            Branch
+            <BranchSelect value={expenseBranchId} onChange={setExpenseBranchId} />
+          </label>
+          <label>
+            Date
+            <input className="input" type="date" value={expenseDate} onChange={e => setExpenseDate(e.target.value)} />
+          </label>
+          <label>
+            Category
+            <input className="input" value={expenseCategory} onChange={e => setExpenseCategory(e.target.value)} placeholder="e.g. Rent, Fuel, Salary" />
+          </label>
+          <label>
+            Amount
+            <input className="input" type="number" min="0" step="0.01" value={expenseAmount} onChange={e => setExpenseAmount(e.target.value)} />
+          </label>
+          <label style={{ gridColumn: '1 / span 3' }}>
+            Note
+            <input className="input" value={expenseNote} onChange={e => setExpenseNote(e.target.value)} placeholder="Optional note" />
+          </label>
+          <div>
+            <button className="btn btn-primary" onClick={addExpense} disabled={saving || !canManage}>
+              {saving ? 'Saving…' : 'Save Expense'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <h2 className="section-title">Expense Records</h2>
+        <table className="table">
+          <thead>
+            <tr>
+              <th align="left">Date</th>
+              <th align="left">Branch</th>
+              <th align="left">Category</th>
+              <th align="left">Note</th>
+              <th align="left">Amount</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={String(r._id || r.id)}>
+                <td>{new Date(r.date).toLocaleDateString()}</td>
+                <td>{byId.get(r.branchId) || r.branchId}</td>
+                <td>{r.category}</td>
+                <td>{r.note || '—'}</td>
+                <td>{formatCurrency(Number(r.amount) || 0, settings)}</td>
+                <td>
+                  {canManage && (
+                    <button className="btn" onClick={() => deleteExpense(String(r._id || r.id))} disabled={loading}>
+                      Delete
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {!loading && rows.length === 0 && (
+              <tr><td colSpan="6" style={{ padding: 12, color: '#64748b' }}>No expenses found</td></tr>
+            )}
+            {loading && (
+              <tr><td colSpan="6" style={{ padding: 12, color: '#64748b' }}>Loading…</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export default ExpensesPage;
+

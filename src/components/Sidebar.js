@@ -72,6 +72,12 @@ function Sidebar() {
           Purchases
         </NavLink>
         )}
+        {can(['Admin','Manager','SuperAdmin'],['view_expenses','see_expenses','add_expenses']) && (
+        <NavLink to="/expenses" className="sidebar-link">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M6 3h12v18H6z" stroke="currentColor" strokeWidth="2"/><path d="M9 7h6M9 11h6M9 15h4" stroke="currentColor" strokeWidth="2"/></svg>
+          Expenses
+        </NavLink>
+        )}
         {can(['Admin','Manager','Inventory Staff','SuperAdmin'],['view_transfers','see_transfers']) && (
         <NavLink to="/transfers" className="sidebar-link">
           <svg viewBox="0 0 24 24" fill="none"><path d="M7 7h10M7 17h10M7 7l-3 3m3-3l-3-3M17 17l3 3m-3-3l3-3" stroke="currentColor" strokeWidth="2"/></svg>

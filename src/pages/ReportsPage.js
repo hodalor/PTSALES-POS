@@ -4,6 +4,9 @@ import BranchSelect from '../components/BranchSelect';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import { Chart, BarElement, ArcElement, CategoryScale, LinearScale, Tooltip, Legend } from 'chart.js';
+import { useToast } from '../components/ToastProvider';
+import * as expensesApi from '../api/expenses';
+import { formatCurrency } from '../utils/currency';
 
 Chart.register(BarElement, ArcElement, CategoryScale, LinearScale, Tooltip, Legend);
 
@@ -20,8 +23,27 @@ function ReportsPage() {
   const [dateTo, setDateTo] = useState('');
   const [branchId, setBranchId] = useState(settings.currentBranchId);
   const [reportType, setReportType] = useState('all');
+  const [expenses, setExpenses] = useState([]);
+  const [heatMode, setHeatMode] = useState('week');
+  const toast = useToast();
 
   useEffect(() => setBranchId(settings.currentBranchId), [settings.currentBranchId]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const list = await expensesApi.list({ branchId, from: dateFrom || undefined, to: dateTo || undefined });
+        if (!alive) return;
+        setExpenses(Array.isArray(list) ? list : []);
+      } catch (e) {
+        if (!alive) return;
+        setExpenses([]);
+        toast.show(String(e?.message || 'Failed to load expenses'), { type: 'error' });
+      }
+    })();
+    return () => { alive = false; };
+  }, [branchId, dateFrom, dateTo, toast]);
 
   const byId = useMemo(() => {
     const map = new Map();
@@ -62,6 +84,42 @@ function ReportsPage() {
     const cashierBar = { labels: cashEntries.map(x=>x[0]), datasets: [{ label: 'Revenue', data: cashEntries.map(x=>+(x[1]||0).toFixed(2)), backgroundColor: '#16a34a' }] };
     return { topEntries, topBar, categoryUnits, catDoughnut, cashierRevenue, cashierBar };
   }, [filteredSales, products]);
+
+  const money = useMemo(() => {
+    const revenue = filteredSales.reduce((s, x) => s + (Number(x.total) || 0), 0);
+    const profit = filteredSales.reduce((s, x) => s + (Number(x.profitTotal) || 0), 0);
+    const cost = filteredSales.reduce((s, x) => s + (Number(x.costTotal) || 0), 0);
+    const marginPct = revenue > 0 ? Math.round((profit / revenue) * 10000) / 100 : 0;
+    const expenseTotal = expenses.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    const net = revenue - expenseTotal;
+    const fromTs = dateFrom ? new Date(dateFrom).getTime() : (Date.now() - 30 * 24 * 3600 * 1000);
+    const toTs = dateTo ? new Date(dateTo).getTime() : Date.now();
+    const days = Math.max(1, Math.floor((toTs - fromTs) / (24 * 3600 * 1000)) + 1);
+    const projected30 = (net / days) * 30;
+    return { revenue, cost, profit, marginPct, expenseTotal, net, days, projected30 };
+  }, [filteredSales, expenses, dateFrom, dateTo]);
+
+  const heatmap = useMemo(() => {
+    const end = dateTo ? new Date(dateTo) : new Date();
+    const daysBack = heatMode === 'day' ? 1 : heatMode === 'month' ? 30 : 7;
+    const start = dateFrom ? new Date(dateFrom) : new Date(end.getTime() - daysBack * 24 * 3600 * 1000);
+    const days = [];
+    const d0 = new Date(start.toISOString().slice(0, 10));
+    const d1 = new Date(end.toISOString().slice(0, 10));
+    for (let t = d0.getTime(); t <= d1.getTime(); t += 24 * 3600 * 1000) days.push(new Date(t));
+    const grid = days.map(d => ({ day: d.toISOString().slice(0, 10), hours: new Array(24).fill(0) }));
+    const idxByDay = new Map(grid.map((r, i) => [r.day, i]));
+    for (const s of filteredSales) {
+      const dt = new Date(s.created_at);
+      const day = dt.toISOString().slice(0, 10);
+      const i = idxByDay.get(day);
+      if (i == null) continue;
+      grid[i].hours[dt.getHours()] += Number(s.total) || 0;
+    }
+    let max = 0;
+    for (const r of grid) for (const v of r.hours) max = Math.max(max, v);
+    return { grid, max };
+  }, [filteredSales, dateFrom, dateTo, heatMode]);
 
   const show = (key) => reportType === 'all' || reportType === key;
 
@@ -262,6 +320,15 @@ function ReportsPage() {
               <option value="analytics-top">Top Products</option>
               <option value="analytics-cat">Category Performance</option>
               <option value="analytics-cashier">Cashier Performance</option>
+              <option value="finance">Finance</option>
+            </select>
+          </label>
+          <label>
+            Heatmap
+            <select className="select" value={heatMode} onChange={e => setHeatMode(e.target.value)}>
+              <option value="day">Daily</option>
+              <option value="week">Weekly</option>
+              <option value="month">Monthly</option>
             </select>
           </label>
         </div>
@@ -366,6 +433,72 @@ function ReportsPage() {
             </div>
           </div>
           )}
+        </div>
+      </div>
+      )}
+      {show('finance') && (
+      <div className="card" style={{ marginTop: 12 }}>
+        <h2 className="section-title">Finance</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+          <div className="card">
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Summary</div>
+            <div className="sp"><span className="muted">Revenue</span><span>{formatCurrency(money.revenue, settings)}</span></div>
+            <div className="sp"><span className="muted">COGS</span><span>{formatCurrency(money.cost, settings)}</span></div>
+            <div className="sp"><span className="muted">Profit</span><span>{formatCurrency(money.profit, settings)}</span></div>
+            <div className="sp"><span className="muted">Margin</span><span>{money.marginPct}%</span></div>
+            <div className="sp"><span className="muted">Expenses</span><span>{formatCurrency(money.expenseTotal, settings)}</span></div>
+            <div className="sp"><strong>Net</strong><strong>{formatCurrency(money.net, settings)}</strong></div>
+            <div className="sp"><span className="muted">Projected (30d)</span><span>{formatCurrency(money.projected30, settings)}</span></div>
+          </div>
+
+          <div className="card">
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Expenses</div>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th align="left">Date</th>
+                  <th align="left">Category</th>
+                  <th align="left">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {expenses.slice(0, 20).map(r => (
+                  <tr key={String(r._id || r.id)}>
+                    <td>{new Date(r.date).toLocaleDateString()}</td>
+                    <td>{r.category}</td>
+                    <td>{formatCurrency(Number(r.amount) || 0, settings)}</td>
+                  </tr>
+                ))}
+                {expenses.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No expenses in range</td></tr>}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="card" style={{ gridColumn: '1 / span 2' }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Performance Heatmap</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th align="left" style={{ position: 'sticky', left: 0, background: '#fff' }}>Day</th>
+                    {new Array(24).fill(0).map((_, h) => <th key={h} style={{ fontSize: 11, padding: 4 }}>{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {heatmap.grid.map(r => (
+                    <tr key={r.day}>
+                      <td style={{ position: 'sticky', left: 0, background: '#fff', paddingRight: 8, fontSize: 12 }}>{r.day}</td>
+                      {r.hours.map((v, i) => {
+                        const t = heatmap.max > 0 ? v / heatmap.max : 0;
+                        const bg = `rgba(14,165,233,${Math.min(0.9, Math.max(0, t))})`;
+                        return <td key={i} title={formatCurrency(v, settings)} style={{ width: 18, height: 18, background: v > 0 ? bg : '#f8fafc', border: '1px solid #eef2f7' }} />;
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
       )}

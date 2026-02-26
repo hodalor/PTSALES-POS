@@ -1,5 +1,5 @@
 import { useSelector } from 'react-redux';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { buildBrandedReceiptHtml, printReceiptHtml } from '../utils/print';
 import { escposReceipt, downloadText } from '../utils/escpos';
 import { formatCurrency } from '../utils/currency';
@@ -14,12 +14,45 @@ function SalesPage() {
   const roleLower = String(auth.role || '').toLowerCase();
   const canSeeAll = roleLower === 'admin' || roleLower === 'superadmin';
   const [showAll, setShowAll] = useState(false);
+  const [tab, setTab] = useState('sales'); // sales, leaderboard, branches
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   function branchLabel(sale) {
     return sale.branchName || (branches.find(b => b.id === sale.branchId)?.name || sale.branchId || '-');
   }
   const filteredSales = (canSeeAll && showAll) ? sales : sales.filter(sale => sale.branchId === currentBranchId);
+
+  const leaderboard = useMemo(() => {
+    const map = new Map();
+    for (const s of filteredSales) {
+      const name = s.sellerName || 'Unknown';
+      if (!map.has(name)) map.set(name, { seller: name, revenue: 0, profit: 0, sales: 0 });
+      const row = map.get(name);
+      row.revenue += Number(s.total) || 0;
+      row.profit += Number(s.profitTotal) || 0;
+      row.sales += 1;
+    }
+    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
+  }, [filteredSales]);
+
+  const byId = useMemo(() => {
+    const map = new Map();
+    branches.forEach(b => map.set(b.id, b.name || b.code || b.id));
+    return map;
+  }, [branches]);
+
+  const branchComparison = useMemo(() => {
+    const map = new Map();
+    for (const s of filteredSales) {
+      const key = String(s.branchId || '');
+      if (!map.has(key)) map.set(key, { branchId: key, name: byId.get(key) || key, revenue: 0, profit: 0, sales: 0 });
+      const row = map.get(key);
+      row.revenue += Number(s.total) || 0;
+      row.profit += Number(s.profitTotal) || 0;
+      row.sales += 1;
+    }
+    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue);
+  }, [filteredSales, byId]);
   function reprint(sale, escpos = false) {
     if (escpos) {
       const text = escposReceipt({
@@ -68,10 +101,75 @@ function SalesPage() {
           </label>
         )}
       </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+        <button className={tab === 'sales' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('sales')}>Sales</button>
+        <button className={tab === 'leaderboard' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('leaderboard')}>Sales Rep Leaderboard</button>
+        <button className={tab === 'branches' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('branches')}>Branch Comparison</button>
+      </div>
+      {tab === 'sales' && (
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, margin: '8px 0' }}>
         <button className="btn" onClick={onExportCsv}>Export CSV</button>
         <button className="btn" onClick={onExportPdf}>Export PDF</button>
       </div>
+      )}
+      {tab === 'leaderboard' && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <h2 className="section-title">Sales Rep Leaderboard</h2>
+          <table className="table">
+            <thead>
+              <tr>
+                <th align="left">Seller</th>
+                <th align="left">Sales</th>
+                <th align="left">Revenue</th>
+                <th align="left">Profit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {leaderboard.map(x => (
+                <tr key={x.seller}>
+                  <td>{x.seller}</td>
+                  <td>{x.sales}</td>
+                  <td>{formatCurrency(x.revenue, settings)}</td>
+                  <td>{formatCurrency(x.profit, settings)}</td>
+                </tr>
+              ))}
+              {leaderboard.length === 0 && <tr><td colSpan="4" style={{ padding: 12, color: '#64748b' }}>No sales found</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {tab === 'branches' && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <h2 className="section-title">Branch Comparison</h2>
+          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>
+            {canSeeAll && showAll ? 'Showing all branches' : 'Enable “All branches” to compare branches'}
+          </div>
+          <table className="table">
+            <thead>
+              <tr>
+                <th align="left">Branch</th>
+                <th align="left">Sales</th>
+                <th align="left">Revenue</th>
+                <th align="left">Profit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {branchComparison.map(b => (
+                <tr key={b.branchId}>
+                  <td>{b.name}</td>
+                  <td>{b.sales}</td>
+                  <td>{formatCurrency(b.revenue, settings)}</td>
+                  <td>{formatCurrency(b.profit, settings)}</td>
+                </tr>
+              ))}
+              {branchComparison.length === 0 && <tr><td colSpan="4" style={{ padding: 12, color: '#64748b' }}>No sales found</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'sales' && (
+      <>
       <table className="table">
         <thead>
           <tr>
@@ -123,6 +221,8 @@ function SalesPage() {
           </select>
         </label>
       </div>
+      </>
+      )}
     </div>
   );
 }

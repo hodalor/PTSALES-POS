@@ -43,6 +43,7 @@ import ReceiptPublicPage from './pages/ReceiptPublicPage';
 import AdminManualPage from './pages/AdminManualPage';
 import StockRecordsPage from './pages/StockRecordsPage';
 import ServerLogsPage from './pages/ServerLogsPage';
+import ExpensesPage from './pages/ExpensesPage';
 import * as authApi from './api/auth';
 import { loginSuccess, setGrants, setInitialized, logout } from './store/authSlice';
 import * as settingsApi from './api/settings';
@@ -250,6 +251,7 @@ function App() {
             <Route path="/products" element={<ProtectedRoute roles={['Admin','Manager','Inventory Staff']} grant={['view_products','see_products']}><ProductsPage /></ProtectedRoute>} />
             <Route path="/inventory" element={<ProtectedRoute roles={['Admin','Manager','Inventory Staff']} grant={['view_inventory','see_inventory']}><InventoryPage /></ProtectedRoute>} />
             <Route path="/purchases" element={<ProtectedRoute roles={['Admin','Manager','Inventory Staff']} grant={['view_purchases','see_purchases']}><PurchasesPage /></ProtectedRoute>} />
+            <Route path="/expenses" element={<ProtectedRoute roles={['Admin','Manager']} grant={['view_expenses','see_expenses','add_expenses']}><ExpensesPage /></ProtectedRoute>} />
             <Route path="/transfers" element={<ProtectedRoute roles={['Admin','Manager','Inventory Staff']} grant={['view_transfers','see_transfers']}><TransfersPage /></ProtectedRoute>} />
             <Route path="/adjustments" element={<ProtectedRoute roles={['Admin','Manager','Inventory Staff']} grant={['view_adjustments','see_adjustments']}><AdjustmentsPage /></ProtectedRoute>} />
             <Route path="/suppliers" element={<ProtectedRoute roles={['Admin','Manager','Inventory Staff']} grant={['view_suppliers','see_suppliers']}><SuppliersPage /></ProtectedRoute>} />

@@ -17,6 +17,7 @@ function ProductsPage() {
   const branches = useSelector(s => s.branches.branches);
   const settings = useSelector(s => s.settings);
   const currentBranchId = useSelector(s => s.settings.currentBranchId);
+  const sales = useSelector(s => s.sales.sales);
   const currentBranch = branches.find(b => b.id === currentBranchId);
   const currentBranchLabel = (currentBranch?.code) || (currentBranch?.name) || currentBranchId;
   const auth = useSelector(s => s.auth);
@@ -33,6 +34,8 @@ function ProductsPage() {
 
   const [modalMode, setModalMode] = useState('none'); // none, add, edit
   const [editingId, setEditingId] = useState(null);
+  const [tab, setTab] = useState('catalog'); // catalog, reorder, expiry, profitability
+  const [leadDays, setLeadDays] = useState(7);
 
   // Unified form state
   const [name, setName] = useState('');
@@ -44,6 +47,8 @@ function ProductsPage() {
   const [editStockQty, setEditStockQty] = useState(0);
   const [lowStock, setLowStock] = useState(0);
   const [imagePreview, setImagePreview] = useState('');
+  const [costPrice, setCostPrice] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
   const [unitKind, setUnitKind] = useState('none');
   const [unitValue, setUnitValue] = useState('');
   const [unitSymbol, setUnitSymbol] = useState('');
@@ -53,6 +58,7 @@ function ProductsPage() {
   const [packs, setPacks] = useState([{ name: '', quantity: '' }]);
   const [variants, setVariants] = useState([{ label: '', sku: '', price: '' }]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [pricingOpen, setPricingOpen] = useState(false);
   const [unitsOpen, setUnitsOpen] = useState(false);
   const [attrsOpen, setAttrsOpen] = useState(false);
   const [packsOpen, setPacksOpen] = useState(false);
@@ -65,12 +71,14 @@ function ProductsPage() {
     setName(''); setSku(''); setPrice(''); 
     setCategory(categories[0] || ''); setNewCategory('');
     setInitialStock(0); setEditStockQty(0); setLowStock(0); setImagePreview('');
+    setCostPrice(''); setExpiryDate('');
     setUnitKind('none'); setUnitValue(''); setUnitSymbol('');
     setSizeLabel(''); setShoeSize('');
     setAttrs([{ key: '', value: '' }]);
     setPacks([{ name: '', quantity: '' }]);
     setVariants([{ label: '', sku: '', price: '' }]);
     setAdvancedOpen(false);
+    setPricingOpen(false);
     setUnitsOpen(false);
     setAttrsOpen(false);
     setPacksOpen(false);
@@ -83,6 +91,8 @@ function ProductsPage() {
     setName(p.name);
     setSku(p.sku);
     setPrice(String(p.price || 0));
+    setCostPrice(p.costPrice != null ? String(p.costPrice) : '');
+    setExpiryDate(p.expiryDate ? String(p.expiryDate).slice(0, 10) : '');
     setCategory(p.category || '');
     setLowStock(p.lowStock || 0);
     setImagePreview(p.image || '');
@@ -91,11 +101,13 @@ function ProductsPage() {
     setUnitSymbol(p.unitSymbol || '');
     setSizeLabel(p.sizeLabel || '');
     setShoeSize(p.shoeSize || '');
+    const hasPricing = (p.costPrice != null && String(p.costPrice) !== '' && Number(p.costPrice) > 0) || !!p.expiryDate;
     const hasUnits = (p.unitKind && p.unitKind !== 'none') || p.unitValue != null || !!p.unitSymbol || !!p.sizeLabel || !!p.shoeSize;
     const hasAttrs = Array.isArray(p.attributes) && p.attributes.length > 0;
     const hasPacks = Array.isArray(p.packs) && p.packs.length > 0;
     const hasVars = Array.isArray(p.variants) && p.variants.length > 0;
-    setAdvancedOpen(hasUnits || hasAttrs || hasPacks || hasVars);
+    setAdvancedOpen(hasPricing || hasUnits || hasAttrs || hasPacks || hasVars);
+    setPricingOpen(hasPricing);
     setUnitsOpen(hasUnits);
     setAttrsOpen(hasAttrs);
     setPacksOpen(hasPacks);
@@ -147,6 +159,8 @@ function ProductsPage() {
             name: name.trim(),
             sku: sku.trim(),
             price: Number(price),
+            costPrice: Number(costPrice) || 0,
+            expiryDate: expiryDate ? new Date(expiryDate).toISOString() : null,
             category,
             lowStock: Number(lowStock) || 0,
             image: imagePreview || null,
@@ -216,6 +230,8 @@ function ProductsPage() {
             name: name.trim(),
             sku: sku.trim(),
             price: Number(price),
+            costPrice: Number(costPrice) || 0,
+            expiryDate: expiryDate ? new Date(expiryDate).toISOString() : null,
             category,
             lowStock: Number(lowStock) || 0,
             image: imagePreview || null,
@@ -266,6 +282,9 @@ function ProductsPage() {
             if (Number(original.price) !== Number(price)) changed.price = { from: Number(original.price), to: Number(price) };
             if ((original.category || '') !== category) changed.category = { from: original.category || '', to: category };
             if ((original.lowStock || 0) !== Number(lowStock)) changed.lowStock = { from: original.lowStock || 0, to: Number(lowStock) };
+            if (Number(original.costPrice || 0) !== (Number(costPrice) || 0)) changed.costPrice = { from: Number(original.costPrice || 0), to: Number(costPrice) || 0 };
+            const oldExp = original.expiryDate ? String(original.expiryDate).slice(0, 10) : '';
+            if (oldExp !== (expiryDate || '')) changed.expiryDate = { from: oldExp, to: expiryDate || '' };
             if ((original.unitKind || 'none') !== unitKind) changed.unitKind = { from: original.unitKind || 'none', to: unitKind };
         }
         
@@ -296,6 +315,71 @@ function ProductsPage() {
     return [];
   }, [unitKind]);
 
+  const reorder = useMemo(() => {
+    const fromTs = Date.now() - 14 * 24 * 3600 * 1000;
+    const unitsByProduct = new Map();
+    for (const s of sales) {
+      const ts = new Date(s.created_at).getTime();
+      if (ts < fromTs) continue;
+      if (String(s.branchId || '') !== String(currentBranchId || '')) continue;
+      for (const it of s.items || []) {
+        const pid = String(it.productId || '');
+        const qty = Number(it.qty) || 0;
+        if (!pid || qty <= 0) continue;
+        unitsByProduct.set(pid, (unitsByProduct.get(pid) || 0) + qty);
+      }
+    }
+    const out = [];
+    for (const p of products) {
+      const cur = Number(p.stockByBranch?.[currentBranchId] || 0);
+      const avgDaily = (unitsByProduct.get(String(p.id)) || 0) / 14;
+      const target = Math.ceil(avgDaily * Math.max(0, Number(leadDays) || 0) + (Number(p.lowStock) || 0));
+      const suggest = Math.max(0, target - cur);
+      const low = Number(p.lowStock) || 0;
+      const daysCover = avgDaily > 0 ? Math.round((cur / avgDaily) * 10) / 10 : null;
+      if (suggest > 0 || (low > 0 && cur <= low)) {
+        out.push({ id: p.id, name: p.name, sku: p.sku, current: cur, lowStock: low, avgDaily: Math.round(avgDaily * 100) / 100, daysCover, suggest });
+      }
+    }
+    return out.sort((a, b) => b.suggest - a.suggest).slice(0, 50);
+  }, [products, sales, currentBranchId, leadDays]);
+
+  const expirySoon = useMemo(() => {
+    const now = Date.now();
+    const soonMs = 30 * 24 * 3600 * 1000;
+    return products
+      .filter(p => p.expiryDate)
+      .map(p => ({ id: p.id, name: p.name, sku: p.sku, expiry: String(p.expiryDate).slice(0, 10), ts: new Date(p.expiryDate).getTime() }))
+      .filter(x => x.ts >= now && x.ts <= now + soonMs)
+      .sort((a, b) => a.ts - b.ts)
+      .slice(0, 50);
+  }, [products]);
+
+  const productProfit = useMemo(() => {
+    const fromTs = Date.now() - 30 * 24 * 3600 * 1000;
+    const map = new Map();
+    for (const s of sales) {
+      const ts = new Date(s.created_at).getTime();
+      if (ts < fromTs) continue;
+      if (String(s.branchId || '') !== String(currentBranchId || '')) continue;
+      for (const it of s.items || []) {
+        const pid = it.productId || '';
+        const key = `${pid}:${it.variantId || ''}`;
+        if (!map.has(key)) map.set(key, { key, name: it.name || it.sku || '—', units: 0, revenue: 0, cost: 0, profit: 0 });
+        const row = map.get(key);
+        const qty = Number(it.qty) || 0;
+        const price = Number(it.price) || 0;
+        const prod = products.find(p => String(p.id) === String(pid));
+        const cp = Number(prod?.costPrice || 0);
+        row.units += qty;
+        row.revenue += qty * price;
+        row.cost += qty * (Number.isFinite(cp) ? cp : 0);
+        row.profit = row.revenue - row.cost;
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.profit - a.profit).slice(0, 20);
+  }, [sales, products, currentBranchId]);
+
   return (
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -308,6 +392,107 @@ function ProductsPage() {
         )}
       </div>
 
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+        <button className={tab === 'catalog' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('catalog')}>Catalog</button>
+        <button className={tab === 'reorder' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('reorder')}>Auto Reorder</button>
+        <button className={tab === 'expiry' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('expiry')}>Expiry Alerts</button>
+        <button className={tab === 'profitability' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('profitability')}>Profitability</button>
+      </div>
+
+      {tab === 'reorder' && (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 className="section-title">Auto Reorder Suggestions</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: '#64748b' }}>Lead days</span>
+              <input className="input" type="number" min="0" max="60" value={leadDays} onChange={e => setLeadDays(Number(e.target.value))} style={{ width: 90 }} />
+            </div>
+          </div>
+          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>Based on last 14 days sales + low stock ({currentBranchLabel})</div>
+          <table className="table">
+            <thead>
+              <tr>
+                <th align="left">Product</th>
+                <th align="left">SKU</th>
+                <th align="left">Current</th>
+                <th align="left">Low</th>
+                <th align="left">Avg/day</th>
+                <th align="left">Days cover</th>
+                <th align="left">Suggest</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reorder.map(r => (
+                <tr key={r.id}>
+                  <td>{r.name}</td>
+                  <td>{r.sku}</td>
+                  <td>{r.current}</td>
+                  <td>{r.lowStock}</td>
+                  <td>{r.avgDaily}</td>
+                  <td>{r.daysCover == null ? '—' : r.daysCover}</td>
+                  <td style={{ fontWeight: 700 }}>{r.suggest}</td>
+                </tr>
+              ))}
+              {reorder.length === 0 && <tr><td colSpan="7" style={{ padding: 12, color: '#64748b' }}>No reorder suggestions</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'expiry' && (
+        <div className="card">
+          <h2 className="section-title">Expiry Alerts (30 days)</h2>
+          <table className="table">
+            <thead>
+              <tr>
+                <th align="left">Product</th>
+                <th align="left">SKU</th>
+                <th align="left">Expiry</th>
+              </tr>
+            </thead>
+            <tbody>
+              {expirySoon.map(x => (
+                <tr key={x.id}>
+                  <td>{x.name}</td>
+                  <td>{x.sku}</td>
+                  <td>{x.expiry}</td>
+                </tr>
+              ))}
+              {expirySoon.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No expiring products</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'profitability' && (
+        <div className="card">
+          <h2 className="section-title">Product-level Profitability (Top 20)</h2>
+          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>Last 30 days ({currentBranchLabel}). Profit requires cost price.</div>
+          <table className="table">
+            <thead>
+              <tr>
+                <th align="left">Product</th>
+                <th align="left">Units</th>
+                <th align="left">Revenue</th>
+                <th align="left">Profit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {productProfit.map(x => (
+                <tr key={x.key}>
+                  <td>{x.name}</td>
+                  <td>{x.units}</td>
+                  <td>{formatCurrency(x.revenue, settings)}</td>
+                  <td>{formatCurrency(x.profit, settings)}</td>
+                </tr>
+              ))}
+              {productProfit.length === 0 && <tr><td colSpan="4" style={{ padding: 12, color: '#64748b' }}>No sales in range</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'catalog' && (
       <div className="card">
         <h2 className="section-title">Catalog</h2>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -455,6 +640,7 @@ function ProductsPage() {
           </tbody>
         </table>
       </div>
+      )}
 
       {modalMode !== 'none' && (
         <Modal
@@ -533,6 +719,31 @@ function ProductsPage() {
 
             {advancedOpen && (
               <>
+                <div style={{ border: '1px solid #111827', borderRadius: 12, padding: 12, background: '#000' }}>
+                  <button className="btn" onClick={() => setPricingOpen(v => !v)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Pricing & Expiry</span>
+                    <span style={{ display: 'inline-flex', width: 18, height: 18 }}>
+                      {pricingOpen ? (
+                        <svg viewBox="0 0 24 24" fill="none"><path d="M18 15l-6-6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      ) : (
+                        <svg viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      )}
+                    </span>
+                  </button>
+                  {pricingOpen && (
+                    <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <label>
+                        <div className="label" style={{ color: '#cbd5e1' }}>Cost Price (per unit)</div>
+                        <input className="input" type="number" min="0" step="0.01" value={costPrice} onChange={e => setCostPrice(e.target.value)} />
+                      </label>
+                      <label>
+                        <div className="label" style={{ color: '#cbd5e1' }}>Expiry Date</div>
+                        <input className="input" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} />
+                      </label>
+                    </div>
+                  )}
+                </div>
+
                 <div style={{ border: '1px solid #111827', borderRadius: 12, padding: 12, background: '#000' }}>
                   <button className="btn" onClick={() => setUnitsOpen(v => !v)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>Units & Size</span>

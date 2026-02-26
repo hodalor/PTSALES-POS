@@ -23,6 +23,7 @@ function PurchasesPage() {
   const [variantId, setVariantId] = useState('');
   const [supplier, setSupplier] = useState('');
   const [cost, setCost] = useState('');
+  const [expiryDate, setExpiryDate] = useState('');
   const [note, setNote] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -119,6 +120,7 @@ function PurchasesPage() {
     const pack = (prod?.packs || []).find(pk => pk.name === packName);
     const factor = pack ? Number(pack.quantity) || 1 : 1;
     const baseUnits = Number(qty) * factor;
+    const cpu = factor > 0 ? (price / factor) : price;
     setSaving(true);
     try {
       await stockApi.receive({
@@ -128,6 +130,8 @@ function PurchasesPage() {
         actor: auth.user?.name || 'unknown',
         supplier: supplier.trim() || '',
         cost: price,
+        costPerUnit: cpu,
+        expiryDate: expiryDate || undefined,
         remark: note.trim() || '',
         variantId: variantId || undefined
       });
@@ -140,7 +144,7 @@ function PurchasesPage() {
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'stock_receive',
-      details: { product: prod?.name || productId, variant: (prod?.variants || []).find(v => v.id === variantId)?.label || '', qty: Number(qty), pack: pack ? pack.name : 'Base Unit', factor, baseUnits, branchId, supplier: supplier.trim() || '', cost: price },
+      details: { product: prod?.name || productId, variant: (prod?.variants || []).find(v => v.id === variantId)?.label || '', qty: Number(qty), pack: pack ? pack.name : 'Base Unit', factor, baseUnits, branchId, supplier: supplier.trim() || '', cost: price, costPerUnit: cpu, expiryDate: expiryDate || null },
       remark: note.trim() || '',
       branchId
     }));
@@ -149,6 +153,7 @@ function PurchasesPage() {
     setVariantId('');
     setSupplier('');
     setCost('');
+    setExpiryDate('');
     setNote('');
     toast.show('Stock received', { type: 'success' });
     setSaving(false);
@@ -200,6 +205,10 @@ function PurchasesPage() {
         <label>
           <div style={{ marginBottom: 6, color: '#64748b' }}>Cost Price</div>
           <input className="input" type="number" min="0" step="0.01" placeholder="0.00" value={cost} onChange={e => setCost(e.target.value)} />
+        </label>
+        <label>
+          <div style={{ marginBottom: 6, color: '#64748b' }}>Expiry Date</div>
+          <input className="input" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} />
         </label>
         <label style={{ gridColumn: '1 / span 4' }}>
           <div style={{ marginBottom: 6, color: '#64748b' }}>Remark</div>
