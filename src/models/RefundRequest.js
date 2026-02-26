@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 
 const RefundRequestSchema = new mongoose.Schema({
+  clientId: { type: String, unique: true, sparse: true, index: true },
   saleId: String,
   invoiceSerial: String,
   receiptNumber: String,

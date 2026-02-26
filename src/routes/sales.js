@@ -45,6 +45,11 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
   if (!branchId) return res.status(400).json({ error: 'Missing branchId' });
   const items = Array.isArray(payload.items) ? payload.items : [];
   if (items.length === 0) return res.status(400).json({ error: 'Sale must include items' });
+  const clientId = String(payload.clientId || '').trim();
+  if (clientId) {
+    const existing = await Sale.findOne({ clientId });
+    if (existing) return res.json(existing);
+  }
   const cleaned = items.map(it => ({
     productId: it.productId,
     variantId: it.variantId || null,
@@ -63,8 +68,9 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
   if (customerId || customerCode) {
     let cust = null;
     if (customerId) {
-      if (!mongoose.isValidObjectId(customerId)) return res.status(400).json({ error: 'Invalid customerId' });
-      cust = await Customer.findById(customerId);
+      if (mongoose.isValidObjectId(customerId)) cust = await Customer.findById(customerId);
+      else cust = await Customer.findOne({ clientId: customerId });
+      customerId = cust ? String(cust._id) : '';
     } else {
       cust = await Customer.findOne({ customerCode });
       customerId = cust ? String(cust._id) : '';

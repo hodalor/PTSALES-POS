@@ -14,7 +14,13 @@ r.get('/', async (req, res) => {
 });
 
 r.post('/', requireRoleOrPerm(['Admin','Manager'], 'add_suppliers'), async (req, res) => {
-  const s = await Supplier.create(req.body);
+  const payload = req.body || {};
+  const clientId = String(payload.clientId || '').trim();
+  if (clientId) {
+    const existing = await Supplier.findOne({ clientId });
+    if (existing) return res.json(existing);
+  }
+  const s = await Supplier.create(payload);
   await Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'supplier_create',
@@ -34,7 +40,7 @@ r.post('/', requireRoleOrPerm(['Admin','Manager'], 'add_suppliers'), async (req,
 
 r.put('/:id', requireRoleOrPerm(['Admin','Manager'], 'edit_suppliers'), async (req, res) => {
   const id = req.params.id;
-  const query = { $or: [{ _id: id }, { id }] };
+  const query = { $or: [{ _id: id }, { clientId: id }] };
   const before = await Supplier.findOne(query);
   const s = await Supplier.findOneAndUpdate(query, req.body, { new: true });
   const changed = [];
@@ -68,8 +74,8 @@ r.put('/:id', requireRoleOrPerm(['Admin','Manager'], 'edit_suppliers'), async (r
 
 r.delete('/:id', requireAdmin, async (req, res) => {
   const id = req.params.id;
-  const doc = await Supplier.findOne({ $or: [{ _id: id }, { id }] });
-  await Supplier.findOneAndDelete({ $or: [{ _id: id }, { id }] });
+  const doc = await Supplier.findOne({ $or: [{ _id: id }, { clientId: id }] });
+  await Supplier.findOneAndDelete({ $or: [{ _id: id }, { clientId: id }] });
   await Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'supplier_delete',

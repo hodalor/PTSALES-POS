@@ -8,6 +8,7 @@ const MovementSchema = new mongoose.Schema({
 }, { _id: false });
 
 const CashSessionSchema = new mongoose.Schema({
+  clientId: { type: String, unique: true, sparse: true, index: true },
   branchId: String,
   cashierName: String,
   cashierRole: String,
@@ -22,4 +23,3 @@ CashSessionSchema.index({ openedAt: -1 });
 CashSessionSchema.index({ cashierName: 1, isOpen: 1 });
 
 export default mongoose.model('CashSession', CashSessionSchema);
-

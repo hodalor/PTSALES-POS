@@ -16,6 +16,10 @@ r.get('/', async (req, res) => {
 
 r.put('/', requireAdmin, async (req, res) => {
   const data = req.body || {};
+  const role = String(req.user?.role || '').toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(data, 'featureFlags') && role !== 'superadmin') {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const prev = await Settings.findOne({ key: 'default' });
   let doc = await Settings.findOneAndUpdate({ key: 'default' }, { data }, { new: true, upsert: true });
   const before = prev && prev.data ? prev.data : {};

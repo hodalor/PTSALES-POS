@@ -3,6 +3,7 @@ import Customer from '../models/Customer.js';
 import Audit from '../models/Audit.js';
 import ServerLog from '../models/ServerLog.js';
 import { requireAuth, requireAdmin, requireRole, requireRoleOrPerm } from '../middleware/auth.js';
+import mongoose from 'mongoose';
 
 const r = Router();
 
@@ -40,7 +41,13 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_customers'), a
   const payload = req.body || {};
   const name = String(payload.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Name is required' });
+  const clientId = String(payload.clientId || '').trim();
+  if (clientId) {
+    const existing = await Customer.findOne({ clientId });
+    if (existing) return res.json(existing);
+  }
   const doc = {
+    clientId: clientId || undefined,
     customerCode: String(payload.customerCode || '').trim() || null,
     name,
     phone: String(payload.phone || '').trim() || '',
@@ -88,8 +95,11 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_customers'), a
 });
 
 r.put('/:id', requireRoleOrPerm(['Admin','Manager','Cashier'], 'edit_customers'), async (req, res) => {
-  const id = req.params.id;
-  const before = await Customer.findById(id);
+  const id = String(req.params.id || '');
+  const or = [];
+  if (mongoose.isValidObjectId(id)) or.push({ _id: id });
+  or.push({ clientId: id });
+  const before = await Customer.findOne({ $or: or });
   if (!before) return res.status(404).json({ error: 'Not found' });
   const payload = req.body || {};
   const patch = {
@@ -107,7 +117,7 @@ r.put('/:id', requireRoleOrPerm(['Admin','Manager','Cashier'], 'edit_customers')
   if (patch.dob && Number.isNaN(patch.dob.getTime())) patch.dob = null;
   if (patch.anniversaryDate && Number.isNaN(patch.anniversaryDate.getTime())) patch.anniversaryDate = null;
   Object.keys(patch).forEach(k => patch[k] === undefined && delete patch[k]);
-  const c = await Customer.findByIdAndUpdate(id, patch, { new: true });
+  const c = await Customer.findOneAndUpdate({ $or: or }, patch, { new: true });
   const changed = [];
   Object.keys(payload).forEach(k => {
     try {
@@ -137,10 +147,13 @@ r.put('/:id', requireRoleOrPerm(['Admin','Manager','Cashier'], 'edit_customers')
 });
 
 r.delete('/:id', requireAdmin, async (req, res) => {
-  const id = req.params.id;
-  const doc = await Customer.findById(id);
+  const id = String(req.params.id || '');
+  const or = [];
+  if (mongoose.isValidObjectId(id)) or.push({ _id: id });
+  or.push({ clientId: id });
+  const doc = await Customer.findOne({ $or: or });
   if (!doc) return res.status(404).json({ error: 'Not found' });
-  await Customer.findByIdAndDelete(id);
+  await Customer.findOneAndDelete({ $or: or });
   await Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'customer_delete',

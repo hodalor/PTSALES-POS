@@ -16,6 +16,7 @@ const PaymentSchema = new mongoose.Schema({
 }, { _id: false });
 
 const SaleSchema = new mongoose.Schema({
+  clientId: { type: String, unique: true, sparse: true, index: true },
   branchId: { type: String, required: true },
   sellerName: { type: String },
   customerId: { type: String, index: true },

@@ -3,6 +3,7 @@ import Expense from '../models/Expense.js';
 import Audit from '../models/Audit.js';
 import ServerLog from '../models/ServerLog.js';
 import { requireAuth, requireRoleOrPerm } from '../middleware/auth.js';
+import mongoose from 'mongoose';
 
 const r = Router();
 
@@ -24,11 +25,17 @@ r.get('/', async (req, res) => {
 });
 
 r.post('/', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (req, res) => {
-  const { branchId, date, category, amount, note } = req.body || {};
+  const { branchId, date, category, amount, note, clientId } = req.body || {};
   if (!branchId || !date || !category) return res.status(400).json({ error: 'Missing branchId/date/category' });
   const amt = Number(amount);
   if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'Amount must be a positive number' });
+  const cid = String(clientId || '').trim();
+  if (cid) {
+    const existing = await Expense.findOne({ clientId: cid });
+    if (existing) return res.json(existing);
+  }
   const row = await Expense.create({
+    clientId: cid || undefined,
     branchId: String(branchId),
     date: new Date(date),
     category: String(category),
@@ -54,7 +61,10 @@ r.post('/', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (req, 
 });
 
 r.put('/:id', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (req, res) => {
-  const id = req.params.id;
+  const id = String(req.params.id || '');
+  const or = [];
+  if (mongoose.isValidObjectId(id)) or.push({ _id: id });
+  or.push({ clientId: id });
   const { branchId, date, category, amount, note } = req.body || {};
   const patch = {};
   if (branchId) patch.branchId = String(branchId);
@@ -66,7 +76,7 @@ r.put('/:id', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (req
     patch.amount = amt;
   }
   if (note != null) patch.note = String(note || '');
-  const row = await Expense.findByIdAndUpdate(id, patch, { new: true });
+  const row = await Expense.findOneAndUpdate({ $or: or }, patch, { new: true });
   if (!row) return res.status(404).json({ error: 'Not found' });
   await Audit.create({
     actor: req.user?.name || 'unknown',
@@ -78,8 +88,11 @@ r.put('/:id', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (req
 });
 
 r.delete('/:id', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (req, res) => {
-  const id = req.params.id;
-  const row = await Expense.findByIdAndDelete(id);
+  const id = String(req.params.id || '');
+  const or = [];
+  if (mongoose.isValidObjectId(id)) or.push({ _id: id });
+  or.push({ clientId: id });
+  const row = await Expense.findOneAndDelete({ $or: or });
   if (!row) return res.status(404).json({ error: 'Not found' });
   await Audit.create({
     actor: req.user?.name || 'unknown',
@@ -91,4 +104,3 @@ r.delete('/:id', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (
 });
 
 export default r;
-
