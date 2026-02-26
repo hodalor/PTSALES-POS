@@ -12,6 +12,7 @@ function LoginPage() {
   const [captchaInput, setCaptchaInput] = useState('');
   const [captcha, setCaptcha] = useState('');
   const [expiresAt, setExpiresAt] = useState(0);
+  const [loading, setLoading] = useState(false);
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
@@ -54,6 +55,7 @@ function LoginPage() {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (loading) return;
     if (Date.now() >= expiresAt) {
       toast.show('Captcha expired', { type: 'error' });
       regenerateCaptcha();
@@ -64,6 +66,7 @@ function LoginPage() {
       regenerateCaptcha();
       return;
     }
+    setLoading(true);
     let role = null;
     let landing = '/pos';
     let user = null;
@@ -75,6 +78,7 @@ function LoginPage() {
     } catch {
       toast.show('Invalid credentials', { type: 'error' });
       regenerateCaptcha();
+      setLoading(false);
       return;
     }
     if (remember) {
@@ -109,11 +113,10 @@ function LoginPage() {
             <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
             <span>remember PIN</span>
           </label>
-          <button type="submit" className="primary">Log In</button>
+          <button type="submit" className="primary" disabled={loading}>
+            {loading ? 'Logging in...' : 'Log In'}
+          </button>
         </form>
-        <div style={{ fontSize: 12, color: '#64748b', marginTop: 8, textAlign: 'center' }}>
-          Demo: superadmin / 1234
-        </div>
         <button className="outline">Reset PIN (Admin)</button>
       </div>
     </div>
