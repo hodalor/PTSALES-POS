@@ -84,6 +84,7 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
   const receiptNumber = `${receiptPrefix}-${branchCode}-${String(receiptNum).padStart(6,'0')}`;
 
   const touched = [];
+  let costTotal = 0;
   try {
     for (const it of cleaned) {
       const p = await Product.findOne(productLookupQuery(it.productId));
@@ -125,6 +126,8 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
         p.markModified('stockByBranch');
         await p.save();
       }
+      const cp = Number(p.costPrice || 0);
+      if (Number.isFinite(cp) && cp > 0) costTotal += cp * it.qty;
     }
   } catch (e) {
     try {
@@ -149,7 +152,9 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
 
   let sale;
   try {
-    sale = await Sale.create({ ...payload, invoiceSerial, receiptNumber });
+    const revenueTotal = Number(payload.total || 0);
+    const profitTotal = revenueTotal - Number(costTotal || 0);
+    sale = await Sale.create({ ...payload, invoiceSerial, receiptNumber, costTotal: Number(costTotal || 0), profitTotal: Number(profitTotal || 0) });
   } catch (e) {
     try {
       for (let i = touched.length - 1; i >= 0; i--) {

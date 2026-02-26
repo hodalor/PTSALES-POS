@@ -137,7 +137,7 @@ r.post('/damage-remove', requireRoleOrPerm(['Admin','Manager','Inventory Staff']
 });
 
 r.post('/receive', requireRoleOrPerm(['Admin','Manager','Inventory Staff'], 'add_purchases'), async (req, res) => {
-  const { productId, branchId, baseUnits, actor, supplier, cost, remark, variantId } = req.body || {};
+  const { productId, branchId, baseUnits, actor, supplier, cost, costPerUnit, expiryDate, remark, variantId } = req.body || {};
   if (!productId || !branchId) return res.status(400).json({ error: 'Missing productId or branchId' });
   const u = Number(baseUnits);
   if (!Number.isFinite(u) || u <= 0) return res.status(400).json({ error: 'baseUnits must be a positive number' });
@@ -151,11 +151,22 @@ r.post('/receive', requireRoleOrPerm(['Admin','Manager','Inventory Staff'], 'add
   } catch (e) {
     return res.status(e?.status || 500).json({ error: e?.message || 'Failed to receive stock' });
   }
+  const cpu = costPerUnit != null ? Number(costPerUnit) : null;
+  if (cpu != null && Number.isFinite(cpu) && cpu >= 0) {
+    p.costPrice = cpu;
+  }
+  if (expiryDate) {
+    const dt = new Date(expiryDate);
+    if (!Number.isNaN(dt.getTime())) p.expiryDate = dt;
+  }
+  if (cpu != null || expiryDate) {
+    await p.save();
+  }
   const varLabel = (Array.isArray(p?.variants) ? p.variants.find(v => v.id === variantId)?.label : '') || '';
   await Audit.create({
     actor: actor || 'unknown',
     actionType: 'stock_receive',
-    details: { product: p?.name || productId, variant: varLabel, baseUnits: Number(baseUnits), supplier: supplier || '', cost: Number(cost) || 0, branchId },
+    details: { product: p?.name || productId, variant: varLabel, baseUnits: Number(baseUnits), supplier: supplier || '', cost: Number(cost) || 0, costPerUnit: cpu != null ? cpu : 0, expiryDate: expiryDate || null, branchId },
     remark: remark || '',
     branchId
   });

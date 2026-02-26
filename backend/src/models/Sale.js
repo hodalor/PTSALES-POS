@@ -23,6 +23,8 @@ const SaleSchema = new mongoose.Schema({
   discount: { type: Number, default: 0 },
   tax: { type: Number, default: 0 },
   total: { type: Number, default: 0 },
+  costTotal: { type: Number, default: 0 },
+  profitTotal: { type: Number, default: 0 },
   invoiceSerial: { type: String },
   receiptNumber: { type: String },
   payment_methods: { type: [PaymentSchema], default: [] },
