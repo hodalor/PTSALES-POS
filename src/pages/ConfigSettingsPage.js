@@ -203,6 +203,11 @@ function ConfigSettingsPage() {
                     onChange={(e) => {
                       const f = e.target.files && e.target.files[0];
                       if (!f) return;
+                      const MAX_BYTES = 1400 * 1024; // keep under backend 2MB json limit
+                      if (f.size > MAX_BYTES) {
+                        toast.show('Logo too large. Please use an image under 1.4MB.', { type: 'error' });
+                        return;
+                      }
                       const reader = new FileReader();
                       reader.onload = () => {
                         const dataUrl = String(reader.result || '');
