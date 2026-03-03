@@ -9,7 +9,6 @@ export function escposReceipt({ header, items, totals, footer, settings }) {
   if (header?.cashier) lines.push(text(`CASHIER: ${header.cashier}`));
   if (header?.customer) lines.push(text(`CUSTOMER: ${header.customer}`));
   if (settings?.businessTpin) lines.push(text(`TPIN: ${settings.businessTpin}`));
-  if (settings?.sdcId) lines.push(text(`SDC ID: ${settings.sdcId}`));
   if (header?.receiptNumber) lines.push(text(`RCPT: ${header.receiptNumber}`));
   if (header?.invoiceSerial) lines.push(text(`INV: ${header.invoiceSerial}`));
   lines.push('--------------------------------');

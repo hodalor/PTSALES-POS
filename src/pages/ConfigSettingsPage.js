@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setSdcId, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent } from '../store/settingsSlice';
+import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent, setClientAppName, setClientLogoUrl } from '../store/settingsSlice';
 import { addBranch, removeBranch, updateBranch } from '../store/branchesSlice';
 import * as branchesApi from '../api/branches';
 import { useRef, useState } from 'react';
@@ -25,6 +25,7 @@ function ConfigSettingsPage() {
   const canEditTax = ['Admin','Manager'].includes(auth.role) || String(auth.role || '').toLowerCase() === 'superadmin';
   const roleLower = String(auth.role || '').toLowerCase();
   const canManageBranches = roleLower === 'admin' || roleLower === 'superadmin';
+  const isSuperAdmin = roleLower === 'superadmin';
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const [apiBase, setApiBaseState] = useState(() => {
     try { return getApiBase(); } catch { return ''; }
@@ -135,34 +136,96 @@ function ConfigSettingsPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div className="card">
           <h2 className="section-title">App Identity</h2>
-          <label>
-            App Name
-            <input className="input" value={settings.appName} onChange={e => dispatch(setAppName(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
-            <label>
-              Invoice Prefix
-              <input className="input" value={settings.invoicePrefix || ''} onChange={e => dispatch(setInvoicePrefix(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
-            </label>
-            <label>
-              Next Invoice Number
-              <input className="input" type="number" min="1" value={settings.nextInvoiceNumber || 1} onChange={e => dispatch(setNextInvoiceNumber(Number(e.target.value)))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
-            </label>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
-            <label>
-              Receipt Prefix
-              <input className="input" value={settings.receiptPrefix || ''} onChange={e => dispatch(setReceiptPrefix(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
-            </label>
-            <label>
-              Next Receipt Number
-              <input className="input" type="number" min="1" value={settings.nextReceiptNumber || 1} onChange={e => dispatch(setNextReceiptNumber(Number(e.target.value)))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
-            </label>
-          </div>
-          <label style={{ display: 'block', marginTop: 12 }}>
-            Footer Text
-            <input className="input" value={settings.footerText} onChange={e => dispatch(setFooterText(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
-          </label>
+          {isSuperAdmin && (
+            <>
+              <label>
+                App Name
+                <input className="input" value={settings.appName} onChange={e => dispatch(setAppName(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+                <label>
+                  Invoice Prefix
+                  <input className="input" value={settings.invoicePrefix || ''} onChange={e => dispatch(setInvoicePrefix(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+                </label>
+                <label>
+                  Next Invoice Number
+                  <input className="input" type="number" min="1" value={settings.nextInvoiceNumber || 1} onChange={e => dispatch(setNextInvoiceNumber(Number(e.target.value)))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+                </label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+                <label>
+                  Receipt Prefix
+                  <input className="input" value={settings.receiptPrefix || ''} onChange={e => dispatch(setReceiptPrefix(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+                </label>
+                <label>
+                  Next Receipt Number
+                  <input className="input" type="number" min="1" value={settings.nextReceiptNumber || 1} onChange={e => dispatch(setNextReceiptNumber(Number(e.target.value)))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+                </label>
+              </div>
+              <label style={{ display: 'block', marginTop: 12 }}>
+                Footer Text
+                <input className="input" value={settings.footerText} onChange={e => dispatch(setFooterText(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+            </>
+          )}
+          {(roleLower === 'admin' || isSuperAdmin) && (
+            <div style={{ marginTop: 12 }}>
+              <h3 className="section-title" style={{ margin: '8px 0' }}>Client App Name</h3>
+              <label>
+                Client App Name (Top bar)
+                <input className="input" value={settings.clientAppName || ''} onChange={e => dispatch(setClientAppName(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+              <div style={{ marginTop: 12 }}>
+                <h3 className="section-title" style={{ margin: '8px 0' }}>Client App Logo</h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <img
+                    src={settings.clientLogoUrl || '/clientlogo512.png'}
+                    alt="client logo preview"
+                    width={32}
+                    height={32}
+                    style={{ borderRadius: 6, border: '1px solid #e2e8f0' }}
+                    onError={(e) => {
+                      try {
+                        const curr = e.currentTarget.src || '';
+                        if (curr.endsWith('/clientlogo512.png')) {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = '/logo512.png';
+                        } else {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = '/clientlogo512.png';
+                        }
+                      } catch {}
+                    }}
+                  />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const f = e.target.files && e.target.files[0];
+                      if (!f) return;
+                      const reader = new FileReader();
+                      reader.onload = () => {
+                        const dataUrl = String(reader.result || '');
+                        dispatch(setClientLogoUrl(dataUrl));
+                      };
+                      reader.readAsDataURL(f);
+                    }}
+                  />
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={() => dispatch(setClientLogoUrl(''))}
+                    title="Use default logo"
+                  >
+                    Use default
+                  </button>
+                </div>
+                <div style={{ marginTop: 6, color: '#64748b' }}>
+                  Upload image to override top bar logo. Falls back to /clientlogo512.png if empty or load fails.
+                </div>
+              </div>
+            </div>
+          )}
           <div style={{ marginTop: 12, color: '#64748b' }}>
             Receipt will use the app logo from /logo512.png
           </div>
@@ -179,10 +242,6 @@ function ConfigSettingsPage() {
               TIN/TPIN
               <input className="input" value={settings.businessTpin || ''} onChange={e => dispatch(setBusinessTpin(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
             </label>
-            <label>
-              SDC ID
-              <input className="input" value={settings.sdcId || ''} onChange={e => dispatch(setSdcId(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
-            </label>
           </div>
           <label style={{ display: 'block', marginTop: 12 }}>
             Receipt QR Base URL
@@ -196,10 +255,12 @@ function ConfigSettingsPage() {
             Receipt Footer
             <input className="input" value={settings.receiptFooter} onChange={e => dispatch(setReceiptFooter(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
           </label>
-          <label style={{ display: 'block', marginTop: 12 }}>
-            <input type="checkbox" checked={!!settings.drawerOpenOnCash} onChange={e => dispatch(setDrawerOpenOnCash(e.target.checked))} />
-            <span style={{ marginLeft: 8 }}>Trigger Drawer Open on Cash payment</span>
-          </label>
+          {isSuperAdmin && (
+            <label style={{ display: 'block', marginTop: 12 }}>
+              <input type="checkbox" checked={!!settings.drawerOpenOnCash} onChange={e => dispatch(setDrawerOpenOnCash(e.target.checked))} />
+              <span style={{ marginLeft: 8 }}>Trigger Drawer Open on Cash payment</span>
+            </label>
+          )}
           <label style={{ display: 'block', marginTop: 12 }}>
             Default Tax Rate (%)
             <input
@@ -300,80 +361,82 @@ function ConfigSettingsPage() {
               </ul>
             </div>
           </div>
-          <div style={{ marginTop: 12 }}>
-            <h3 className="section-title" style={{ margin: '8px 0' }}>Background Refresh</h3>
-            <label>
-              Interval (seconds)
-              <input
-                className="input"
-                type="number"
-                min="10"
-                max="3600"
-                value={settings.refreshIntervalSec || 60}
-                onChange={e => dispatch(setRefreshIntervalSec(Number(e.target.value)))}
-                disabled={!canEditTax}
-                style={{ display: 'block', width: '100%', marginTop: 6 }}
-              />
-            </label>
-            <div style={{ marginTop: 6, color: '#64748b' }}>
-              Used for auto-refreshing products, customers, suppliers, branches, refunds and sales.
-            </div>
-            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-              <button
-                className="btn"
-                onClick={async () => {
-                  try {
-                    const pong = await fetchJson('/');
-                    await fetchJson('/api/branches');
-                    toast.show(`API OK: ${pong?.name || 'online'}`, { type: 'success' });
-                  } catch (e) {
-                    toast.show('API test failed', { type: 'error' });
-                  }
-                }}
-              >
-                Test API
-              </button>
-              <button
-                className="btn"
-                onClick={() => {
-                  try {
-                    localStorage.removeItem('ptSales:state');
-                    toast.show('Local data cleared', { type: 'success' });
-                  } catch {}
-                }}
-              >
-                Clear Local Data
-              </button>
-            </div>
+          {isSuperAdmin && (
             <div style={{ marginTop: 12 }}>
-              <h3 className="section-title" style={{ margin: '8px 0' }}>API Endpoint</h3>
+              <h3 className="section-title" style={{ margin: '8px 0' }}>Background Refresh</h3>
               <label>
-                Base URL
+                Interval (seconds)
                 <input
                   className="input"
-                  placeholder="http://localhost:4000"
-                  value={apiBase}
-                  onChange={e => setApiBaseState(e.target.value)}
+                  type="number"
+                  min="10"
+                  max="3600"
+                  value={settings.refreshIntervalSec || 60}
+                  onChange={e => dispatch(setRefreshIntervalSec(Number(e.target.value)))}
+                  disabled={!canEditTax}
                   style={{ display: 'block', width: '100%', marginTop: 6 }}
                 />
               </label>
+              <div style={{ marginTop: 6, color: '#64748b' }}>
+                Used for auto-refreshing products, customers, suppliers, branches, refunds and sales.
+              </div>
               <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
                 <button
-                  className="btn btn-primary"
-                  onClick={() => {
+                  className="btn"
+                  onClick={async () => {
                     try {
-                      setApiBase(apiBase);
-                      toast.show('API base saved', { type: 'success' });
-                    } catch {
-                      toast.show('Failed to save API base', { type: 'error' });
+                      const pong = await fetchJson('/');
+                      await fetchJson('/api/branches');
+                      toast.show(`API OK: ${pong?.name || 'online'}`, { type: 'success' });
+                    } catch (e) {
+                      toast.show('API test failed', { type: 'error' });
                     }
                   }}
                 >
-                  Save API Base
+                  Test API
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    try {
+                      localStorage.removeItem('ptSales:state');
+                      toast.show('Local data cleared', { type: 'success' });
+                    } catch {}
+                  }}
+                >
+                  Clear Local Data
                 </button>
               </div>
+              <div style={{ marginTop: 12 }}>
+                <h3 className="section-title" style={{ margin: '8px 0' }}>API Endpoint</h3>
+                <label>
+                  Base URL
+                  <input
+                    className="input"
+                    placeholder="http://localhost:4000"
+                    value={apiBase}
+                    onChange={e => setApiBaseState(e.target.value)}
+                    style={{ display: 'block', width: '100%', marginTop: 6 }}
+                  />
+                </label>
+                <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => {
+                      try {
+                        setApiBase(apiBase);
+                        toast.show('API base saved', { type: 'success' });
+                      } catch {
+                        toast.show('Failed to save API base', { type: 'error' });
+                      }
+                    }}
+                  >
+                    Save API Base
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
           <div style={{ marginTop: 12 }}>
             <button
               className="btn btn-primary"
@@ -405,11 +468,25 @@ function ConfigSettingsPage() {
                       toast.show('Offline: connect internet and try again.', { type: 'error' });
                       return;
                     }
-                    await enqueueHttp({ collection: 'settings', label: 'Settings', path: '/api/settings', method: 'PUT', body: settings });
+                    const payload = (() => {
+                      const copy = { ...(settings || {}) };
+                      if (roleLower === 'admin' && copy && Object.prototype.hasOwnProperty.call(copy, 'featureFlags')) {
+                        delete copy.featureFlags;
+                      }
+                      return copy;
+                    })();
+                    await enqueueHttp({ collection: 'settings', label: 'Settings', path: '/api/settings', method: 'PUT', body: payload });
                     toast.show('Saved offline. Will backup when online.', { type: 'success' });
                     return;
                   }
-                  await settingsApi.save(settings);
+                  const payload = (() => {
+                    const copy = { ...(settings || {}) };
+                    if (roleLower === 'admin' && copy && Object.prototype.hasOwnProperty.call(copy, 'featureFlags')) {
+                      delete copy.featureFlags;
+                    }
+                    return copy;
+                  })();
+                  await settingsApi.save(payload);
                   toast.show('Settings saved', { type: 'success' });
                 } catch {
                   toast.show('Failed to save settings', { type: 'error' });

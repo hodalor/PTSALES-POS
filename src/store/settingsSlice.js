@@ -11,6 +11,8 @@ const initialState = {
   businessWebsite: '',
   businessTpin: '',
   sdcId: '',
+  clientAppName: '',
+  clientLogoUrl: '',
   receiptQrBaseUrl: '',
   invoicePrefix: 'INV',
   nextInvoiceNumber: 1,
@@ -77,6 +79,12 @@ const settingsSlice = createSlice({
     setReceiptFooter(state, action) {
       state.receiptFooter = action.payload;
     },
+    setClientAppName(state, action) {
+      state.clientAppName = String(action.payload || '');
+    },
+    setClientLogoUrl(state, action) {
+      state.clientLogoUrl = String(action.payload || '');
+    },
     setBusinessPhone(state, action) {
       state.businessPhone = String(action.payload || '');
     },
@@ -85,9 +93,6 @@ const settingsSlice = createSlice({
     },
     setBusinessTpin(state, action) {
       state.businessTpin = String(action.payload || '');
-    },
-    setSdcId(state, action) {
-      state.sdcId = String(action.payload || '');
     },
     setReceiptQrBaseUrl(state, action) {
       state.receiptQrBaseUrl = String(action.payload || '');
@@ -189,5 +194,5 @@ const settingsSlice = createSlice({
   }
 });
 
-export const { setAllSettings, setUserGrants, setUserGrant, setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setSdcId, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, addCurrency, removeCurrency, setActiveCurrency, setRefreshIntervalSec, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent } = settingsSlice.actions;
+export const { setAllSettings, setUserGrants, setUserGrant, setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setClientAppName, setClientLogoUrl, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, addCurrency, removeCurrency, setActiveCurrency, setRefreshIntervalSec, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent } = settingsSlice.actions;
 export default settingsSlice.reducer;

@@ -129,7 +129,6 @@ export function buildBrandedReceiptHtml({ settings, sale }) {
     <div class="sp"><span class="muted">TAXABLE VAL</span><span>${formatCurrency(taxableVal, settings)}</span></div>
     <div class="sp"><span class="muted">VAT VAL</span><span>${formatCurrency(vatVal, settings)}</span></div>
     ${settings?.businessTpin ? `<div class="sp"><span class="muted">TPIN</span><span>${settings.businessTpin}</span></div>` : ''}
-    ${settings?.sdcId ? `<div class="sp"><span class="muted">SDC ID</span><span>${settings.sdcId}</span></div>` : ''}
     ${sale?.receiptNumber ? `<div class="sp"><span class="muted">RECEIPT</span><span>${sale.receiptNumber}</span></div>` : ''}
     ${sale?.invoiceSerial ? `<div class="sp"><span class="muted">INVOICE</span><span>${sale.invoiceSerial}</span></div>` : ''}
     <div class="hr"></div>
