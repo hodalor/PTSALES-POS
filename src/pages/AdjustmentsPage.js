@@ -4,7 +4,6 @@ import { adjustStock } from '../store/productsSlice';
 import { useToast } from '../components/ToastProvider';
 import BranchSelect from '../components/BranchSelect';
 import { addAudit } from '../store/auditSlice';
-import { promptDialog } from '../utils/dialogs';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
 import * as stockApi from '../api/stock';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
@@ -21,18 +20,12 @@ function AdjustmentsPage() {
   const [variantId, setVariantId] = useState('');
   const [branchId, setBranchId] = useState(currentBranchId);
   const [delta, setDelta] = useState(0);
-  const [rProductId, setRProductId] = useState(products[0]?.id || '');
-  const [rVariantId, setRVariantId] = useState('');
-  const [rBranchId, setRBranchId] = useState(currentBranchId);
-  const [rQty, setRQty] = useState('');
-  const [rRemark, setRRemark] = useState('');
+  const [remark, setRemark] = useState('');
   const [savingAdjust, setSavingAdjust] = useState(false);
-  const [savingRemove, setSavingRemove] = useState(false);
   const dispatch = useDispatch();
   const toast = useToast();
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   useEffect(() => { setBranchId(currentBranchId); }, [currentBranchId]);
-  useEffect(() => { setRBranchId(currentBranchId); }, [currentBranchId]);
 
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -117,6 +110,15 @@ function AdjustmentsPage() {
       toast.show('Not authorized to adjust stock', { type: 'error' });
       return;
     }
+    const selectedProduct = products.find(p => p.id === productId);
+    const current = (() => {
+      if (!selectedProduct) return 0;
+      if (variantId) {
+        const v = (selectedProduct.variants || []).find(vv => vv.id === variantId);
+        return Number((v?.stockByBranch || {})[branchId] || 0);
+      }
+      return Number((selectedProduct.stockByBranch || {})[branchId] || 0);
+    })();
     if (!navigator.onLine) {
       if (!offlineBackupAllowed) {
         toast.show('Offline: cannot sync adjustment to server', { type: 'error' });
@@ -127,12 +129,18 @@ function AdjustmentsPage() {
       toast.show('Select product/branch and enter non-zero delta', { type: 'error' });
       return;
     }
-    const remark = await promptDialog('Enter reason/remark for this adjustment');
+    if (Number(delta) < 0) {
+      const toRemove = Math.abs(Number(delta));
+      if (toRemove > current) {
+        toast.show(`Cannot remove more than available stock (${current})`, { type: 'error' });
+        return;
+      }
+    }
     if (!remark || !remark.trim()) {
       toast.show('Remark is required for adjustments', { type: 'error' });
       return;
     }
-    const prod = products.find(p => p.id === productId);
+    const prod = selectedProduct;
     setSavingAdjust(true);
     const payload = {
       productId,
@@ -170,72 +178,9 @@ function AdjustmentsPage() {
     }));
     setDelta(0);
     setVariantId('');
+    setRemark('');
     toast.show(navigator.onLine ? 'Adjustment applied' : 'Saved offline. Will backup when online.', { type: 'success' });
     setSavingAdjust(false);
-  }
-
-  async function removeDamaged() {
-    if (savingRemove) return;
-    const q = Number(rQty);
-    if (!rProductId || !rBranchId || !Number.isFinite(q) || q <= 0) {
-      toast.show('Enter valid quantity to remove', { type: 'error' });
-      return;
-    }
-    if (!rRemark.trim()) {
-      toast.show('Reason is required', { type: 'error' });
-      return;
-    }
-    if (!canAdjust) {
-      toast.show('Not authorized to remove stock', { type: 'error' });
-      return;
-    }
-    if (!navigator.onLine) {
-      if (!offlineBackupAllowed) {
-        toast.show('Offline: cannot sync removal to server', { type: 'error' });
-        return;
-      }
-    }
-    const prod = products.find(p => p.id === rProductId);
-    setSavingRemove(true);
-    const payload = {
-      productId: rProductId,
-      branchId: rBranchId,
-      qty: Math.abs(q),
-      actor: auth.user?.name || 'unknown',
-      variantId: rVariantId || undefined,
-      remark: rRemark
-    };
-    if (!navigator.onLine) {
-      try {
-        await enqueueHttp({ collection: 'audits', label: 'Stock damage remove', path: '/api/stock/damage-remove', method: 'POST', body: payload });
-      } catch (e) {
-        toast.show(String(e?.message || 'Failed to save offline'), { type: 'error' });
-        setSavingRemove(false);
-        return;
-      }
-    } else {
-      try {
-        await stockApi.damageRemove(payload);
-      } catch (e) {
-        toast.show(String(e?.message || 'Failed to sync removal to server'), { type: 'error' });
-        setSavingRemove(false);
-        return;
-      }
-    }
-    dispatch(adjustStock({ productId: rProductId, variantId: rVariantId || undefined, branchId: rBranchId, delta: -Math.abs(q) }));
-    dispatch(addAudit({
-      actor: auth.user?.name || 'unknown',
-      actionType: 'stock_damage_remove',
-      details: { product: prod?.name || rProductId, variant: (prod?.variants || []).find(v => v.id === rVariantId)?.label || '', qty: Math.abs(q), branchId: rBranchId },
-      remark: rRemark,
-      branchId: rBranchId,
-      offline: !navigator.onLine
-    }));
-    setRQty('');
-    setRRemark('');
-    setRVariantId('');
-    toast.show(navigator.onLine ? 'Stock removed for damage/expiry' : 'Saved offline. Will backup when online.', { type: 'success' });
-    setSavingRemove(false);
   }
 
   return (
@@ -244,7 +189,7 @@ function AdjustmentsPage() {
         <h1 style={{ margin: 0 }}>Adjustments</h1>
         <OfflineQueueIndicator collection="audits" label="Stock queued" />
       </div>
-      <div className="card" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div className="card" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <select className="select" value={productId} onChange={e => { setProductId(e.target.value); setVariantId(''); }}>
           {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
@@ -257,37 +202,25 @@ function AdjustmentsPage() {
           </select>
         )}
         <BranchSelect value={branchId} onChange={setBranchId} />
-        <input className="input" type="number" value={delta} onChange={e => setDelta(Number(e.target.value))} style={{ width: 120 }} />
+        <input
+          className="input"
+          type="number"
+          value={delta}
+          onChange={e => setDelta(Number(e.target.value))}
+          placeholder="Delta (+/-)"
+          style={{ width: 140 }}
+        />
+        <input
+          className="input"
+          placeholder="Remark (required)"
+          value={remark}
+          onChange={e => setRemark(e.target.value)}
+          style={{ minWidth: 240 }}
+        />
         <button className="btn btn-primary" onClick={adjust} disabled={!canAdjust || savingAdjust}>
           <svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2"/></svg>
           {savingAdjust ? 'Saving…' : 'Apply'}
         </button>
-      </div>
-      <div className="card" style={{ marginTop: 12 }}>
-        <h2 className="section-title">Damaged/Expired Removal</h2>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select className="select" value={rProductId} onChange={e => { setRProductId(e.target.value); setRVariantId(''); }}>
-            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          {(products.find(p => p.id === rProductId)?.variants || []).length > 0 && (
-            <select className="select" value={rVariantId} onChange={e => setRVariantId(e.target.value)} style={{ minWidth: 180 }}>
-              <option value="">Base</option>
-              {(products.find(p => p.id === rProductId)?.variants || []).map(v => (
-                <option key={v.id} value={v.id}>{v.label}</option>
-              ))}
-            </select>
-          )}
-          <BranchSelect value={rBranchId} onChange={setRBranchId} />
-          <input className="input" type="number" min="0" placeholder="Qty to remove" value={rQty} onChange={e => setRQty(e.target.value)} style={{ width: 140 }} />
-          <input className="input" placeholder="Reason (required)" value={rRemark} onChange={e => setRRemark(e.target.value)} style={{ minWidth: 240 }} />
-          <button
-            className="btn"
-            onClick={removeDamaged}
-            disabled={!canAdjust || savingRemove}
-          >
-            {savingRemove ? 'Saving…' : 'Remove'}
-          </button>
-        </div>
       </div>
       <div className="card" style={{ marginTop: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr) auto', gap: 8, marginBottom: 8 }}>
