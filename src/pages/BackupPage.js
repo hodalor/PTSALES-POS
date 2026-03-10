@@ -4,11 +4,17 @@ import { useToast } from '../components/ToastProvider';
 import { attemptSync } from '../offline/queue';
 import { COLLECTIONS, listQueuedByCollection } from '../offline/offlineBackup';
 import { syncQueuedItem } from '../offline/syncHandlers';
+import * as authApi from '../api/auth';
+import { promptDialog } from '../utils/dialogs';
+import { ensureOnlineJwt } from '../offline/reAuth';
+import { refreshAllData } from '../offline/refreshAll';
+import { useDispatch } from 'react-redux';
 
 function BackupPage() {
   const toast = useToast();
   const settings = useSelector(s => s.settings);
   const summary = useSelector(s => s.offlineQueue);
+  const dispatch = useDispatch();
   const [selected, setSelected] = useState('sales');
   const [loading, setLoading] = useState(false);
   const [itemsByCollection, setItemsByCollection] = useState(new Map());
@@ -51,11 +57,35 @@ function BackupPage() {
       toast.show('Offline: connect internet to backup', { type: 'error' });
       return;
     }
+    try {
+      const token = localStorage.getItem('ptSales:authToken');
+      const isOfflineToken = !token || token.toLowerCase() === 'offline';
+      if (isOfflineToken) {
+        const name = (typeof window !== 'undefined' ? (JSON.parse(localStorage.getItem('ptSales:state') || '{}')?.auth?.user?.name) : '') || '';
+        const pin = await promptDialog(`Enter PIN for ${name || 'your user'} to authenticate backup`);
+        if (!pin || !/^\d{4,6}$/.test(String(pin))) {
+          toast.show('Backup requires a valid PIN', { type: 'error' });
+          return;
+        }
+        try {
+          const resp = await authApi.login({ username: name, pin });
+          if (resp && resp.token) {
+            localStorage.setItem('ptSales:authToken', resp.token);
+          }
+        } catch (e) {
+          toast.show(e?.message || 'Login failed for backup', { type: 'error' });
+          return;
+        }
+      }
+    } catch {}
     setLoading(true);
     try {
       const ok = await attemptSync(syncQueuedItem);
       if (ok) toast.show('Backup completed', { type: 'success' });
       else toast.show('Some items failed to backup', { type: 'error' });
+      try {
+        await refreshAllData(dispatch);
+      } catch {}
     } catch {
       toast.show('Backup failed', { type: 'error' });
     } finally {
@@ -66,19 +96,43 @@ function BackupPage() {
       setLoading(false);
     }
   }
+  async function onSyncNow() {
+    if (loading) return;
+    if (!navigator.onLine) {
+      toast.show('Offline: connect internet to sync', { type: 'error' });
+      return;
+    }
+    setLoading(true);
+    try {
+      await ensureOnlineJwt();
+      await refreshAllData(dispatch);
+      const map = await listQueuedByCollection();
+      setItemsByCollection(map);
+      toast.show('Sync completed', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Sync failed'), { type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div style={{ padding: 16 }}>
       <div className="card" style={{ padding: 16, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div>
-          <h1 style={{ margin: 0 }}>Backup</h1>
+          <h1 style={{ margin: 0 }}>Backup & Sync</h1>
           <div style={{ color: '#64748b', marginTop: 6 }}>
             Offline queue for cloud-first syncing. Pending: {Number(summary?.total || 0)}
           </div>
         </div>
-        <button className="btn btn-primary" onClick={onBackupNow} disabled={loading || !navigator.onLine || Number(summary?.total || 0) === 0}>
-          {loading ? 'Backing up…' : 'Backup Now'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-primary" onClick={onBackupNow} disabled={loading || !navigator.onLine || Number(summary?.total || 0) === 0}>
+            {loading ? 'Backing up…' : 'Backup Now'}
+          </button>
+          <button className="btn" onClick={onSyncNow} disabled={loading || !navigator.onLine}>
+            {loading ? 'Syncing…' : 'Sync Now'}
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 12, alignItems: 'start' }}>
@@ -146,4 +200,3 @@ function BackupPage() {
 }
 
 export default BackupPage;
-

@@ -10,6 +10,8 @@ import { setQueueSummary } from '../store/offlineQueueSlice';
 import { getQueueSummary, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import { attemptSync } from '../offline/queue';
 import { syncQueuedItem } from '../offline/syncHandlers';
+import { ensureOnlineJwt } from '../offline/reAuth';
+import { refreshAllData } from '../offline/refreshAll';
 
 function Layout() {
   const dispatch = useDispatch();
@@ -23,10 +25,16 @@ function Layout() {
       try {
         const summary = await getQueueSummary();
         if (alive) dispatch(setQueueSummary(summary));
+        if (navigator.onLine) {
+          await ensureOnlineJwt();
+        }
         if (navigator.onLine && summary.total > 0 && isOfflineBackupEnabled(settings)) {
           await attemptSync(syncQueuedItem);
           const after = await getQueueSummary();
           if (alive) dispatch(setQueueSummary(after));
+        }
+        if (navigator.onLine) {
+          await refreshAllData(dispatch);
         }
       } catch {}
     }

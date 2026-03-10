@@ -1,14 +1,20 @@
 import { useDispatch, useSelector } from 'react-redux';
+import { useState } from 'react';
 import { logout } from '../store/authSlice';
 import { setCurrentBranch } from '../store/settingsSlice';
 import BranchSelect from './BranchSelect';
 import NotificationBell from './NotificationBell';
+import { useToast } from './ToastProvider';
+import { ensureOnlineJwt } from '../offline/reAuth';
+import { refreshAllData } from '../offline/refreshAll';
 
 function Header() {
   const auth = useSelector(state => state.auth);
   const settings = useSelector(state => state.settings);
   const currentBranchId = useSelector(state => state.settings.currentBranchId);
   const dispatch = useDispatch();
+  const toast = useToast();
+  const [syncing, setSyncing] = useState(false);
 
   return (
     <div className="topbar">
@@ -36,6 +42,28 @@ function Header() {
         {auth.isAuthenticated ? (
           <>
             <NotificationBell />
+            <button
+              className="btn"
+              onClick={async () => {
+                if (syncing) return;
+                if (!navigator.onLine) { toast.show('Offline: connect internet to sync', { type: 'error' }); return; }
+                setSyncing(true);
+                try {
+                  await ensureOnlineJwt();
+                  await refreshAllData(dispatch);
+                  toast.show('Sync completed', { type: 'success' });
+                } catch (e) {
+                  toast.show(String(e?.message || 'Sync failed'), { type: 'error' });
+                } finally {
+                  setSyncing(false);
+                }
+              }}
+              disabled={syncing}
+              title="Refresh data from server"
+              style={{ marginRight: 8 }}
+            >
+              {syncing ? 'Syncing…' : 'Sync'}
+            </button>
             <span style={{ marginRight: 12 }}>
               {auth.user?.name} — {auth.role}
             </span>
