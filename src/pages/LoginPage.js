@@ -27,6 +27,7 @@ function LoginPage() {
   const appName = useSelector(s => s.settings.appName);
   const from = location.state?.from?.pathname;
   const toast = useToast();
+  const users = useSelector(s => s.users.users);
 
   useEffect(() => {
     try {
@@ -59,6 +60,26 @@ function LoginPage() {
     const resp = await authApi.login({ username: u, pin: p });
     try { localStorage.setItem('ptSales:authToken', resp.token); } catch {}
     return resp;
+  }
+  async function hashPin(str) {
+    const enc = new TextEncoder().encode(String(str || ''));
+    const buf = await crypto.subtle.digest('SHA-256', enc);
+    const arr = Array.from(new Uint8Array(buf));
+    return arr.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  async function offlineLogin(u, p) {
+    try {
+      const raw = localStorage.getItem('ptSales:offlineCreds');
+      const map = raw ? JSON.parse(raw) : {};
+      const rec = map && typeof map === 'object' ? map[String(u)] : null;
+      if (!rec) return null;
+      const h = await hashPin(p);
+      if (rec.pinHash !== h) return null;
+      const localUser = rec.user || users.find(x => String(x.name) === String(u)) || { id: u, name: u };
+      return { role: rec.role || localUser.role || 'Cashier', user: localUser, landing: '/pos' };
+    } catch {
+      return null;
+    }
   }
 
   async function onResetPin() {
@@ -131,11 +152,26 @@ function LoginPage() {
       role = resp.role;
       landing = resp.landing || landing;
       user = resp.user;
+      try {
+        const h = await hashPin(pin);
+        const raw = localStorage.getItem('ptSales:offlineCreds');
+        const map = raw ? JSON.parse(raw) : {};
+        map[String(name)] = { pinHash: h, role, user };
+        localStorage.setItem('ptSales:offlineCreds', JSON.stringify(map));
+      } catch {}
     } catch {
-      toast.show('Invalid credentials', { type: 'error' });
-      regenerateCaptcha();
-      setLoading(false);
-      return;
+      let offline = null;
+      try { offline = await offlineLogin(name, pin); } catch {}
+      if (!offline) {
+        toast.show('Invalid credentials or no offline record', { type: 'error' });
+        regenerateCaptcha();
+        setLoading(false);
+        return;
+      }
+      role = offline.role;
+      user = offline.user;
+      landing = offline.landing || landing;
+      try { localStorage.setItem('ptSales:authToken', 'offline'); } catch {}
     }
     if (remember) {
       try { localStorage.setItem('ptSales:rememberName', name); } catch {}

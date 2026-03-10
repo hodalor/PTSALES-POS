@@ -168,6 +168,8 @@ function AdminManualPage() {
           <li>Invoice: Prefix and next number. System increments after each completed sale.</li>
           <li>Receipt: Prefix and next number. System increments after each completed sale.</li>
           <li>QR: Offline QR generation embedded into receipts (no external service).</li>
+          <li>PWA: Install App button appears when eligible; SuperAdmin/Admin can also install from Config “App Installation (PWA)”.</li>
+          <li>Branding: Client App Name and Client App Logo control top bar and PWA install name/icon; fallbacks ensure logo displays even if custom fails.</li>
         </ul>
       </Section>
 
@@ -248,7 +250,8 @@ function AdminManualPage() {
           <li>Variants: Use when stock differs per option; give SKUs for scanning.</li>
           <li>Packs: Define the most common bulk receive units to save time.</li>
           <li>Receipts: Keep phone and footer updated in Config for customer clarity.</li>
-          <li>Offline: Sales queue automatically; ensure sync completes when back online.</li>
+          <li>Offline: Sales queue automatically and sync when back online or via Backup; offline login allows continued operation without internet.</li>
+          <li>Install: If the Install button isn’t available, use the browser’s “Install App” menu; once installed, the Config button will open the installed app and apply updates.</li>
         </ul>
       </Section>
     </div>

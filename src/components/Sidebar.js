@@ -160,6 +160,7 @@ function AdminGroup() {
   const anyEnabled = (
     isFeatureEnabled(settings, 'admin.users') ||
     isFeatureEnabled(settings, 'admin.manual') ||
+    isFeatureEnabled(settings, 'admin.docs') ||
     isFeatureEnabled(settings, 'admin.audit') ||
     isFeatureEnabled(settings, 'admin.serverLogs') ||
     isFeatureEnabled(settings, 'admin.stockRecords') ||
@@ -191,6 +192,12 @@ function AdminGroup() {
           <NavLink to="/manual" className="sidebar-link">
             <svg viewBox="0 0 24 24" fill="none"><path d="M5 4h14v16H5z" stroke="currentColor" strokeWidth="2"/><path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" strokeWidth="2"/></svg>
             Manual
+          </NavLink>
+          )}
+          {isFeatureEnabled(settings, 'admin.docs') && role === 'SuperAdmin' && (
+          <NavLink to="/docs" className="sidebar-link">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5 4h14v16H5z" stroke="currentColor" strokeWidth="2"/><path d="M7 8h10M7 12h10M7 16h6" stroke="currentColor" strokeWidth="2"/></svg>
+            Docs
           </NavLink>
           )}
           {isFeatureEnabled(settings, 'admin.audit') && ((Array.isArray(grants) && (grants.includes('view_audit') || grants.includes('see_audit'))) || ['Admin','SuperAdmin'].includes(role)) && (

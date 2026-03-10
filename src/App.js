@@ -39,6 +39,7 @@ import LabelsPage from './pages/LabelsPage';
 import AuditLogPage from './pages/AuditLogPage';
 import ReceiptPublicPage from './pages/ReceiptPublicPage';
 import AdminManualPage from './pages/AdminManualPage';
+import DocsPage from './pages/DocsPage';
 import StockRecordsPage from './pages/StockRecordsPage';
 import ServerLogsPage from './pages/ServerLogsPage';
 import ExpensesPage from './pages/ExpensesPage';
@@ -60,6 +61,93 @@ function App() {
   const settings = useSelector(s => s.settings);
   const userName = useSelector(s => s.auth.user?.name || '');
   const isAuthedNow = useSelector(s => s.auth.isAuthenticated);
+  const clientAppName = settings?.clientAppName;
+  const appName = settings?.appName;
+  const clientLogoUrl = settings?.clientLogoUrl;
+  useEffect(() => {
+    function resizeToPng(src, size) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, size, size);
+          const iw = img.width || size;
+          const ih = img.height || size;
+          const scale = Math.min(size / iw, size / ih);
+          const dw = Math.max(1, Math.floor(iw * scale));
+          const dh = Math.max(1, Math.floor(ih * scale));
+          const dx = Math.floor((size - dw) / 2);
+          const dy = Math.floor((size - dh) / 2);
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(img, dx, dy, dw, dh);
+          resolve(canvas.toDataURL('image/png'));
+        };
+        img.onerror = () => resolve(null);
+        img.src = src;
+      });
+    }
+    async function regen() {
+      const branded = clientAppName || appName || 'ptSales POS';
+      const shortName = branded.length > 12 ? branded.slice(0, 12) : branded;
+      let icon192 = 'logo192.png';
+      let icon512 = 'logo512.png';
+      const src = clientLogoUrl || '';
+      if (src && typeof src === 'string' && src.startsWith('data:')) {
+        const r192 = await resizeToPng(src, 192);
+        const r512 = await resizeToPng(src, 512);
+        if (r192) icon192 = r192;
+        if (r512) icon512 = r512;
+      }
+      const manifest = {
+        short_name: shortName,
+        name: branded,
+        icons: [
+          { src: icon192, type: icon192.startsWith('data:') ? 'image/png' : 'image/png', sizes: '192x192', purpose: 'any maskable' },
+          { src: icon512, type: icon512.startsWith('data:') ? 'image/png' : 'image/png', sizes: '512x512', purpose: 'any maskable' }
+        ],
+        start_url: '/',
+        scope: '/',
+        display: 'standalone',
+        theme_color: '#0b1220',
+        background_color: '#0b1220',
+        orientation: 'portrait',
+        categories: ['business', 'finance', 'productivity']
+      };
+      const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+      const url = URL.createObjectURL(blob);
+      let link = document.querySelector('link[rel="manifest"]');
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'manifest';
+        document.head.appendChild(link);
+      }
+      const prev = link.getAttribute('href');
+      link.setAttribute('href', url);
+      if (prev && prev.startsWith('blob:')) {
+        try { URL.revokeObjectURL(prev); } catch {}
+      }
+      let meta = document.querySelector('meta[name="application-name"]');
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.setAttribute('name', 'application-name');
+        document.head.appendChild(meta);
+      }
+      meta.setAttribute('content', branded);
+      let apple = document.querySelector('link[rel="apple-touch-icon"]');
+      if (!apple) {
+        apple = document.createElement('link');
+        apple.rel = 'apple-touch-icon';
+        document.head.appendChild(apple);
+      }
+      apple.setAttribute('href', icon192);
+    }
+    regen();
+  }, [clientAppName, appName, clientLogoUrl]);
   useEffect(() => {
     (async () => {
       try {
@@ -84,14 +172,20 @@ function App() {
         if (remote && Object.keys(remote).length > 0) {
           dispatch(setAllSettings(remote));
         } else {
-          // push defaults
-          await settingsApi.save(settings);
+          let snapshot = null;
+          try {
+            const raw = localStorage.getItem('ptSales:state');
+            if (raw) snapshot = JSON.parse(raw);
+          } catch {}
+          const localDefaults = snapshot?.settings || {};
+          if (Object.keys(localDefaults).length > 0) {
+            await settingsApi.save(localDefaults);
+          }
         }
       } catch (e) {
         console.error('Settings init error:', e);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch]);
   useEffect(() => {
     (async () => {
@@ -264,6 +358,7 @@ function App() {
             <Route path="/config" element={<ProtectedRoute feature="admin.config" roles={['Admin','Manager']} grant={['view_config','see_config']}><ConfigSettingsPage /></ProtectedRoute>} />
             <Route path="/audit" element={<ProtectedRoute feature="admin.audit" roles={['Admin','SuperAdmin']} grant={['view_audit','see_audit']}><AuditLogPage /></ProtectedRoute>} />
             <Route path="/manual" element={<ProtectedRoute feature="admin.manual" roles={['Admin','SuperAdmin']}><AdminManualPage /></ProtectedRoute>} />
+            <Route path="/docs" element={<ProtectedRoute feature="admin.docs" roles={['SuperAdmin']}><DocsPage /></ProtectedRoute>} />
             <Route path="/server-logs" element={<ProtectedRoute feature="admin.serverLogs" roles={['SuperAdmin']}><ServerLogsPage /></ProtectedRoute>} />
             <Route path="/godhand" element={<ProtectedRoute feature="admin.godhand" roles={['SuperAdmin']}><GodHandPage /></ProtectedRoute>} />
           </Route>

@@ -9,6 +9,7 @@ import { fetchJson, getApiBase, setApiBase } from '../api/client';
 import * as settingsApi from '../api/settings';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
+import { getBeforeInstallPromptEvent, isInstalled, isRelatedInstalled, checkUpdateAndOpen } from '../pwa/installPrompt';
 
 function ConfigSettingsPage() {
   const dispatch = useDispatch();
@@ -227,6 +228,65 @@ function ConfigSettingsPage() {
                 </div>
                 <div style={{ marginTop: 6, color: '#64748b' }}>
                   Upload image to override top bar logo. Falls back to /clientlogo512.png if empty or load fails.
+                </div>
+              </div>
+            </div>
+          )}
+          {(roleLower === 'admin' || isSuperAdmin) && (
+            <div style={{ marginTop: 12 }}>
+              <h3 className="section-title" style={{ margin: '8px 0' }}>App Installation (PWA)</h3>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    try {
+                      if (await isRelatedInstalled() || isInstalled()) {
+                        toast.show('App already installed. Opening…', { type: 'success' });
+                        await checkUpdateAndOpen('/');
+                        return;
+                      }
+                      const evt = getBeforeInstallPromptEvent();
+                      if (evt) {
+                        await evt.prompt();
+                        const choice = await evt.userChoice;
+                        if (choice && choice.outcome === 'accepted') {
+                          toast.show('App installed', { type: 'success' });
+                          await checkUpdateAndOpen('/');
+                        } else {
+                          toast.show('Install dismissed', { type: 'error' });
+                        }
+                        return;
+                      }
+                      toast.show('Opening app. Use browser menu to Install.', { type: 'success' });
+                      await checkUpdateAndOpen('/');
+                    } catch {
+                      toast.show('Install failed', { type: 'error' });
+                    }
+                  }}
+                >
+                  Install App
+                </button>
+                <button
+                  className="btn"
+                  onClick={async () => {
+                    try {
+                      const status = await checkUpdateAndOpen('/');
+                      if (status === 'updated') {
+                        toast.show('App updated. Opening…', { type: 'success' });
+                      } else if (status === 'up-to-date') {
+                        toast.show('App is up to date. Opening…', { type: 'success' });
+                      } else {
+                        toast.show('Opening app…', { type: 'success' });
+                      }
+                    } catch {
+                      toast.show('Open failed', { type: 'error' });
+                    }
+                  }}
+                >
+                  Check & Open
+                </button>
+                <div style={{ color: '#64748b', fontSize: 12 }}>
+                  {isInstalled() ? 'Installed' : 'Not installed'}
                 </div>
               </div>
             </div>

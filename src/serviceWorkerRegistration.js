@@ -7,7 +7,6 @@ const isLocalhost = Boolean(
 );
 
 export function register(config) {
-  if (process.env.NODE_ENV !== 'production') return;
   if (!('serviceWorker' in navigator)) return;
   const publicUrl = new URL(process.env.PUBLIC_URL, window.location.href);
   if (publicUrl.origin !== window.location.origin) return;
@@ -70,4 +69,3 @@ export function unregister() {
     })
     .catch(() => {});
 }
-

@@ -12,9 +12,9 @@ import sessionsReducer from './sessionsSlice';
 import auditReducer from './auditSlice';
 import refundsReducer from './refundsSlice';
 import offlineQueueReducer from './offlineQueueSlice';
-// persistence disabled
+import { loadState, saveState } from './persist';
 
-const preloadedState = undefined;
+const preloadedState = loadState();
 const store = configureStore({
   reducer: {
     auth: authReducer,
@@ -34,8 +34,13 @@ const store = configureStore({
   preloadedState
 });
 
-// no-op persistence
-
-// removed client-side superadmin seeding
+let saveTimer = null;
+store.subscribe(() => {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    try { saveState(store.getState()); } catch {}
+  }, 500);
+});
 
 export default store;

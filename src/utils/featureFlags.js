@@ -24,6 +24,7 @@ export const FEATURE_CATALOG = [
   { key: 'admin.cashDrawer', label: 'Cash Drawer', group: 'Admin Menus' },
   { key: 'admin.config', label: 'Config', group: 'Admin Menus' },
   { key: 'admin.godhand', label: 'GodHand', group: 'Admin Menus' },
+  { key: 'admin.docs', label: 'Docs', group: 'Admin Menus' },
 
   { key: 'features.offlineBackup', label: 'Offline usage (queue + backup)', group: 'Features' },
 
