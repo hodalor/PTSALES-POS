@@ -186,7 +186,7 @@ export function buildInvoiceA4Html({ settings, invoice }) {
           </td>
           <td style="text-align:right">
             <div class="brand-sig">${settings.clientAppName || settings.appName}</div>
-            <div class="sign-line tight"></div>
+            <div class="sig-space"></div>
             <div class="sig-label">${signLbl}</div>
           </td>
         </tr>
@@ -242,8 +242,8 @@ export function printInvoiceA4(html) {
       .signatures { width:100%; margin-top:8px; }
       .signatures td { vertical-align:bottom; }
       .sign-line { margin:24px 0 6px; border-top:1px solid #000; width:220px; }
-      .sign-line.tight { margin:6px 0 2px; }
       .brand-sig { font-weight:700; margin-top:2px; }
+      .sig-space { height: 25mm; }
       .sig-label { }
       .footer { text-align:right; font-size:12px; margin-top:6px; color:#333; }
       .generated { text-align:center; font-size:11px; margin-top:10px; color:#555; }

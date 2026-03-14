@@ -6,7 +6,7 @@ import * as authApi from '../api/auth';
 import { useToast } from '../components/ToastProvider';
 import Modal from '../components/Modal';
 import * as usersApi from '../api/users';
-import { getApiBase, setApiBase, fetchJson } from '../api/client';
+import { getApiBase } from '../api/client';
 
 function LoginPage() {
   const [name, setName] = useState('');
@@ -29,9 +29,7 @@ function LoginPage() {
   const from = location.state?.from?.pathname;
   const toast = useToast();
   const users = useSelector(s => s.users.users);
-  const [apiBase, setApiBaseState] = useState(() => {
-    try { return getApiBase(); } catch { return ''; }
-  });
+  
 
   useEffect(() => {
     try {
@@ -201,28 +199,7 @@ function LoginPage() {
     navigate(from || landing, { replace: true });
   }
 
-  async function onChangeApiBase() {
-    const { promptDialog } = await import('../utils/dialogs');
-    const curr = (() => { try { return getApiBase(); } catch { return ''; } })();
-    const val = await promptDialog('Enter API Base URL', curr);
-    if (!val || !val.trim()) return;
-    try {
-      setApiBase(val.trim());
-      setApiBaseState(val.trim());
-      toast.show('API base saved', { type: 'success' });
-    } catch {
-      toast.show('Failed to save API base', { type: 'error' });
-    }
-  }
-
-  async function onTestApi() {
-    try {
-      const pong = await fetchJson('/');
-      toast.show(`API OK: ${pong?.name || 'online'}`, { type: 'success' });
-    } catch {
-      toast.show('API test failed', { type: 'error' });
-    }
-  }
+  // removed API endpoint controls from login
 
   return (
     <div className="login-page">
@@ -251,13 +228,7 @@ function LoginPage() {
             {loading ? 'Logging in...' : 'Log In'}
           </button>
         </form>
-        <div style={{ marginTop: 12, fontSize: 12, color: '#64748b' }}>
-          <div>API Endpoint: {apiBase}</div>
-          <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
-            <button className="btn" onClick={onChangeApiBase}>Change API Endpoint</button>
-            <button className="btn" onClick={onTestApi}>Test API</button>
-          </div>
-        </div>
+        
         <button className="outline" type="button" onClick={() => setResetOpen(true)}>Reset PIN (Admin)</button>
       </div>
       {resetOpen && (
