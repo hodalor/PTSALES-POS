@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent, setClientAppName, setClientLogoUrl } from '../store/settingsSlice';
+import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent, setClientAppName, setClientLogoUrl, setInvoiceCompanyAddress, setInvoiceFooter, setInvoiceDeclaration, setInvoiceSignatoryLabel, setInvoiceTitle, setInvoiceWordsLabel, setInvoiceGeneratedNote, setInvoiceNumberDigits, setInvoicePaidStampEnabled, setInvoicePaidStampLabel, setInvoicePaidStampThankYou, setInvoicePaidStampShowDate, setInvoicePaidStampColor, setReceiptBrandName } from '../store/settingsSlice';
 import { addBranch, removeBranch, updateBranch } from '../store/branchesSlice';
 import * as branchesApi from '../api/branches';
 import { useRef, useState } from 'react';
@@ -176,6 +176,10 @@ function ConfigSettingsPage() {
                 Client App Name (Top bar)
                 <input className="input" value={settings.clientAppName || ''} onChange={e => dispatch(setClientAppName(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
               </label>
+              <label style={{ display: 'block', marginTop: 8 }}>
+                Receipt Brand Name (Receipt header)
+                <input className="input" value={settings.receiptBrandName || ''} onChange={e => dispatch(setReceiptBrandName(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
               <div style={{ marginTop: 12 }}>
                 <h3 className="section-title" style={{ margin: '8px 0' }}>Client App Logo</h3>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -292,7 +296,76 @@ function ConfigSettingsPage() {
             </div>
           )}
           <div style={{ marginTop: 12, color: '#64748b' }}>
-            Receipt will use the app logo from /logo512.png
+            Receipt uses the Client App Logo (falls back to /clientlogo512.png or /logo512.png).
+          </div>
+          <div className="card" style={{ marginTop: 12, padding: 12 }}>
+            <h3 className="section-title" style={{ margin: '8px 0' }}>Invoice Settings</h3>
+            <label style={{ display: 'block', marginTop: 8 }}>
+              Company Address (Letterhead)
+              <textarea className="input" rows="3" value={settings.invoiceCompanyAddress || ''} onChange={e => dispatch(setInvoiceCompanyAddress(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+            </label>
+            <label style={{ display: 'block', marginTop: 8 }}>
+              Invoice Title
+              <input className="input" value={settings.invoiceTitle || 'Invoice'} onChange={e => dispatch(setInvoiceTitle(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+            </label>
+            <label style={{ display: 'block', marginTop: 8 }}>
+              Invoice Footer
+              <input className="input" placeholder="© ptSales" value={settings.invoiceFooter || ''} onChange={e => dispatch(setInvoiceFooter(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+            </label>
+            <label style={{ display: 'block', marginTop: 8 }}>
+              Declaration Text
+              <textarea className="input" rows="3" placeholder="We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct." value={settings.invoiceDeclaration || ''} onChange={e => dispatch(setInvoiceDeclaration(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+            </label>
+            <label style={{ display: 'block', marginTop: 8 }}>
+              Signatory Label
+              <input className="input" placeholder="Authorised Signatory" value={settings.invoiceSignatoryLabel || ''} onChange={e => dispatch(setInvoiceSignatoryLabel(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+            </label>
+            <label style={{ display: 'block', marginTop: 8 }}>
+              Amount-in-words Label
+              <input className="input" value={settings.invoiceWordsLabel || 'Amount Chargeable (in words)'} onChange={e => dispatch(setInvoiceWordsLabel(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+            </label>
+            <label style={{ display: 'block', marginTop: 8 }}>
+              Generated Note
+              <input className="input" value={settings.invoiceGeneratedNote || 'This is a Computer Generated Invoice'} onChange={e => dispatch(setInvoiceGeneratedNote(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
+              <label>
+                Invoice Prefix
+                <input className="input" value={settings.invoicePrefix || ''} onChange={e => dispatch(setInvoicePrefix(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+              <label>
+                Number Digits (padding)
+                <input className="input" type="number" min="1" max="12" value={settings.invoiceNumberDigits || 6} onChange={e => dispatch(setInvoiceNumberDigits(Number(e.target.value)))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+            </div>
+            <div className="card" style={{ marginTop: 12, padding: 12 }}>
+              <h3 className="section-title" style={{ margin: '8px 0' }}>PAID Stamp (POS Invoices)</h3>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input type="checkbox" checked={!!settings.invoicePaidStampEnabled} onChange={e => dispatch(setInvoicePaidStampEnabled(e.target.checked))} />
+                <span>Show PAID stamp on POS invoices</span>
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                <label>
+                  Center Label
+                  <input className="input" value={settings.invoicePaidStampLabel || 'PAID'} onChange={e => dispatch(setInvoicePaidStampLabel(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+                </label>
+                <label>
+                  Thank-you Text
+                  <input className="input" value={settings.invoicePaidStampThankYou || 'THANK YOU!'} onChange={e => dispatch(setInvoicePaidStampThankYou(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+                </label>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input type="checkbox" checked={!!settings.invoicePaidStampShowDate} onChange={e => dispatch(setInvoicePaidStampShowDate(e.target.checked))} />
+                  <span>Include Date</span>
+                </label>
+                <label>
+                  Color
+                  <input className="input" type="color" value={settings.invoicePaidStampColor || '#cc0000'} onChange={e => dispatch(setInvoicePaidStampColor(e.target.value))} style={{ display: 'block', width: 120, height: 40, padding: 0, border: 'none' }} />
+                </label>
+              </div>
+              <div style={{ color: '#64748b', marginTop: 6 }}>Top text uses Client App Name automatically.</div>
+            </div>
           </div>
           <label style={{ display: 'block', marginTop: 12 }}>
             Business Phone

@@ -45,6 +45,7 @@ import ServerLogsPage from './pages/ServerLogsPage';
 import ExpensesPage from './pages/ExpensesPage';
 import GodHandPage from './pages/GodHandPage';
 import BackupPage from './pages/BackupPage';
+import InvoicesPage from './pages/InvoicesPage';
 import * as authApi from './api/auth';
 import { loginSuccess, setGrants, setInitialized, logout } from './store/authSlice';
 import * as settingsApi from './api/settings';
@@ -52,7 +53,9 @@ import { setAllSettings } from './store/settingsSlice';
 import * as usersApi from './api/users';
 import { setUsers } from './store/usersSlice';
 import * as auditsApi from './api/audits';
+import * as invoicesApi from './api/invoices';
 import { setEntries as setAuditEntries } from './store/auditSlice';
+import { setInvoices } from './store/invoicesSlice';
 
 function App() {
   const dispatch = useDispatch();
@@ -247,7 +250,7 @@ function App() {
     (async () => {
       if (!isAuthed) return;
       try {
-        const [p, s, c, b, r, sl, u, au] = await Promise.allSettled([
+        const [p, s, c, b, r, sl, u, au, invs] = await Promise.allSettled([
           productsApi.list(),
           suppliersApi.list(),
           customersApi.list(),
@@ -255,7 +258,8 @@ function App() {
           refundsApi.listRequests(),
           salesApi.list(),
           usersApi.list(),
-          auditsApi.list()
+          auditsApi.list(),
+          invoicesApi.list()
         ]);
         if (alive && p.status === 'fulfilled' && Array.isArray(p.value)) dispatch(setProducts(p.value));
         if (alive && s.status === 'fulfilled' && Array.isArray(s.value)) dispatch(setSuppliers(s.value));
@@ -265,6 +269,7 @@ function App() {
         if (alive && sl.status === 'fulfilled' && Array.isArray(sl.value)) dispatch(setSales(sl.value));
         if (alive && u.status === 'fulfilled' && Array.isArray(u.value)) dispatch(setUsers(u.value));
         if (alive && au.status === 'fulfilled' && Array.isArray(au.value) && au.value.length > 0) dispatch(setAuditEntries(au.value));
+        if (alive && invs.status === 'fulfilled' && Array.isArray(invs.value)) dispatch(setInvoices(invs.value));
       } catch {}
     })();
     return () => { alive = false; };
@@ -297,7 +302,7 @@ function App() {
         return;
       }
       try {
-        const [p, s, c, b, r, sl, u, au] = await Promise.allSettled([
+        const [p, s, c, b, r, sl, u, au, invs] = await Promise.allSettled([
           productsApi.list(),
           suppliersApi.list(),
           customersApi.list(),
@@ -305,7 +310,8 @@ function App() {
           refundsApi.listRequests(),
           salesApi.list(),
           usersApi.list(),
-          auditsApi.list()
+          auditsApi.list(),
+          invoicesApi.list()
         ]);
         if (alive && p.status === 'fulfilled' && Array.isArray(p.value)) dispatch(setProducts(p.value));
         if (alive && s.status === 'fulfilled' && Array.isArray(s.value)) dispatch(setSuppliers(s.value));
@@ -315,6 +321,7 @@ function App() {
         if (alive && sl.status === 'fulfilled' && Array.isArray(sl.value)) dispatch(setSales(sl.value));
         if (alive && u.status === 'fulfilled' && Array.isArray(u.value)) dispatch(setUsers(u.value));
         if (alive && au.status === 'fulfilled' && Array.isArray(au.value) && au.value.length > 0) dispatch(setAuditEntries(au.value));
+        if (alive && invs.status === 'fulfilled' && Array.isArray(invs.value)) dispatch(setInvoices(invs.value));
       } catch {}
     }, Math.max(10000, Number(refreshSec) * 1000));
     return () => {
@@ -339,6 +346,7 @@ function App() {
             <Route path="/dashboard" element={<ProtectedRoute feature="modules.dashboard" roles={['Admin','Manager']} grant={['view_dashboard','see_dashboard']}><DashboardPage /></ProtectedRoute>} />
             <Route path="/pos" element={<ProtectedRoute feature="modules.pos" roles={['Admin','Manager','Cashier']} grant={['view_pos','see_pos']}><PosPage /></ProtectedRoute>} />
             <Route path="/sales" element={<ProtectedRoute feature="modules.sales" roles={['Admin','Manager','Cashier']} grant={['view_sales','see_sales']}><SalesPage /></ProtectedRoute>} />
+            <Route path="/invoices" element={<ProtectedRoute feature="modules.invoices" roles={['Admin','Manager','Cashier']} grant={['view_invoices','see_invoices']}><InvoicesPage /></ProtectedRoute>} />
             <Route path="/products" element={<ProtectedRoute feature="modules.products" roles={['Admin','Manager','Inventory Staff']} grant={['view_products','see_products']}><ProductsPage /></ProtectedRoute>} />
             <Route path="/inventory" element={<ProtectedRoute feature="modules.inventory" roles={['Admin','Manager','Inventory Staff']} grant={['view_inventory','see_inventory']}><InventoryPage /></ProtectedRoute>} />
             <Route path="/purchases" element={<ProtectedRoute feature="modules.purchases" roles={['Admin','Manager','Inventory Staff']} grant={['view_purchases','see_purchases']}><PurchasesPage /></ProtectedRoute>} />

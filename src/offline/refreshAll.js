@@ -6,6 +6,7 @@ import * as refundsApi from '../api/refunds';
 import * as salesApi from '../api/sales';
 import * as usersApi from '../api/users';
 import * as auditsApi from '../api/audits';
+import * as invoicesApi from '../api/invoices';
 import { setProducts } from '../store/productsSlice';
 import { setSuppliers } from '../store/suppliersSlice';
 import { setCustomers } from '../store/customersSlice';
@@ -14,6 +15,7 @@ import { setRequests } from '../store/refundsSlice';
 import { setSales } from '../store/salesSlice';
 import { setUsers } from '../store/usersSlice';
 import { setEntries as setAuditEntries } from '../store/auditSlice';
+import { setInvoices } from '../store/invoicesSlice';
 
 export async function refreshAllData(dispatch) {
   const results = await Promise.allSettled([
@@ -24,9 +26,10 @@ export async function refreshAllData(dispatch) {
     refundsApi.listRequests(),
     salesApi.list(),
     usersApi.list(),
-    auditsApi.list()
+    auditsApi.list(),
+    invoicesApi.list()
   ]);
-  const [p, s, c, b, r, sl, u, au] = results;
+  const [p, s, c, b, r, sl, u, au, invs] = results;
   if (p.status === 'fulfilled' && Array.isArray(p.value)) dispatch(setProducts(p.value));
   if (s.status === 'fulfilled' && Array.isArray(s.value)) dispatch(setSuppliers(s.value));
   if (c.status === 'fulfilled' && Array.isArray(c.value)) dispatch(setCustomers(c.value));
@@ -35,4 +38,5 @@ export async function refreshAllData(dispatch) {
   if (sl.status === 'fulfilled' && Array.isArray(sl.value)) dispatch(setSales(sl.value));
   if (u.status === 'fulfilled' && Array.isArray(u.value)) dispatch(setUsers(u.value));
   if (au.status === 'fulfilled' && Array.isArray(au.value) && au.value.length > 0) dispatch(setAuditEntries(au.value));
+  if (invs.status === 'fulfilled' && Array.isArray(invs.value)) dispatch(setInvoices(invs.value));
 }

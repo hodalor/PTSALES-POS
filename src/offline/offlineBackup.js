@@ -7,6 +7,7 @@ export const COLLECTIONS = [
   { key: 'cashsessions', label: 'cashsessions' },
   { key: 'customers', label: 'customers' },
   { key: 'expenses', label: 'expenses' },
+  { key: 'invoices', label: 'invoices' },
   { key: 'products', label: 'products' },
   { key: 'refundrequests', label: 'refundrequests' },
   { key: 'sales', label: 'sales' },
@@ -44,4 +45,3 @@ export async function listQueuedByCollection() {
   }
   return map;
 }
-

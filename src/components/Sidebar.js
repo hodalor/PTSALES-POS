@@ -51,6 +51,12 @@ function Sidebar() {
           Sales
         </NavLink>
         )}
+        {isFeatureEnabled(settings, 'modules.invoices') && can(['Admin','Manager','Cashier','SuperAdmin'],['view_invoices','see_invoices']) && (
+        <NavLink to="/invoices" className="sidebar-link">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M6 3h12v18H6z" stroke="currentColor" strokeWidth="2"/><path d="M9 7h6M9 11h6M9 15h4" stroke="currentColor" strokeWidth="2"/></svg>
+          Invoices
+        </NavLink>
+        )}
         {isFeatureEnabled(settings, 'modules.products') && can(['Admin','Manager','Inventory Staff','SuperAdmin'],['view_products','see_products']) && (
         <NavLink to="/products" className="sidebar-link">
           <svg viewBox="0 0 24 24" fill="none"><path d="M4 7l8-4 8 4-8 4-8-4z" fill="currentColor"/><path d="M4 17l8 4 8-4" stroke="currentColor" strokeWidth="2" fill="none"/><path d="M4 12l8 4 8-4" stroke="currentColor" strokeWidth="2" fill="none"/></svg>

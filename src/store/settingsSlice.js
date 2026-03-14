@@ -13,9 +13,23 @@ const initialState = {
   sdcId: '',
   clientAppName: '',
   clientLogoUrl: '',
+  receiptBrandName: '',
   receiptQrBaseUrl: '',
   invoicePrefix: 'INV',
   nextInvoiceNumber: 1,
+  invoiceNumberDigits: 6,
+  invoiceTitle: 'Invoice',
+  invoiceWordsLabel: 'Amount Chargeable (in words)',
+  invoiceGeneratedNote: 'This is a Computer Generated Invoice',
+  invoiceCompanyAddress: '',
+  invoiceFooter: '© ptSales',
+  invoiceDeclaration: 'We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.',
+  invoiceSignatoryLabel: 'Authorised Signatory',
+  invoicePaidStampEnabled: true,
+  invoicePaidStampLabel: 'PAID',
+  invoicePaidStampThankYou: 'THANK YOU!',
+  invoicePaidStampShowDate: true,
+  invoicePaidStampColor: '#cc0000',
   receiptPrefix: 'RCPT',
   nextReceiptNumber: 1,
   drawerOpenOnCash: false,
@@ -48,6 +62,43 @@ const settingsSlice = createSlice({
       Object.keys(data).forEach(k => {
         state[k] = data[k];
       });
+      const backfill = {
+        invoiceFooter: initialState.invoiceFooter,
+        invoiceDeclaration: initialState.invoiceDeclaration,
+        invoiceSignatoryLabel: initialState.invoiceSignatoryLabel,
+        invoiceTitle: initialState.invoiceTitle,
+        invoiceWordsLabel: initialState.invoiceWordsLabel,
+        invoiceGeneratedNote: initialState.invoiceGeneratedNote,
+        invoicePaidStampEnabled: initialState.invoicePaidStampEnabled,
+        invoicePaidStampLabel: initialState.invoicePaidStampLabel,
+        invoicePaidStampThankYou: initialState.invoicePaidStampThankYou,
+        invoicePaidStampShowDate: initialState.invoicePaidStampShowDate,
+        invoicePaidStampColor: initialState.invoicePaidStampColor
+      };
+      Object.keys(backfill).forEach(k => {
+        const v = state[k];
+        if (typeof v === 'undefined' || v === null || (typeof v === 'string' && v.trim() === '')) {
+          state[k] = backfill[k];
+        }
+      });
+    },
+    setReceiptBrandName(state, action) {
+      state.receiptBrandName = String(action.payload || '');
+    },
+    setInvoicePaidStampEnabled(state, action) {
+      state.invoicePaidStampEnabled = !!action.payload;
+    },
+    setInvoicePaidStampLabel(state, action) {
+      state.invoicePaidStampLabel = String(action.payload || 'PAID');
+    },
+    setInvoicePaidStampThankYou(state, action) {
+      state.invoicePaidStampThankYou = String(action.payload || 'THANK YOU!');
+    },
+    setInvoicePaidStampShowDate(state, action) {
+      state.invoicePaidStampShowDate = !!action.payload;
+    },
+    setInvoicePaidStampColor(state, action) {
+      state.invoicePaidStampColor = String(action.payload || '#cc0000');
     },
     setUserGrants(state, action) {
       const m = action.payload || {};
@@ -97,11 +148,38 @@ const settingsSlice = createSlice({
     setReceiptQrBaseUrl(state, action) {
       state.receiptQrBaseUrl = String(action.payload || '');
     },
+    setInvoiceCompanyAddress(state, action) {
+      state.invoiceCompanyAddress = String(action.payload || '');
+    },
+    setInvoiceFooter(state, action) {
+      state.invoiceFooter = String(action.payload || '');
+    },
+    setInvoiceDeclaration(state, action) {
+      state.invoiceDeclaration = String(action.payload || '');
+    },
+    setInvoiceSignatoryLabel(state, action) {
+      state.invoiceSignatoryLabel = String(action.payload || '');
+    },
+    setInvoiceTitle(state, action) {
+      state.invoiceTitle = String(action.payload || 'Invoice');
+    },
+    setInvoiceWordsLabel(state, action) {
+      state.invoiceWordsLabel = String(action.payload || 'Amount Chargeable (in words)');
+    },
+    setInvoiceGeneratedNote(state, action) {
+      state.invoiceGeneratedNote = String(action.payload || 'This is a Computer Generated Invoice');
+    },
     setInvoicePrefix(state, action) {
       state.invoicePrefix = String(action.payload || 'INV');
     },
     setNextInvoiceNumber(state, action) {
       state.nextInvoiceNumber = action.payload;
+    },
+    setInvoiceNumberDigits(state, action) {
+      let v = Number(action.payload);
+      if (!Number.isFinite(v) || v < 1) v = 1;
+      if (v > 12) v = 12;
+      state.invoiceNumberDigits = Math.floor(v);
     },
     setReceiptPrefix(state, action) {
       state.receiptPrefix = String(action.payload || 'RCPT');
@@ -194,5 +272,5 @@ const settingsSlice = createSlice({
   }
 });
 
-export const { setAllSettings, setUserGrants, setUserGrant, setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setClientAppName, setClientLogoUrl, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, addCurrency, removeCurrency, setActiveCurrency, setRefreshIntervalSec, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent } = settingsSlice.actions;
+export const { setAllSettings, setUserGrants, setUserGrant, setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setClientAppName, setClientLogoUrl, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, addCurrency, removeCurrency, setActiveCurrency, setRefreshIntervalSec, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent, setInvoiceCompanyAddress, setInvoiceFooter, setInvoiceDeclaration, setInvoiceSignatoryLabel, setInvoiceTitle, setInvoiceWordsLabel, setInvoiceGeneratedNote, setInvoiceNumberDigits, setInvoicePaidStampEnabled, setInvoicePaidStampLabel, setInvoicePaidStampThankYou, setInvoicePaidStampShowDate, setInvoicePaidStampColor, setReceiptBrandName } = settingsSlice.actions;
 export default settingsSlice.reducer;

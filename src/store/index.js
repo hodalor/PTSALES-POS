@@ -13,6 +13,7 @@ import auditReducer from './auditSlice';
 import refundsReducer from './refundsSlice';
 import offlineQueueReducer from './offlineQueueSlice';
 import { loadState, saveState } from './persist';
+import invoicesReducer from './invoicesSlice';
 
 const preloadedState = loadState();
 const store = configureStore({
@@ -29,7 +30,8 @@ const store = configureStore({
     audit: auditReducer,
     sessions: sessionsReducer,
     refunds: refundsReducer,
-    offlineQueue: offlineQueueReducer
+    offlineQueue: offlineQueueReducer,
+    invoices: invoicesReducer
   },
   preloadedState
 });

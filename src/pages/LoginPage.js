@@ -6,6 +6,7 @@ import * as authApi from '../api/auth';
 import { useToast } from '../components/ToastProvider';
 import Modal from '../components/Modal';
 import * as usersApi from '../api/users';
+import { getApiBase, setApiBase, fetchJson } from '../api/client';
 
 function LoginPage() {
   const [name, setName] = useState('');
@@ -28,6 +29,9 @@ function LoginPage() {
   const from = location.state?.from?.pathname;
   const toast = useToast();
   const users = useSelector(s => s.users.users);
+  const [apiBase, setApiBaseState] = useState(() => {
+    try { return getApiBase(); } catch { return ''; }
+  });
 
   useEffect(() => {
     try {
@@ -159,11 +163,26 @@ function LoginPage() {
         map[String(name)] = { pinHash: h, role, user };
         localStorage.setItem('ptSales:offlineCreds', JSON.stringify(map));
       } catch {}
-    } catch {
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const m = msg.toLowerCase();
+      const isNetwork = m.includes('failed to fetch') || m.includes('network') || m.includes('timeout');
+      const isUnauthorized = m.includes('401') || m.includes('unauthorized') || m.includes('invalid');
+      if (!isNetwork && isUnauthorized) {
+        toast.show('Invalid username or PIN', { type: 'error' });
+        regenerateCaptcha();
+        setLoading(false);
+        return;
+      }
       let offline = null;
       try { offline = await offlineLogin(name, pin); } catch {}
       if (!offline) {
-        toast.show('Invalid credentials or no offline record', { type: 'error' });
+        if (isNetwork) {
+          const base = (() => { try { return getApiBase(); } catch { return ''; } })();
+          toast.show(`Cannot reach server at ${base}. Check API Endpoint or connection.`, { type: 'error' });
+        } else {
+          toast.show('Invalid credentials or no offline record', { type: 'error' });
+        }
         regenerateCaptcha();
         setLoading(false);
         return;
@@ -180,6 +199,29 @@ function LoginPage() {
     }
     dispatch(loginSuccess({ user, role }));
     navigate(from || landing, { replace: true });
+  }
+
+  async function onChangeApiBase() {
+    const { promptDialog } = await import('../utils/dialogs');
+    const curr = (() => { try { return getApiBase(); } catch { return ''; } })();
+    const val = await promptDialog('Enter API Base URL', curr);
+    if (!val || !val.trim()) return;
+    try {
+      setApiBase(val.trim());
+      setApiBaseState(val.trim());
+      toast.show('API base saved', { type: 'success' });
+    } catch {
+      toast.show('Failed to save API base', { type: 'error' });
+    }
+  }
+
+  async function onTestApi() {
+    try {
+      const pong = await fetchJson('/');
+      toast.show(`API OK: ${pong?.name || 'online'}`, { type: 'success' });
+    } catch {
+      toast.show('API test failed', { type: 'error' });
+    }
   }
 
   return (
@@ -209,6 +251,13 @@ function LoginPage() {
             {loading ? 'Logging in...' : 'Log In'}
           </button>
         </form>
+        <div style={{ marginTop: 12, fontSize: 12, color: '#64748b' }}>
+          <div>API Endpoint: {apiBase}</div>
+          <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
+            <button className="btn" onClick={onChangeApiBase}>Change API Endpoint</button>
+            <button className="btn" onClick={onTestApi}>Test API</button>
+          </div>
+        </div>
         <button className="outline" type="button" onClick={() => setResetOpen(true)}>Reset PIN (Admin)</button>
       </div>
       {resetOpen && (

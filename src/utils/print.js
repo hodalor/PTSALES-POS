@@ -11,6 +11,17 @@ export function printReceiptHtml(html) {
       <title>Receipt</title>
       <style>
         body { font-family: monospace; padding: 12px; color:#111; }
+        .root { position: relative; }
+        .paid-stamp { position: absolute; top: 4px; right: 4px; pointer-events: none; }
+        .paid-stamp .circle {
+          width: 110px; height: 110px; border: 4px solid currentColor;
+          border-radius: 50%; display:flex; flex-direction:column; align-items:center; justify-content:center;
+          color: currentColor; opacity: 0.18; text-align:center; line-height:1.05;
+        }
+        .paid-stamp .top { font-size: 10px; font-weight: 700; text-transform: uppercase; }
+        .paid-stamp .middle { font-size: 28px; font-weight: 900; letter-spacing: 1px; margin: 2px 0; }
+        .paid-stamp .bottom { font-size: 10px; font-weight: 700; text-transform: uppercase; }
+        .paid-stamp .date { font-size: 9px; margin-top: 4px; }
         .center { text-align: center; }
         .muted { color:#64748b; }
         .sp { display:flex; justify-content:space-between; }
@@ -48,11 +59,17 @@ export function printReceiptHtml(html) {
 }
 
 export function buildBrandedReceiptHtml({ settings, sale }) {
-  const logoSrc = settings?.receiptLogoUrl || '/logo512.png';
+  const logoSrc = settings?.clientLogoUrl || settings?.receiptLogoUrl || '/clientlogo512.png';
   const branch = sale.branchName || sale.branchId || '-';
   const phone = settings?.businessPhone || '';
   const website = settings?.businessWebsite || '';
   const cashier = sale.sellerName || '—';
+  const brandName = settings?.receiptBrandName || settings?.clientAppName || settings?.appName || '';
+  const stampEnabled = !!settings?.invoicePaidStampEnabled;
+  const stampColor = settings?.invoicePaidStampColor || '#cc0000';
+  const stampLabel = settings?.invoicePaidStampLabel || 'PAID';
+  const stampThanks = settings?.invoicePaidStampThankYou || 'THANK YOU!';
+  const stampShowDate = settings?.invoicePaidStampShowDate !== false;
   const customerLine = (() => {
     const name = String(sale.customerName || '').trim();
     const code = String(sale.customerCode || '').trim();
@@ -62,6 +79,9 @@ export function buildBrandedReceiptHtml({ settings, sale }) {
   const qtySum = (sale.items || []).reduce((s, it) => s + (Number(it.qty)||0), 0);
   const paid = (sale.payment_methods || []).reduce((s, p) => s + (Number(p.amount)||0), 0);
   const change = Math.max(0, paid - (Number(sale.total)||0));
+  const isPaid = paid >= (Number(sale.total) || 0) - 0.005;
+  const showPaidStamp = stampEnabled && isPaid;
+  const today = new Date(sale.created_at || Date.now()).toLocaleDateString();
   const rate = (() => {
     if (Number(sale.subtotal) - Number(sale.discount) > 0) {
       const r = Number(sale.tax || 0) / Math.max(1e-6, Number(sale.subtotal) - Number(sale.discount));
@@ -97,8 +117,19 @@ export function buildBrandedReceiptHtml({ settings, sale }) {
   }
   const qrSvgStr = shareUrl ? generateQrSvg(shareUrl, 160) : '';
   return `
-    <div class="center"><img src="${logoSrc}" alt="logo" style="max-height:60px"/></div>
-    ${head}
+    <div class="root">
+    ${showPaidStamp ? `
+      <div class="paid-stamp" style="color:${stampColor}">
+        <div class="circle">
+          <div class="top">${brandName}</div>
+          <div class="middle">${stampLabel}</div>
+          <div class="bottom">${stampThanks}</div>
+          ${stampShowDate ? `<div class="date">Date: ${today}</div>` : ''}
+        </div>
+      </div>
+    ` : ''}
+    <div class="center"><img src="${logoSrc}" alt="logo" style="max-height:60px" onerror="if(this.src.endsWith('/clientlogo512.png')) this.src='/logo512.png'; else this.src='/clientlogo512.png';"/></div>
+    <div class="center title">${brandName}</div>
     <div class="center title">${branch}</div>
     ${phone ? `<div class="center small">${phone}</div>` : ''}
     <div class="small">CASHIER: ${cashier}</div>
@@ -135,6 +166,8 @@ export function buildBrandedReceiptHtml({ settings, sale }) {
     ${shareUrl ? `<div class="center small">Scan to view online</div>` : ''}
     ${shareUrl ? `<div class="center qr" style="margin:6px 0">${qrSvgStr}</div>` : ''}
     ${shareUrl ? `<div class="center small" style="word-break: break-all">${shareUrl}</div>` : ''}
+    ${head}
     ${foot}
+    </div>
   `;
 }

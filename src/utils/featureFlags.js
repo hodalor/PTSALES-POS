@@ -1,6 +1,7 @@
 export const FEATURE_CATALOG = [
   { key: 'modules.dashboard', label: 'Dashboard', group: 'Main Menus' },
   { key: 'modules.pos', label: 'POS', group: 'Main Menus' },
+  { key: 'modules.invoices', label: 'Invoices', group: 'Main Menus' },
   { key: 'modules.sales', label: 'Sales', group: 'Main Menus' },
   { key: 'modules.products', label: 'Products', group: 'Main Menus' },
   { key: 'modules.inventory', label: 'Inventory', group: 'Main Menus' },

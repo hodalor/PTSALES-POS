@@ -2,6 +2,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { addItem, removeItem, setQuantity, clearCart, setDiscount } from '../store/cartSlice';
 import { adjustStock } from '../store/productsSlice';
 import { recordSale } from '../store/salesSlice';
+import { addInvoice } from '../store/invoicesSlice';
 import { updateCustomer } from '../store/customersSlice';
 import { buildBrandedReceiptHtml, printReceiptHtml } from '../utils/print';
 import { escposReceipt, escposOpenDrawer, downloadText } from '../utils/escpos';
@@ -211,6 +212,52 @@ function PosPage() {
       }
     });
     dispatch(recordSale(saleForUi));
+    try {
+      const payTerms = (saleForUi.payment_methods || [])
+        .map(p => {
+          const t = String(p.type || '').toLowerCase();
+          if (t === 'cash') return 'Cash';
+          if (t === 'card') return 'Card';
+          if (t === 'mobile' || t === 'momo' || t === 'mobile money') return 'Mobile Money';
+          if (t === 'wallet') return 'Wallet';
+          return t ? (t[0].toUpperCase() + t.slice(1)) : 'Cash';
+        })
+        .join(', ');
+      const invNumber = saleForUi.invoiceSerial || `${settings.invoicePrefix || 'INV'}-${String(settings.nextInvoiceNumber || 1).padStart(Number(settings.invoiceNumberDigits || 6), '0')}`;
+      const inv = {
+        number: invNumber,
+        date: saleForUi.created_at || new Date().toISOString(),
+        saleId: saleForUi.id || saleForUi._id || '',
+        paymentStatus: 'paid',
+        source: 'pos',
+        customer: selectedCustomer ? {
+          name: selectedCustomer.name || '',
+          phone: selectedCustomer.phone || '',
+          email: selectedCustomer.email || '',
+          address: selectedCustomer.address || '',
+          customerCode: selectedCustomer.customerCode || '',
+          customerId: selectedCustomer.id
+        } : (saleForUi.customerName ? {
+          name: saleForUi.customerName,
+          phone: saleForUi.customerPhone || ''
+        } : { name: '—' }),
+        items: (saleForUi.items || []).map(i => ({ name: i.name, spec: i.spec, qty: i.qty, rate: i.price, per: 'pcs' })),
+        subtotal: saleForUi.subtotal || 0,
+        tax: saleForUi.tax || 0,
+        total: saleForUi.total || 0,
+        deliveryNote: 'Physical',
+        paymentTerms: payTerms,
+        supplierRef: '',
+        otherRef: '',
+        buyerOrderNo: '',
+        despatchDocNo: '',
+        deliveryDate: '',
+        despatchedThrough: 'In person',
+        destination: '',
+        termsOfDelivery: ''
+      };
+      dispatch(addInvoice(inv));
+    } catch {}
     if (navigator.onLine && selectedCustomer && saleForUi.customerPointsAfter != null) {
       dispatch(updateCustomer({ id: selectedCustomer.id, loyaltyPoints: Number(saleForUi.customerPointsAfter || 0) }));
     }

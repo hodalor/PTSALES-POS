@@ -21,7 +21,8 @@ export function saveState(state) {
       users: state.users,
       sales: state.sales,
       audit: state.audit,
-      sessions: state.sessions
+      sessions: state.sessions,
+      invoices: state.invoices
     };
     localStorage.setItem(KEY, JSON.stringify(snapshot));
   } catch {
