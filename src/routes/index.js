@@ -13,6 +13,7 @@ import serverLogs from './serverLogs.js';
 import audits from './audits.js';
 import cashsessions from './cashsessions.js';
 import expenses from './expenses.js';
+import invoices from './invoices.js';
 
 const router = Router();
 router.use('/products', products);
@@ -29,5 +30,6 @@ router.use('/server-logs', serverLogs);
 router.use('/audits', audits);
 router.use('/cashsessions', cashsessions);
 router.use('/expenses', expenses);
+router.use('/invoices', invoices);
 
 export default router;

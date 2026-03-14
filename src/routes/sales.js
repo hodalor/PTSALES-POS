@@ -4,6 +4,7 @@ import Product from '../models/Product.js';
 import Audit from '../models/Audit.js';
 import ServerLog from '../models/ServerLog.js';
 import Settings from '../models/Settings.js';
+import Invoice from '../models/Invoice.js';
 import Branch from '../models/Branch.js';
 import Customer from '../models/Customer.js';
 import { requireAuth, requireRoleOrPerm } from '../middleware/auth.js';
@@ -283,6 +284,36 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
   } catch {}
   const out = sale?.toObject ? sale.toObject() : sale;
   if (customerPointsAfter != null) out.customerPointsAfter = customerPointsAfter;
+  try {
+    const payTerms = Array.isArray(sale.payment_methods) ? sale.payment_methods.map(p => {
+      const t = String(p.type || '').toLowerCase();
+      if (t === 'cash') return 'Cash';
+      if (t === 'card') return 'Card';
+      if (t === 'mobile' || t === 'momo' || t === 'mobile money') return 'Mobile Money';
+      if (t === 'wallet') return 'Wallet';
+      return t ? (t[0].toUpperCase() + t.slice(1)) : 'Cash';
+    }).join(', ') : 'Cash';
+    await Invoice.create({
+      number: sale.invoiceSerial || '',
+      date: sale.created_at || new Date(),
+      saleId: String(sale._id),
+      source: 'pos',
+      paymentStatus: 'paid',
+      customer: {
+        name: sale.customerName || '',
+        phone: sale.customerPhone || '',
+        customerCode: sale.customerCode || '',
+        customerId: sale.customerId || ''
+      },
+      items: (sale.items || []).map(i => ({ name: i.name, spec: i.spec || '', qty: i.qty, rate: i.price, per: 'pcs' })),
+      subtotal: Number(sale.subtotal || 0),
+      tax: Number(sale.tax || 0),
+      total: Number(sale.total || 0),
+      deliveryNote: 'Physical',
+      paymentTerms: payTerms,
+      despatchedThrough: 'In person'
+    });
+  } catch {}
   res.json(out);
 });
 
