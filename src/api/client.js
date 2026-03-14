@@ -17,6 +17,9 @@ export async function fetchJson(path, opts = {}) {
   if (method === 'GET') {
     url += (url.includes('?') ? '&' : '?') + `_=${Date.now()}`;
   }
+  const timeoutMs = Number(opts.timeoutMs) || 15000;
+  const ac = new AbortController();
+  const tid = setTimeout(() => { try { ac.abort(); } catch {} }, timeoutMs);
   let roleHeader = {};
   try {
     const raw = localStorage.getItem('ptSales:state');
@@ -33,11 +36,17 @@ export async function fetchJson(path, opts = {}) {
     const token = localStorage.getItem('ptSales:authToken');
     if (token) authHeader['Authorization'] = `Bearer ${token}`;
   } catch {}
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', ...roleHeader, ...authHeader, ...(opts.headers || {}) },
-    cache: 'no-store',
-    ...opts
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', ...roleHeader, ...authHeader, ...(opts.headers || {}) },
+      cache: 'no-store',
+      signal: opts.signal || ac.signal,
+      ...opts
+    });
+  } finally {
+    clearTimeout(tid);
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     let parsedError = '';

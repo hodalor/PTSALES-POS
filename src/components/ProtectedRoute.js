@@ -7,7 +7,7 @@ function ProtectedRoute({ roles, grant, feature, children }) {
   const settings = useSelector(state => state.settings);
   const location = useLocation();
   if (!auth.initialized) {
-    return null;
+    return <div style={{ padding: 24, textAlign: 'center', color: '#64748b' }}>Loading…</div>;
   }
   if (!auth.isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
