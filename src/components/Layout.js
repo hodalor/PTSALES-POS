@@ -20,11 +20,13 @@ function Layout() {
   const [installEvt, setInstallEvt] = useState(null);
   const [showInstall, setShowInstall] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem('ptSales:sidebarCollapsed') === '1'; } catch { return false; }
+  });
   useEffect(() => {
     function sync() {
-      const isMobile = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
-      setSidebarOpen(false);
-      document.body.style.overflow = isMobile && sidebarOpen ? 'hidden' : 'hidden';
+      const isMobile = window.matchMedia && window.matchMedia('(max-width: 992px)').matches;
+      document.body.style.overflow = isMobile && sidebarOpen ? 'hidden' : 'auto';
     }
     sync();
     window.addEventListener('resize', sync);
@@ -80,12 +82,24 @@ function Layout() {
       window.removeEventListener('appinstalled', onInstalled);
     };
   }, [dispatch, settings]);
+  function toggleSidebar() {
+    const isMobile = window.matchMedia && window.matchMedia('(max-width: 992px)').matches;
+    if (isMobile) {
+      setSidebarOpen(o => !o);
+    } else {
+      setSidebarCollapsed(c => {
+        const v = !c;
+        try { localStorage.setItem('ptSales:sidebarCollapsed', v ? '1' : '0'); } catch {}
+        return v;
+      });
+    }
+  }
   return (
-    <div className={`layout ${sidebarOpen ? 'sidebar-open' : ''}`}>
-      <Sidebar />
+    <div className={`layout ${sidebarOpen ? 'sidebar-open' : ''} ${sidebarCollapsed ? 'collapsed' : ''}`}>
+      <Sidebar collapsed={sidebarCollapsed} />
       {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
       <div className="content">
-        <Header onToggleSidebar={() => setSidebarOpen(o => !o)} />
+        <Header onToggleSidebar={toggleSidebar} />
         {showInstall && (
           <div className="card" style={{ margin: '8px 16px', padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <div>

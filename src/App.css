@@ -498,7 +498,7 @@ html, body, #root {
 }
 
 /* Responsive */
-@media (max-width: 768px) {
+@media (max-width: 992px) {
   .layout {
     grid-template-columns: 1fr;
   }
@@ -545,4 +545,29 @@ html, body, #root {
   .captcha-row {
     grid-template-columns: 1fr 80px;
   }
+}
+
+/* Collapsed icon-only sidebar (desktop) */
+.layout.collapsed {
+  grid-template-columns: 64px 1fr;
+}
+.layout.collapsed .sidebar {
+  width: 64px;
+  padding: 16px 8px;
+}
+.layout.collapsed .sidebar-brand {
+  justify-content: center;
+}
+.layout.collapsed .sidebar-title,
+.layout.collapsed .section-label,
+.layout.collapsed .sidebar-text {
+  display: none;
+}
+.layout.collapsed .sidebar-link {
+  justify-content: center;
+  padding: 12px 8px;
+}
+.layout.collapsed .sidebar-link svg {
+  width: 20px;
+  height: 20px;
 }
