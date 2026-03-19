@@ -8,7 +8,7 @@ import { useToast } from './ToastProvider';
 import { ensureOnlineJwt } from '../offline/reAuth';
 import { refreshAllData } from '../offline/refreshAll';
 
-function Header() {
+function Header({ onToggleSidebar }) {
   const auth = useSelector(state => state.auth);
   const settings = useSelector(state => state.settings);
   const currentBranchId = useSelector(state => state.settings.currentBranchId);
@@ -19,6 +19,14 @@ function Header() {
   return (
     <div className="topbar">
       <div className="brand">
+        <button
+          className="hamburger"
+          aria-label="Toggle menu"
+          onClick={() => { if (onToggleSidebar) onToggleSidebar(); }}
+          title="Menu"
+        >
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2"/></svg>
+        </button>
         <img
           src={settings.clientLogoUrl || '/clientlogo512.png'}
           alt="logo"

@@ -19,6 +19,17 @@ function Layout() {
   const settings = useSelector(s => s.settings);
   const [installEvt, setInstallEvt] = useState(null);
   const [showInstall, setShowInstall] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  useEffect(() => {
+    function sync() {
+      const isMobile = window.matchMedia && window.matchMedia('(max-width: 768px)').matches;
+      setSidebarOpen(false);
+      document.body.style.overflow = isMobile && sidebarOpen ? 'hidden' : 'hidden';
+    }
+    sync();
+    window.addEventListener('resize', sync);
+    return () => window.removeEventListener('resize', sync);
+  }, [sidebarOpen]);
   useEffect(() => {
     let alive = true;
     async function refresh() {
@@ -70,10 +81,11 @@ function Layout() {
     };
   }, [dispatch, settings]);
   return (
-    <div className="layout">
+    <div className={`layout ${sidebarOpen ? 'sidebar-open' : ''}`}>
       <Sidebar />
+      {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
       <div className="content">
-        <Header />
+        <Header onToggleSidebar={() => setSidebarOpen(o => !o)} />
         {showInstall && (
           <div className="card" style={{ margin: '8px 16px', padding: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <div>
