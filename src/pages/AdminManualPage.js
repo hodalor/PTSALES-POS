@@ -21,6 +21,7 @@ function AdminManualPage() {
         <ul>
           <li>Dashboard: High‑level metrics (Admin/Manager).</li>
           <li>POS: Sell items, take payments, print receipts, handle tax overrides.</li>
+          <li>Invoices: Create A4 invoices (manual) and view invoice records.</li>
           <li>Sales: View historical sales, invoice and receipt numbers; reprint.</li>
           <li>Products: Create/edit products with units, attributes, packs and variants.</li>
           <li>Inventory: Set stock per branch; manage per‑variant stock.</li>
@@ -29,9 +30,13 @@ function AdminManualPage() {
           <li>Adjustments: Correct stock up/down with remarks (supports variants).</li>
           <li>Stock Records: Unified list of all stock changes across the system, with filters and exports.</li>
           <li>Labels: Print barcode labels (products and their variants).</li>
+          <li>Expenses: Record and review operational costs per branch.</li>
           <li>Suppliers & Customers: Maintain master data and contacts.</li>
           <li>Refunds: Initiate and approve refunds with two‑step verification.</li>
+          <li>Refund Approvals: Manager/Admin approve refund requests and restock if needed.</li>
           <li>Reports: Export sales CSV, totals by time/seller/branch.</li>
+          <li>Backup & Sync: View queued offline items, run Backup Now / Sync Now.</li>
+          <li>Docs: Technical documentation and architecture notes (SuperAdmin‑only).</li>
           <li>Users: Manage user accounts and roles.</li>
           <li>Cash Drawer: Open drawer logs and operations.</li>
           <li>Config: Store info, receipt header/footer, taxes, invoice serials, phone, website.</li>
@@ -71,6 +76,16 @@ function AdminManualPage() {
         </ul>
       </Section>
 
+      <Section title="Expenses – Track Operational Costs">
+        <ul>
+          <li>Filters: Date range and Branch; totals card shows sum and record count.</li>
+          <li>Add Expense: Choose Branch, Date, enter Category, Amount and optional Note, then Save.</li>
+          <li>Permissions: Admin/Manager/SuperAdmin or users with the add_expenses grant can add/delete.</li>
+          <li>Offline: With Backup enabled, new expenses queue when offline and show “Expenses queued”; they upload on Backup/auto‑sync.</li>
+          <li>Records: Table lists Date, Branch, Category, Note, Amount; authorized users can delete.</li>
+        </ul>
+      </Section>
+
       <Section title="POS – Selling, Stock Checks, Receipts">
         <ul>
           <li>Search by name, SKU or scan barcode. Variants appear as separate items.</li>
@@ -82,6 +97,53 @@ function AdminManualPage() {
           <li>Receipt Number: Auto‑generated as Prefix‑Branch‑NNNNNN; printed alongside Invoice on receipts.</li>
           <li>Receipts: Prints branded HTML receipt; offline QR embeds a local SVG; also supports ESC/POS text download.</li>
           <li>Offline: If offline, the sale is queued and syncs later. Receipt still prints.</li>
+          <li>Held Sales: Put aside an in‑progress sale and serve the next customer.
+            <ul>
+              <li>States: Active (current), Held (paused), Completed (paid).</li>
+              <li>Hold: Saves the current cart including items, discount, notes, customer, loyalty redeem, tax override, payment rows, and view mode; clears the cart for a new sale.</li>
+              <li>Held Panel: Open “Held (N)” to see all held sales; search by label or customer; sort by newest/oldest or label; rename or delete entries.</li>
+              <li>Resume: Replaces the current cart with the held sale (confirmation shown if needed) so you can continue and complete payment.</li>
+              <li>Multiple held sales are supported and persist across refreshes.</li>
+            </ul>
+          </li>
+        </ul>
+      </Section>
+
+      <Section title="Refund Approvals – Manager/Admin">
+        <ul>
+          <li>Queue: Shows pending refund requests with evidence and requested amounts.</li>
+          <li>Decision: Approve or Reject with an optional remark; choose restock option and quantities.</li>
+          <li>Audit: All approvals are recorded. Restocking increases inventory accordingly.</li>
+        </ul>
+      </Section>
+
+      <Section title="Invoices – Manual (A4) and Records">
+        <ul>
+          <li>Tabs: “New Invoice” to create, “Invoice Records” to search and print past invoices.</li>
+          <li>New Invoice:
+            <ul>
+              <li>Select products/variants, set Qty and Rate; tax is applied from Settings.</li>
+              <li>Customer: choose an existing customer or enter ad‑hoc name/contact/address.</li>
+              <li>References: Delivery Note, Payment Terms, Supplier’s Ref., Other Ref., Buyer’s Order No., Despatch Doc No., Delivery Date/Method, Destination, Terms of Delivery.</li>
+              <li>Generate: Creates an A4 invoice with number = Prefix‑NNNNNN. Payment Status = UNPAID and Source = manual.</li>
+              <li>Printing: A4 invoice renders immediately for print or PDF save.</li>
+              <li>Offline: If offline and Backup is enabled, the invoice is queued for backup and still prints locally.</li>
+            </ul>
+          </li>
+          <li>Invoice Records:
+            <ul>
+              <li>Search by number, customer, order no., supplier/other refs.</li>
+              <li>Columns show Number, Customer, Date, Total, Status, Order No., with Print action.</li>
+              <li>POS sales also create paid invoice records with Source = pos and Payment Status = PAID.</li>
+            </ul>
+          </li>
+        </ul>
+      </Section>
+
+      <Section title="Reports – Summaries & Exports">
+        <ul>
+          <li>Sales summaries by time, seller and branch with CSV/PDF exports.</li>
+          <li>Use filters and export buttons to share reports externally.</li>
         </ul>
       </Section>
 
@@ -93,6 +155,20 @@ function AdminManualPage() {
         </ul>
       </Section>
 
+      <Section title="Users – Accounts & PIN">
+        <ul>
+          <li>Create, rename and delete users; set branch access as needed.</li>
+          <li>Assign roles and (optionally) grants for fine‑grained permissions.</li>
+          <li>Reset PIN from Users page or via the Login screen’s Admin Reset PIN flow.</li>
+        </ul>
+      </Section>
+
+      <Section title="Docs – Technical Reference">
+        <ul>
+          <li>SuperAdmin‑only page with architecture notes, PWA/offline details, and code references.</li>
+          <li>Useful for onboarding and troubleshooting advanced topics.</li>
+        </ul>
+      </Section>
       <Section title="Inventory – Branch & Variants">
         <ul>
           <li>Choose branch to view/edit stock levels.</li>
@@ -170,6 +246,19 @@ function AdminManualPage() {
           <li>QR: Offline QR generation embedded into receipts (no external service).</li>
           <li>PWA: Install App button appears when eligible; SuperAdmin/Admin can also install from Config “App Installation (PWA)”.</li>
           <li>Branding: Client App Name and Client App Logo control top bar and PWA install name/icon; fallbacks ensure logo displays even if custom fails.</li>
+          <li>Currency: Manage supported currencies and active currency; symbols and positions apply across POS, Dashboard, Cash Drawer, Inventory and receipts.</li>
+          <li>PAID Stamp: Configure whether a “PAID” stamp appears on A4 invoices for POS sales, along with label text, centering, thank‑you line, date, and color.</li>
+          <li>Background Refresh: Control the auto‑refresh interval for lists such as products, suppliers, customers, branches, refunds and sales.</li>
+        </ul>
+      </Section>
+
+      <Section title="Backup & Sync – Offline Queue">
+        <ul>
+          <li>Backup & Sync page shows totals per collection (Sales, Invoices, Customers, etc.) and pending counts.</li>
+          <li>Backup Now: Attempts to upload all queued items when online. If you logged in offline, you’ll be prompted for your PIN to obtain a token before backup.</li>
+          <li>Sync Now: Refreshes the local data from the server when online.</li>
+          <li>Indicators: “Queued” badges appear on pages (e.g., POS) and link to the Backup page.</li>
+          <li>Auto‑sync: When online and Backup is enabled, background sync uploads queued items automatically.</li>
         </ul>
       </Section>
 

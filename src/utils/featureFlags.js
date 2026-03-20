@@ -29,7 +29,10 @@ export const FEATURE_CATALOG = [
 
   { key: 'features.offlineBackup', label: 'Offline usage (queue + backup)', group: 'Features' },
 
-  { key: 'tabs.customerPurchaseHistory', label: 'Customer Purchase History', group: 'Tabs' }
+  { key: 'tabs.customerPurchaseHistory', label: 'Customer Purchase History', group: 'Tabs' },
+  { key: 'tabs.posHeldSales', label: 'POS – Held Sales panel', group: 'Tabs' },
+  { key: 'tabs.invoiceNew', label: 'Invoices – New Invoice tab', group: 'Tabs' },
+  { key: 'tabs.invoiceRecords', label: 'Invoices – Records tab', group: 'Tabs' }
 ];
 
 export function isFeatureEnabled(settings, key) {

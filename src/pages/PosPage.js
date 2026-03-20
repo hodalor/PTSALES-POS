@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { addItem, removeItem, setQuantity, clearCart, setDiscount } from '../store/cartSlice';
+import { addItem, removeItem, setQuantity, clearCart, setDiscount, addHeld, removeHeld, replaceCart, updateHeld } from '../store/cartSlice';
 import { adjustStock } from '../store/productsSlice';
 import { recordSale } from '../store/salesSlice';
 import { addInvoice } from '../store/invoicesSlice';
@@ -14,9 +14,12 @@ import { productSpec } from '../utils/productSpec';
 import { createSale } from '../api/sales';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
+import { confirmDialog, promptDialog } from '../utils/dialogs';
+import { isFeatureEnabled } from '../utils/featureFlags';
 
 function PosPage() {
   const cart = useSelector(state => state.cart);
+  const heldSales = cart.heldSales || [];
   const products = useSelector(s => s.products.products);
   const customers = useSelector(s => s.customers.customers);
   const branches = useSelector(s => s.branches.branches);
@@ -32,6 +35,13 @@ function PosPage() {
   const [customerQuery, setCustomerQuery] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [redeemPoints, setRedeemPoints] = useState('');
+  const [heldOpen, setHeldOpen] = useState(false);
+  const [heldSort, setHeldSort] = useState(() => {
+    try { return localStorage.getItem('ptSales:heldSort') || 'newest'; } catch { return 'newest'; }
+  });
+  const [heldQuery, setHeldQuery] = useState(() => {
+    try { return localStorage.getItem('ptSales:heldQuery') || ''; } catch { return ''; }
+  });
   const toast = useToast();
   const sellables = useMemo(() => {
     const out = [];
@@ -89,6 +99,40 @@ function PosPage() {
       .slice(0, 8);
   }, [customers, customerQuery]);
 
+  const heldList = useMemo(() => {
+    let list = Array.isArray(heldSales) ? heldSales.slice() : [];
+    function ts(x) { try { return new Date(x || 0).getTime() || 0; } catch { return 0; } }
+    if (heldSort === 'oldest') {
+      list.sort((a,b) => ts(a.createdAt) - ts(b.createdAt));
+    } else if (heldSort === 'labelAZ') {
+      list.sort((a,b) => String(a.label || '').localeCompare(String(b.label || '')));
+    } else if (heldSort === 'labelZA') {
+      list.sort((a,b) => String(b.label || '').localeCompare(String(a.label || '')));
+    } else {
+      list.sort((a,b) => ts(b.createdAt) - ts(a.createdAt));
+    }
+    const q = String(heldQuery || '').trim().toLowerCase();
+    if (q) {
+      list = list.filter(h => {
+        const label = String(h.label || '').toLowerCase();
+        if (label.includes(q)) return true;
+        const cust = customers.find(c => String(c.id) === String(h.selectedCustomerId));
+        const cname = String(cust?.name || cust?.customerCode || '').toLowerCase();
+        return cname.includes(q);
+      });
+    }
+    return list;
+  }, [heldSales, heldSort, heldQuery, customers, branchId]);
+
+  function onChangeHeldSort(v) {
+    setHeldSort(v);
+    try { localStorage.setItem('ptSales:heldSort', v); } catch {}
+  }
+  function onChangeHeldQuery(v) {
+    setHeldQuery(v);
+    try { localStorage.setItem('ptSales:heldQuery', v); } catch {}
+  }
+
   const subtotal = cart.items.reduce((sum, i) => sum + (i.price || 0) * (i.quantity || 1), 0);
   const manualDiscount = cart.discount || 0;
   const canOverrideTax = ['Admin','Manager'].includes(auth.role) || String(auth.role || '').toLowerCase() === 'superadmin';
@@ -108,6 +152,7 @@ function PosPage() {
   const due = Math.max(0, total - paid);
   const change = Math.max(0, paid - total);
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
+  const heldUiEnabled = isFeatureEnabled(settings, 'tabs.posHeldSales');
 
   function addToCart(p) {
     const available = p.stockByBranch?.[branchId] || 0;
@@ -128,6 +173,98 @@ function PosPage() {
   }
   function removePaymentRow(i) {
     setPayments(p => p.filter((_, idx) => idx !== i));
+  }
+
+  async function holdCurrentSale() {
+    if (cart.items.length === 0) {
+      toast.show('Cart is empty', { type: 'error' });
+      return;
+    }
+    const id = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `HOLD-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const customerName = selectedCustomer ? (selectedCustomer.name || selectedCustomer.customerCode || 'Customer') : 'Walk-in';
+    let label = `${customerName} • ${new Date().toLocaleTimeString()}`;
+    try {
+      const name = await promptDialog('Enter a label for this held sale (optional)', customerName);
+      if (name && String(name).trim()) {
+        label = String(name).trim();
+      }
+    } catch {}
+    const payload = {
+      id,
+      label,
+      createdAt: new Date().toISOString(),
+      branchId,
+      items: cart.items.map(i => ({ ...i })),
+      discount: manualDiscount,
+      notes: cart.notes || '',
+      selectedCustomerId,
+      redeemPoints,
+      taxOverridePct,
+      taxOverrideRemark,
+      payments: payments.map(p => ({ type: p.type, amount: p.amount })),
+      view
+    };
+    dispatch(addHeld(payload));
+    dispatch(clearCart());
+    setSelectedCustomerId('');
+    setCustomerQuery('');
+    setRedeemPoints('');
+    setTaxOverridePct('');
+    setTaxOverrideRemark('');
+    setPayments([{ type: 'cash', amount: '' }]);
+    toast.show('Sale held', { type: 'success' });
+  }
+
+  async function startNewSale() {
+    if (cart.items.length > 0) {
+      const ok = await confirmDialog('Clear current cart and start a new sale?');
+      if (!ok) return;
+    }
+    dispatch(clearCart());
+    setSelectedCustomerId('');
+    setCustomerQuery('');
+    setRedeemPoints('');
+    setTaxOverridePct('');
+    setTaxOverrideRemark('');
+    setPayments([{ type: 'cash', amount: '' }]);
+  }
+
+  async function resumeHeld(h) {
+    if (!h) return;
+    if (cart.items.length > 0) {
+      const ok = await confirmDialog('Replace current cart with held sale?');
+      if (!ok) return;
+    }
+    dispatch(replaceCart({ items: Array.isArray(h.items) ? h.items : [], discount: h.discount || 0, notes: h.notes || '' }));
+    setSelectedCustomerId(h.selectedCustomerId || '');
+    setRedeemPoints(h.redeemPoints || '');
+    setTaxOverridePct(h.taxOverridePct ?? '');
+    setTaxOverrideRemark(h.taxOverrideRemark ?? '');
+    setPayments(Array.isArray(h.payments) && h.payments.length > 0 ? h.payments.map(p => ({ type: p.type, amount: p.amount })) : [{ type: 'cash', amount: '' }]);
+    try { if (h.view) setView(h.view); } catch {}
+    dispatch(removeHeld(h.id));
+    setHeldOpen(false);
+    toast.show('Held sale resumed', { type: 'success' });
+  }
+
+  async function deleteHeld(h) {
+    if (!h) return;
+    const ok = await confirmDialog('Delete this held sale?');
+    if (!ok) return;
+    dispatch(removeHeld(h.id));
+    toast.show('Held sale removed', { type: 'success' });
+  }
+  async function renameHeld(h) {
+    if (!h) return;
+    let next = null;
+    try {
+      next = await promptDialog('Rename held sale', h.label || '');
+    } catch {}
+    if (next == null) return;
+    const val = String(next).trim();
+    if (!val) return;
+    dispatch(updateHeld({ id: h.id, label: val }));
+    toast.show('Held sale renamed', { type: 'success' });
   }
 
   async function completeSale(escpos = false) {
@@ -375,7 +512,58 @@ function PosPage() {
         )}
       </div>
       <div>
-        <h2>Cart</h2>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2>Cart</h2>
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {heldUiEnabled && (
+                <>
+                  <button className="btn" onClick={holdCurrentSale} disabled={cart.items.length === 0 || saving}>
+                    <svg viewBox="0 0 24 24" fill="none"><path d="M6 6h12v12H6z" stroke="currentColor" strokeWidth="2"/><path d="M9 6v12M15 6v12" stroke="currentColor" strokeWidth="2"/></svg>
+                    Hold
+                  </button>
+                  <button className="btn" onClick={() => setHeldOpen(o => !o)}>
+                    <svg viewBox="0 0 24 24" fill="none"><path d="M7 7h10M7 12h10M7 17h10" stroke="currentColor" strokeWidth="2"/></svg>
+                    Held ({heldSales.length})
+                  </button>
+                </>
+              )}
+              <button className="btn" onClick={startNewSale}>
+                <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2"/></svg>
+                New Sale
+              </button>
+            </div>
+            {heldUiEnabled && heldOpen && (
+              <div style={{ position: 'absolute', right: 0, marginTop: 6, width: 360, maxWidth: '90vw', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, boxShadow: '0 10px 20px rgba(2,6,23,0.15)', zIndex: 30 }}>
+                <div style={{ padding: 10, borderBottom: '1px solid #e2e8f0', fontWeight: 700 }}>Held Sales</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, padding: 10, borderBottom: '1px solid #e2e8f0', alignItems: 'center' }}>
+                  <input className="input" placeholder="Search label or customer" value={heldQuery} onChange={e => onChangeHeldQuery(e.target.value)} />
+                  <label style={{ color: '#64748b', fontSize: 12 }}>Sort</label>
+                  <select className="select" value={heldSort} onChange={e => onChangeHeldSort(e.target.value)} style={{ flex: '1 1 auto' }}>
+                    <option value="newest">Newest first</option>
+                    <option value="oldest">Oldest first</option>
+                    <option value="labelAZ">Label A–Z</option>
+                    <option value="labelZA">Label Z–A</option>
+                  </select>
+                </div>
+                <div style={{ maxHeight: 320, overflow: 'auto' }}>
+                  {heldList.map(h => (
+                    <div key={h.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', alignItems: 'center', gap: 8, padding: 10, borderTop: '1px solid #f1f5f9' }}>
+                      <div>
+                        <div style={{ fontWeight: 700 }}>{h.label || 'Held sale'}</div>
+                        <div style={{ color: '#64748b', fontSize: 12 }}>{new Date(h.createdAt).toLocaleString()} • Items: {Array.isArray(h.items) ? h.items.length : 0}</div>
+                      </div>
+                      <button className="btn" onClick={() => renameHeld(h)}>Rename</button>
+                      <button className="btn" onClick={() => resumeHeld(h)}>Resume</button>
+                      <button className="btn" onClick={() => deleteHeld(h)}>Delete</button>
+                    </div>
+                  ))}
+                  {heldList.length === 0 && <div style={{ padding: 12, color: '#64748b' }}>No held sales</div>}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
         <div className="card" style={{ marginBottom: 12 }}>
           <div style={{ fontWeight: 700, marginBottom: 6 }}>Customer (optional)</div>
           {selectedCustomer ? (

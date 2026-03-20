@@ -3,7 +3,8 @@ import { createSlice, nanoid } from '@reduxjs/toolkit';
 const initialState = {
   items: [],
   discount: 0,
-  notes: ''
+  notes: '',
+  heldSales: []
 };
 
 const cartSlice = createSlice({
@@ -36,6 +37,30 @@ const cartSlice = createSlice({
       state.discount = 0;
       state.notes = '';
     },
+    replaceCart(state, action) {
+      const { items, discount, notes } = action.payload || {};
+      state.items = Array.isArray(items) ? items : [];
+      state.discount = Number(discount || 0);
+      state.notes = String(notes || '');
+    },
+    addHeld(state, action) {
+      const h = action.payload || {};
+      if (!Array.isArray(state.heldSales)) state.heldSales = [];
+      state.heldSales.unshift(h);
+    },
+    removeHeld(state, action) {
+      const id = action.payload;
+      if (!Array.isArray(state.heldSales)) state.heldSales = [];
+      state.heldSales = state.heldSales.filter(h => h && h.id !== id);
+    },
+    updateHeld(state, action) {
+      const { id, ...patch } = action.payload || {};
+      if (!Array.isArray(state.heldSales)) state.heldSales = [];
+      const idx = state.heldSales.findIndex(h => h && h.id === id);
+      if (idx >= 0) {
+        state.heldSales[idx] = { ...state.heldSales[idx], ...patch };
+      }
+    },
     setDiscount(state, action) {
       state.discount = action.payload || 0;
     },
@@ -45,5 +70,5 @@ const cartSlice = createSlice({
   }
 });
 
-export const { addItem, removeItem, setQuantity, clearCart, setDiscount, setNotes } = cartSlice.actions;
+export const { addItem, removeItem, setQuantity, clearCart, replaceCart, addHeld, removeHeld, updateHeld, setDiscount, setNotes } = cartSlice.actions;
 export default cartSlice.reducer;

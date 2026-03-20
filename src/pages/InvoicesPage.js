@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { productSpec } from '../utils/productSpec';
 import { formatCurrency } from '../utils/currency';
 import { useToast } from '../components/ToastProvider';
@@ -8,6 +8,7 @@ import { setNextInvoiceNumber } from '../store/settingsSlice';
 import { buildInvoiceA4Html, printInvoiceA4 } from '../utils/invoicePrint';
 import * as invoicesApi from '../api/invoices';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import { isFeatureEnabled } from '../utils/featureFlags';
 
 function InvoicesPage() {
   const dispatch = useDispatch();
@@ -18,6 +19,16 @@ function InvoicesPage() {
   const invoices = useSelector(s => s.invoices.invoices);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState('new');
+  const showNewTab = isFeatureEnabled(settings, 'tabs.invoiceNew');
+  const showRecordsTab = isFeatureEnabled(settings, 'tabs.invoiceRecords');
+  useEffect(() => {
+    if (tab === 'new' && !showNewTab) {
+      if (showRecordsTab) setTab('records');
+    }
+    if (tab === 'records' && !showRecordsTab) {
+      if (showNewTab) setTab('new');
+    }
+  }, [showNewTab, showRecordsTab, tab]);
   const [searchTerm, setSearchTerm] = useState('');
   const [items, setItems] = useState([]);
   const [customerId, setCustomerId] = useState('');
@@ -222,10 +233,10 @@ function InvoicesPage() {
   return (
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <button className={`btn ${tab === 'new' ? 'btn-primary' : ''}`} onClick={() => setTab('new')}>New Invoice</button>
-        <button className={`btn ${tab === 'records' ? 'btn-primary' : ''}`} onClick={() => setTab('records')}>Invoice Records</button>
+        {showNewTab && (<button className={`btn ${tab === 'new' ? 'btn-primary' : ''}`} onClick={() => setTab('new')}>New Invoice</button>)}
+        {showRecordsTab && (<button className={`btn ${tab === 'records' ? 'btn-primary' : ''}`} onClick={() => setTab('records')}>Invoice Records</button>)}
       </div>
-      {tab === 'new' ? (
+      {(tab === 'new' && showNewTab) ? (
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
         <div>
           <h2>Products</h2>
@@ -327,7 +338,7 @@ function InvoicesPage() {
         </div>
         </div>
       </div>
-      ) : (
+      ) : (tab === 'records' && showRecordsTab) ? (
       <div className="card">
         <h2 className="section-title" style={{ margin: '8px 0' }}>Invoice Records</h2>
         <div className="toolbar" style={{ marginBottom: 8 }}>
@@ -386,7 +397,7 @@ function InvoicesPage() {
           </tbody>
         </table>
       </div>
-      )}
+      ) : null}
     </div>
   );
 }
