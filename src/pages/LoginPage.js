@@ -154,6 +154,7 @@ function LoginPage() {
       role = resp.role;
       landing = resp.landing || landing;
       user = resp.user;
+      try { sessionStorage.setItem('ptSales:sessionPin', pin); } catch {}
       try {
         const h = await hashPin(pin);
         const raw = localStorage.getItem('ptSales:offlineCreds');

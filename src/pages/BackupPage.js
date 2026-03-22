@@ -4,8 +4,6 @@ import { useToast } from '../components/ToastProvider';
 import { attemptSync } from '../offline/queue';
 import { COLLECTIONS, listQueuedByCollection } from '../offline/offlineBackup';
 import { syncQueuedItem } from '../offline/syncHandlers';
-import * as authApi from '../api/auth';
-import { promptDialog } from '../utils/dialogs';
 import { ensureOnlineJwt } from '../offline/reAuth';
 import { refreshAllData } from '../offline/refreshAll';
 import { useDispatch } from 'react-redux';
@@ -57,27 +55,7 @@ function BackupPage() {
       toast.show('Offline: connect internet to backup', { type: 'error' });
       return;
     }
-    try {
-      const token = localStorage.getItem('ptSales:authToken');
-      const isOfflineToken = !token || token.toLowerCase() === 'offline';
-      if (isOfflineToken) {
-        const name = (typeof window !== 'undefined' ? (JSON.parse(localStorage.getItem('ptSales:state') || '{}')?.auth?.user?.name) : '') || '';
-        const pin = await promptDialog(`Enter PIN for ${name || 'your user'} to authenticate backup`);
-        if (!pin || !/^\d{4,6}$/.test(String(pin))) {
-          toast.show('Backup requires a valid PIN', { type: 'error' });
-          return;
-        }
-        try {
-          const resp = await authApi.login({ username: name, pin });
-          if (resp && resp.token) {
-            localStorage.setItem('ptSales:authToken', resp.token);
-          }
-        } catch (e) {
-          toast.show(e?.message || 'Login failed for backup', { type: 'error' });
-          return;
-        }
-      }
-    } catch {}
+    try { await ensureOnlineJwt(); } catch {}
     setLoading(true);
     try {
       const ok = await attemptSync(syncQueuedItem);

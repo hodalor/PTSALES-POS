@@ -56,6 +56,7 @@ import * as auditsApi from './api/audits';
 import * as invoicesApi from './api/invoices';
 import { setEntries as setAuditEntries } from './store/auditSlice';
 import { setInvoices } from './store/invoicesSlice';
+import { ensureOnlineJwt } from './offline/reAuth';
 
 function App() {
   const dispatch = useDispatch();
@@ -274,6 +275,20 @@ function App() {
     })();
     return () => { alive = false; };
   }, [dispatch, isAuthed]);
+  useEffect(() => {
+    let alive = true;
+    const int = setInterval(async () => {
+      if (!alive) return;
+      if (!navigator.onLine) return;
+      try {
+        await ensureOnlineJwt();
+      } catch {}
+    }, 60000);
+    return () => {
+      alive = false;
+      clearInterval(int);
+    };
+  }, []);
   useEffect(() => {
     if (!isAuthed) return;
     const userGrants = settings?.userGrants;

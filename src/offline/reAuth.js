@@ -1,5 +1,4 @@
 import { getApiBase } from '../api/client';
-import { promptDialog } from '../utils/dialogs';
 
 export async function ensureOnlineJwt() {
   try {
@@ -14,17 +13,24 @@ export async function ensureOnlineJwt() {
       name = st?.auth?.user?.name || '';
     }
   } catch {}
-  const pin = await promptDialog(`Enter PIN for ${name || 'your user'} to authenticate`);
-  if (!pin || !/^\d{4,6}$/.test(String(pin))) return false;
+  let pin = '';
+  try {
+    pin = sessionStorage.getItem('ptSales:sessionPin') || '';
+  } catch {}
+  if (!name || !pin || !/^\d{4,6}$/.test(String(pin))) return false;
   const base = getApiBase();
-  const res = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: name, pin }) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = await res.json();
-  if (data?.token) {
-    try { localStorage.setItem('ptSales:authToken', data.token); } catch {}
-    return true;
+  try {
+    const res = await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: name, pin }) });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (data?.token) {
+      try { localStorage.setItem('ptSales:authToken', data.token); } catch {}
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
   }
-  return false;
 }
 
 export async function reauthIf401(err) {
