@@ -69,6 +69,7 @@ function ProductsPage() {
   
   const [openStockFor, setOpenStockFor] = useState(null);
   const toast = useToast();
+  const [saving, setSaving] = useState(false);
 
   function resetForm() {
     setName(''); setSku(''); setPrice(''); 
@@ -159,6 +160,7 @@ function ProductsPage() {
   }
 
   async function save() {
+    if (saving) return;
     const errors = [];
     if (!name.trim()) errors.push('Product name is required');
     if (!sku.trim()) errors.push('SKU is required');
@@ -187,6 +189,7 @@ function ProductsPage() {
         toast.show(errors[0], { type: 'error' });
         return;
     }
+    setSaving(true);
 
     if (modalMode === 'add') {
         if (!canAddProducts) { toast.show('Not authorized to add products', { type: 'error' }); return; }
@@ -213,7 +216,7 @@ function ProductsPage() {
 
         if (!navigator.onLine && !offlineBackupAllowed) {
             toast.show('Offline: connect internet and try again.', { type: 'error' });
-            return;
+            setSaving(false); return;
         }
 
         const action = dispatch(addProduct({ ...payload, offline: !navigator.onLine }));
@@ -226,7 +229,7 @@ function ProductsPage() {
             } catch {
                 if (newId) dispatch(removeProduct(newId));
                 toast.show('Failed to save offline', { type: 'error' });
-                return;
+                setSaving(false); return;
             }
         } else {
             try {
@@ -234,7 +237,7 @@ function ProductsPage() {
             } catch (e) {
                 if (newId) dispatch(removeProduct(newId));
                 toast.show(String(e?.message || 'Failed to add product'), { type: 'error' });
-                return;
+                setSaving(false); return;
             }
         }
         
@@ -270,6 +273,7 @@ function ProductsPage() {
             offline: !navigator.onLine
         }));
         
+        setSaving(false);
         closeModal();
         toast.show(navigator.onLine ? 'Product added' : 'Saved offline. Will backup when online.', { type: 'success' });
 
@@ -311,8 +315,10 @@ function ProductsPage() {
             packs: (packs || []).filter(p => p.name && Number(p.quantity) > 0).map(p => ({ name: p.name.trim(), quantity: Number(p.quantity) })),
             variants: variantsLocal
         };
+        const sameImage = String(imagePreview || '') === String(original?.image || '');
         const updatedBaseServer = {
             ...updatedBaseLocal,
+            image: sameImage ? undefined : (imagePreview || null),
             variants: variantsServer
         };
 
@@ -322,7 +328,7 @@ function ProductsPage() {
         const serverId = original?._id || original?.id || null;
         if (!navigator.onLine && !offlineBackupAllowed) {
             toast.show('Offline: connect internet and try again.', { type: 'error' });
-            return;
+            setSaving(false); return;
         }
         if (serverId) {
             if (!navigator.onLine) {
@@ -331,7 +337,7 @@ function ProductsPage() {
                     await enqueueHttp({ collection: 'products', label: 'Product update', path: `/api/products/${encodeURIComponent(serverId)}`, method: 'PUT', body: { id: original?.id, ...updatedBaseServer } });
                 } catch {
                     toast.show('Failed to save offline', { type: 'error' });
-                    return;
+                    setSaving(false); return;
                 }
             } else {
                 try {
@@ -339,7 +345,7 @@ function ProductsPage() {
                     dispatch(updateProduct(updated));
                 } catch (e) {
                     toast.show(String(e?.message || 'Failed to update product'), { type: 'error' });
-                    return;
+                    setSaving(false); return;
                 }
             }
         } else {
@@ -353,7 +359,7 @@ function ProductsPage() {
                 if (!navigator.onLine) {
                     if (!offlineBackupAllowed) {
                         toast.show('Offline: cannot save stock. Connect internet and try again.', { type: 'error' });
-                        return;
+                        setSaving(false); return;
                     }
                     dispatch(setStock({ productId: pid, branchId: currentBranchId, quantity: next }));
                     try {
@@ -361,7 +367,7 @@ function ProductsPage() {
                     } catch {
                         dispatch(setStock({ productId: pid, branchId: currentBranchId, quantity: prev }));
                         toast.show('Failed to save offline', { type: 'error' });
-                        return;
+                        setSaving(false); return;
                     }
                 } else {
                     dispatch(setStock({ productId: pid, branchId: currentBranchId, quantity: next }));
@@ -400,6 +406,7 @@ function ProductsPage() {
             offline: !navigator.onLine
         }));
         
+        setSaving(false);
         closeModal();
         toast.show(navigator.onLine ? 'Product updated' : 'Saved offline. Will backup when online.', { type: 'success' });
     }
@@ -799,12 +806,12 @@ function ProductsPage() {
       {modalMode !== 'none' && (
         <Modal
           title={modalMode === 'add' ? 'Add Product' : 'Edit Product'}
-          onClose={closeModal}
+          onClose={() => { if (!saving) closeModal(); }}
           footer={
             <>
-              <button className="btn" onClick={closeModal}>Cancel</button>
-              <button className="btn btn-primary" onClick={save}>
-                {modalMode === 'add' ? 'Add Product' : 'Save Changes'}
+              <button className="btn" onClick={closeModal} disabled={saving}>Cancel</button>
+              <button className="btn btn-primary" onClick={save} disabled={saving}>
+                {saving ? 'Saving…' : (modalMode === 'add' ? 'Add Product' : 'Save Changes')}
               </button>
             </>
           }
