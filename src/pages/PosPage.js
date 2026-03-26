@@ -328,16 +328,9 @@ function PosPage() {
       }
       saleForUi = { ...sale, id: offlineId, invoiceSerial: ref, receiptNumber: ref, branchName, offline: true };
     } else {
-      let saved = null;
-      try {
-        sale.clientId = crypto.randomUUID();
-        saved = await createSale(sale);
-      } catch (e) {
-        toast.show(String(e?.message || 'Failed to record sale on server'), { type: 'error' });
-        setSaving(false);
-        return;
-      }
-      saleForUi = { ...sale, ...saved, branchName };
+      sale.clientId = crypto.randomUUID();
+      const tmpRef = `TMP-${String(Date.now()).padStart(6, '0').slice(-6)}`;
+      saleForUi = { ...sale, id: sale.clientId, invoiceSerial: tmpRef, receiptNumber: tmpRef, branchName };
     }
     const receiptHtml = buildBrandedReceiptHtml({ settings, sale: saleForUi });
     const skuToRef = new Map();
@@ -438,8 +431,27 @@ function PosPage() {
     } else {
       printReceiptHtml(receiptHtml);
     }
-    toast.show(navigator.onLine ? 'Sale recorded' : 'Saved offline. Will backup when online.', { type: 'success' });
-    setSaving(false);
+    if (navigator.onLine) {
+      try {
+        const saved = await createSale({ ...sale, clientId: sale.clientId });
+        if (saved && (saved.invoiceSerial || saved.receiptNumber)) {
+          // no-op: printed already; server holds the official refs
+        }
+        toast.show('Sale recorded', { type: 'success' });
+      } catch (e) {
+        try {
+          await enqueueHttp({ collection: 'sales', label: 'Sale', path: '/api/sales', method: 'POST', body: { ...sale, clientId: sale.clientId } });
+          toast.show('Network issue: saved offline and will sync later', { type: 'warning' });
+        } catch (err) {
+          toast.show(String(e?.message || 'Failed to record sale'), { type: 'error' });
+        }
+      } finally {
+        setSaving(false);
+      }
+    } else {
+      toast.show('Saved offline. Will backup when online.', { type: 'success' });
+      setSaving(false);
+    }
   }
 
   function onSearchKeyDown(e) {

@@ -178,6 +178,12 @@ function App() {
     })();
   }, [dispatch]);
   useEffect(() => {
+    const tid = setTimeout(() => {
+      dispatch(setInitialized(true));
+    }, 3000);
+    return () => clearTimeout(tid);
+  }, [dispatch]);
+  useEffect(() => {
     (async () => {
       try {
         const remote = await settingsApi.get();
