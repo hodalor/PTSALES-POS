@@ -156,14 +156,17 @@ function App() {
     (async () => {
       try {
         const token = localStorage.getItem('ptSales:authToken');
-        if (token) {
+        if (token && String(token).toLowerCase() !== 'offline') {
           const resp = await authApi.me();
           if (resp && resp.role) {
             dispatch(loginSuccess({ user: resp.user, role: resp.role, grants: resp.grants || [] }));
           }
+        } else if (!token) {
+          dispatch(logout());
         }
       } catch {
         try { localStorage.removeItem('ptSales:authToken'); } catch {}
+        dispatch(logout());
       } finally {
         dispatch(setInitialized(true));
       }

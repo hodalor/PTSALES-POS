@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo } from 'react';
 
 const ToastContext = createContext({ show: () => {} });
 
@@ -31,8 +31,9 @@ function ToastProvider({ children }) {
       setTimeout(() => remove(id), timeout);
     }
   }, [remove]);
+  const value = useMemo(() => ({ show }), [show]);
   return (
-    <ToastContext.Provider value={{ show }}>
+    <ToastContext.Provider value={value}>
       {children}
       <ToastContainer toasts={toasts} remove={remove} />
     </ToastContext.Provider>

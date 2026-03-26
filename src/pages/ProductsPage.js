@@ -32,7 +32,7 @@ function ProductsPage() {
   }
   const canAddProducts = (['admin','manager'].includes(roleLower)) || has('add_products');
   const canEditProducts = (['admin','manager'].includes(roleLower)) || has('edit_products');
-  const canEditStock = (['admin','manager','inventory staff'].includes(roleLower)) || has('edit_inventory');
+  const canEditStock = false;
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
 
   const [modalMode, setModalMode] = useState('none'); // none, add, edit

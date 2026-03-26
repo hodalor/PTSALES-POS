@@ -16,10 +16,10 @@ function InventoryPage() {
   const settings = useSelector(s => s.settings);
   const auth = useSelector(s => s.auth);
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
+  const allowManualStockEdit = false;
   const [branchId, setBranchId] = useState(currentBranchId);
   const [modalId, setModalId] = useState(null);
   const [openVariantsFor, setOpenVariantsFor] = useState(null);
-  const [savingKey, setSavingKey] = useState(null);
   const dispatch = useDispatch();
   const toast = useToast();
 
@@ -29,16 +29,18 @@ function InventoryPage() {
   const selected = useMemo(() => rows.find(p => p.id === modalId) || null, [rows, modalId]);
 
   function setStockWithAudit(p, variantId, bId, quantity) {
+    if (!allowManualStockEdit) {
+      toast.show('Manual stock editing is disabled', { type: 'warning' });
+      return;
+    }
     const oldQty = variantId
       ? ((p.variants?.find(v => v.id === variantId)?.stockByBranch || {})[bId] || 0)
       : (p.stockByBranch?.[bId] || 0);
     const delta = Number(quantity) - Number(oldQty);
-    const key = `${p.id}:${variantId || 'base'}:${bId}`;
     if (!navigator.onLine && !offlineBackupAllowed) {
       toast.show('Offline: cannot save stock changes', { type: 'error' });
       return;
     }
-    setSavingKey(key);
     dispatch(setStock({ productId: p.id, variantId: variantId || undefined, branchId: bId, quantity: Number(quantity) }));
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
@@ -59,16 +61,14 @@ function InventoryPage() {
         .catch(() => {
           dispatch(setStock({ productId: p.id, variantId: variantId || undefined, branchId: bId, quantity: Number(oldQty) }));
           toast.show('Failed to save offline', { type: 'error' });
-        })
-        .finally(() => setSavingKey(k => (k === key ? null : k)));
+        });
       return;
     }
     stockApi.setStock(payload)
       .catch((e) => {
         dispatch(setStock({ productId: p.id, variantId: variantId || undefined, branchId: bId, quantity: Number(oldQty) }));
         toast.show(String(e?.message || 'Failed to save stock'), { type: 'error' });
-      })
-      .finally(() => setSavingKey(k => (k === key ? null : k)));
+      });
   }
 
   return (
@@ -119,7 +119,7 @@ function InventoryPage() {
                             borderColor: low > 0 && cur <= low ? '#ef4444' : undefined,
                             color: low > 0 && cur <= low ? '#b91c1c' : undefined
                           }}
-                          disabled={savingKey === `${p.id}:base:${branchId}`}
+                          disabled
                         />
                       )}
                     </td>
@@ -135,10 +135,10 @@ function InventoryPage() {
                                 className="input"
                                 type="number"
                                 min="0"
-                            value={v.stockByBranch?.[branchId] || 0}
-                            onChange={e => setStockWithAudit(p, v.id, branchId, Number(e.target.value))}
+                                value={v.stockByBranch?.[branchId] || 0}
+                                onChange={e => setStockWithAudit(p, v.id, branchId, Number(e.target.value))}
                                 style={{ width: 120 }}
-                                disabled={savingKey === `${p.id}:${v.id}:${branchId}`}
+                                disabled
                               />
                             </div>
                           ))}
@@ -184,7 +184,7 @@ function InventoryPage() {
                           value={selected.stockByBranch?.[b.id] || 0}
                           onChange={e => setStockWithAudit(selected, null, b.id, Number(e.target.value))}
                           style={{ width: 80 }}
-                          disabled={savingKey === `${selected.id}:base:${b.id}`}
+                          disabled
                         />
                       </div>
                     ))}
@@ -204,7 +204,7 @@ function InventoryPage() {
                             value={v.stockByBranch?.[branchId] || 0}
                             onChange={e => setStockWithAudit(selected, v.id, branchId, Number(e.target.value))}
                             style={{ width: 100 }}
-                            disabled={savingKey === `${selected.id}:${v.id}:${branchId}`}
+                            disabled
                           />
                         </div>
                       ))}

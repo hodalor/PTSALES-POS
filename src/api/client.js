@@ -44,6 +44,12 @@ export async function fetchJson(path, opts = {}) {
       signal: opts.signal || ac.signal,
       ...opts
     });
+  } catch (e) {
+    clearTimeout(tid);
+    if (e && (e.name === 'AbortError' || String(e.message || '').toLowerCase().includes('aborted'))) {
+      throw new Error('Request timed out');
+    }
+    throw e;
   } finally {
     clearTimeout(tid);
   }
