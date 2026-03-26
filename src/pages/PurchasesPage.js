@@ -41,9 +41,11 @@ function PurchasesPage() {
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('pending'); // pending | approved | rejected
   const [detail, setDetail] = useState(null);
+  const [busyId, setBusyId] = useState(null);
   const dispatch = useDispatch();
   const toast = useToast();
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
+  const [auditDetail, setAuditDetail] = useState(null);
   useEffect(() => { setBranchId(currentBranchId); }, [currentBranchId]);
   useEffect(() => { setFBranch(currentBranchId); }, [currentBranchId]);
 
@@ -226,7 +228,7 @@ function PurchasesPage() {
       if (tab !== 'approvals') return;
       setLoading(true);
       try {
-        const rows = await purchasesApi.listRequests();
+        const rows = await purchasesApi.listRequests({ status: statusFilter, limit: 200 });
         if (alive && Array.isArray(rows)) {
           const { setPurchaseRequests } = await import('../store/purchasesSlice');
           dispatch(setPurchaseRequests(rows));
@@ -236,7 +238,7 @@ function PurchasesPage() {
     }
     load();
     return () => { alive = false; };
-  }, [tab, fBranch, dispatch]);
+  }, [tab, statusFilter, fBranch, dispatch]);
   async function approve(r) {
     if (!canApprove) { toast.show('Not authorized to approve purchases', { type: 'error' }); return; }
     const id = r._id || r.clientId;
@@ -244,6 +246,7 @@ function PurchasesPage() {
       const { promptDialog } = await import('../utils/dialogs');
       let remark = await promptDialog('Enter remark for approval (required)');
       if (!remark || !String(remark).trim()) { toast.show('Remark is required', { type: 'error' }); return; }
+      setBusyId(id);
       if (!navigator.onLine) {
         await enqueueHttp({ collection: 'purchaserequests', label: 'Purchase approve', path: '/api/purchases/approve', method: 'POST', body: { id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark } });
       } else {
@@ -254,7 +257,7 @@ function PurchasesPage() {
       toast.show('Purchase approved and stock updated', { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to approve'), { type: 'error' });
-    }
+    } finally { setBusyId(null); }
   }
   async function reject(r) {
     if (!canApprove) { toast.show('Not authorized to reject purchases', { type: 'error' }); return; }
@@ -263,6 +266,7 @@ function PurchasesPage() {
       const { promptDialog } = await import('../utils/dialogs');
       let remark = await promptDialog('Enter reason for rejection (required)');
       if (!remark || !String(remark).trim()) { toast.show('Remark is required', { type: 'error' }); return; }
+      setBusyId(id);
       if (!navigator.onLine) {
         await enqueueHttp({ collection: 'purchaserequests', label: 'Purchase reject', path: '/api/purchases/reject', method: 'POST', body: { id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark } });
       } else {
@@ -272,7 +276,7 @@ function PurchasesPage() {
       toast.show('Purchase rejected', { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to reject'), { type: 'error' });
-    }
+    } finally { setBusyId(null); }
   }
 
   return (
@@ -395,8 +399,8 @@ function PurchasesPage() {
                     <td>
                       {r.status === 'pending_approval' ? (
                         <>
-                          <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); approve(r); }} disabled={!canApprove}>Approve</button>
-                          <button className="btn" onClick={(e) => { e.stopPropagation(); reject(r); }} style={{ marginLeft: 6 }} disabled={!canApprove}>Reject</button>
+                          <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); approve(r); }} disabled={!canApprove || busyId === (r._id || r.clientId)}>{busyId === (r._id || r.clientId) ? 'Working…' : 'Approve'}</button>
+                          <button className="btn" onClick={(e) => { e.stopPropagation(); reject(r); }} style={{ marginLeft: 6 }} disabled={!canApprove || busyId === (r._id || r.clientId)}>{busyId === (r._id || r.clientId) ? 'Working…' : 'Reject'}</button>
                         </>
                       ) : (
                         <span style={{ color: r.status === 'approved' ? '#10b981' : '#ef4444', fontWeight: 600 }}>{r.status}</span>
@@ -481,7 +485,7 @@ function PurchasesPage() {
               const d = e.details || {};
               const branchName = byId.get(e.branchId) || e.branchId || '—';
               return (
-                <tr key={e.id} style={{ borderTop: '1px solid #e2e8f0' }}>
+                <tr key={e.id} style={{ borderTop: '1px solid #e2e8f0', cursor: 'pointer' }} onClick={() => setAuditDetail(e)}>
                   <td>{new Date(e.ts).toLocaleString()}</td>
                   <td>{e.actor}</td>
                   <td>{d.product || '—'}</td>
@@ -517,6 +521,22 @@ function PurchasesPage() {
           </label>
         </div>
       </div>
+      {auditDetail && (
+        <Modal title="Purchase Record" onClose={() => setAuditDetail(null)}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div><div style={{ color: '#64748b' }}>Timestamp</div><div>{auditDetail.ts ? new Date(auditDetail.ts).toLocaleString() : '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Actor</div><div>{auditDetail.actor || '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Product</div><div>{(auditDetail.details || {}).product || '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Branch</div><div>{byId.get(auditDetail.branchId) || auditDetail.branchId || '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Qty</div><div>{(auditDetail.details || {}).qty ?? '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Pack</div><div>{(auditDetail.details || {}).pack || 'Base Unit'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Base Units</div><div>{(auditDetail.details || {}).baseUnits ?? '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Supplier</div><div>{(auditDetail.details || {}).supplier || '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Cost</div><div>{Number.isFinite(Number((auditDetail.details || {}).cost)) ? formatCurrency(Number((auditDetail.details || {}).cost), settings) : '—'}</div></div>
+            <div style={{ gridColumn: '1 / -1' }}><div style={{ color: '#64748b' }}>Remark</div><div>{auditDetail.remark || '—'}</div></div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import sessionsReducer from './sessionsSlice';
 import auditReducer from './auditSlice';
 import refundsReducer from './refundsSlice';
 import purchasesReducer from './purchasesSlice';
+import transfersReducer from './transfersSlice';
 import offlineQueueReducer from './offlineQueueSlice';
 import { loadState, saveState } from './persist';
 import invoicesReducer from './invoicesSlice';
@@ -32,6 +33,7 @@ const store = configureStore({
     sessions: sessionsReducer,
     refunds: refundsReducer,
     purchases: purchasesReducer,
+    transfers: transfersReducer,
     offlineQueue: offlineQueueReducer,
     invoices: invoicesReducer
   },

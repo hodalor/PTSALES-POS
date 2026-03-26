@@ -3,12 +3,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { adjustStock } from '../store/productsSlice';
 import { useToast } from '../components/ToastProvider';
 import BranchSelect from '../components/BranchSelect';
-import { addAudit } from '../store/auditSlice';
 import { promptDialog } from '../utils/dialogs';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
-import * as stockApi from '../api/stock';
+import * as transfersApi from '../api/transfers';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
+import Modal from '../components/Modal';
+import { approveTransfer, createTransferRequest, rejectTransfer, setTransferRequests } from '../store/transfersSlice';
 
 function TransfersPage() {
   const products = useSelector(s => s.products.products);
@@ -30,6 +31,13 @@ function TransfersPage() {
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [tab, setTab] = useState('initiate');
+  const [openModal, setOpenModal] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('pending');
+  const [detail, setDetail] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [auditDetail, setAuditDetail] = useState(null);
   const dispatch = useDispatch();
   const toast = useToast();
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
@@ -45,6 +53,7 @@ function TransfersPage() {
     return grants.includes(g);
   }
   const canTransfer = (['admin','manager','inventory staff'].includes(roleLower)) || has('add_transfers');
+  const canApprove = (['admin','manager','superadmin'].includes(roleLower)) || has('approve_transfers');
   const assigned = auth.user?.assignedBranches || 'all';
   const branchOptions = useMemo(() => {
     if (roleLower === 'superadmin' || roleLower === 'admin' || assigned === 'all') return branches;
@@ -102,14 +111,8 @@ function TransfersPage() {
   async function transfer() {
     if (saving) return;
     if (!canTransfer) {
-      toast.show('Not authorized to transfer stock', { type: 'error' });
+      toast.show('Not authorized to initiate transfer', { type: 'error' });
       return;
-    }
-    if (!navigator.onLine) {
-      if (!offlineBackupAllowed) {
-        toast.show('Offline: cannot sync transfer to server', { type: 'error' });
-        return;
-      }
     }
     if (!productId || !fromId || !toId || fromId === toId || qty <= 0) {
       toast.show('Check product, branches and quantity', { type: 'error' });
@@ -120,20 +123,27 @@ function TransfersPage() {
       toast.show('Remark is required for transfers', { type: 'error' });
       return;
     }
-    const prod = products.find(p => p.id === productId);
     setSaving(true);
+    const clientId = `transfer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const payload = {
       productId,
       from: fromId,
       to: toId,
       qty: Number(qty),
-      actor: auth.user?.name || 'unknown',
       remark,
-      variantId: variantId || undefined
+      variantId: variantId || undefined,
+      initiatorName: auth.user?.name || 'unknown',
+      initiatorRole: auth.role || '',
+      clientId
     };
     if (!navigator.onLine) {
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: cannot submit transfer request', { type: 'error' });
+        setSaving(false);
+        return;
+      }
       try {
-        await enqueueHttp({ collection: 'audits', label: 'Stock transfer', path: '/api/stock/transfer', method: 'POST', body: payload });
+        await enqueueHttp({ collection: 'transferrequests', label: 'Transfer request', path: '/api/transfers/requests', method: 'POST', body: payload });
       } catch (e) {
         toast.show(String(e?.message || 'Failed to save offline'), { type: 'error' });
         setSaving(false);
@@ -141,55 +151,211 @@ function TransfersPage() {
       }
     } else {
       try {
-        await stockApi.transfer(payload);
+        await transfersApi.createRequest(payload);
       } catch (e) {
-        toast.show(String(e?.message || 'Failed to sync transfer to server'), { type: 'error' });
+        toast.show(String(e?.message || 'Failed to submit request'), { type: 'error' });
         setSaving(false);
         return;
       }
     }
-    dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId: fromId, delta: -Number(qty) }));
-    dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId: toId, delta: Number(qty) }));
-    dispatch(addAudit({
-      actor: auth.user?.name || 'unknown',
-      actionType: 'stock_transfer',
-      details: { product: prod?.name || productId, variant: (prod?.variants || []).find(v => v.id === variantId)?.label || '', from: fromId, to: toId, qty: Number(qty) },
+    dispatch(createTransferRequest({
+      productId,
+      variantId: variantId || null,
+      from: fromId,
+      to: toId,
+      qty: Number(qty),
       remark,
-      branchId: fromId,
-      offline: !navigator.onLine
+      initiatorName: auth.user?.name || 'unknown',
+      initiatorRole: auth.role || '',
+      status: 'pending_approval',
+      clientId,
+      created_at: new Date().toISOString()
     }));
     setQty(1);
     setVariantId('');
-    toast.show(navigator.onLine ? 'Transfer recorded' : 'Saved offline. Will backup when online.', { type: 'success' });
+    toast.show(navigator.onLine ? 'Transfer request submitted for approval' : 'Saved offline. Will sync when online.', { type: 'success' });
     setSaving(false);
+  }
+
+  const requests = useSelector(s => s.transfers?.requests || []);
+  const allowedBranches = useMemo(() => {
+    if (roleLower === 'superadmin' || roleLower === 'admin' || assigned === 'all') return null;
+    return new Set(Array.isArray(assigned) ? assigned : [assigned]);
+  }, [roleLower, assigned]);
+  const pendingRequests = useMemo(() => {
+    return requests.filter(r => {
+      const s = r.status === 'pending_approval' ? 'pending' : r.status;
+      if (s !== statusFilter) return false;
+      if (allowedBranches && !allowedBranches.has(r.to)) return false;
+      return true;
+    });
+  }, [requests, statusFilter, allowedBranches]);
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      if (tab !== 'approvals') return;
+      setLoading(true);
+      try {
+        const rows = await transfersApi.listRequests({ status: statusFilter, limit: 200 });
+        if (alive && Array.isArray(rows)) {
+          dispatch(setTransferRequests(rows));
+        }
+      } catch {}
+      if (alive) setLoading(false);
+    }
+    load();
+    return () => { alive = false; };
+  }, [tab, statusFilter, dispatch]);
+
+  async function approve(r) {
+    if (!canApprove) { toast.show('Not authorized to approve transfers', { type: 'error' }); return; }
+    const id = r._id || r.clientId;
+    try {
+      const remark = await promptDialog('Enter remark for approval (required)');
+      if (!remark || !String(remark).trim()) { toast.show('Remark is required', { type: 'error' }); return; }
+      setBusyId(id);
+      if (!navigator.onLine) {
+        await enqueueHttp({ collection: 'transferrequests', label: 'Transfer approve', path: '/api/transfers/approve', method: 'POST', body: { id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark } });
+      } else {
+        await transfersApi.approve({ id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark });
+      }
+      dispatch(approveTransfer({ id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark }));
+      dispatch(adjustStock({ productId: r.productId, variantId: r.variantId || undefined, branchId: r.from, delta: -Number(r.qty || 0) }));
+      dispatch(adjustStock({ productId: r.productId, variantId: r.variantId || undefined, branchId: r.to, delta: Number(r.qty || 0) }));
+      toast.show('Transfer approved and stock updated', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to approve'), { type: 'error' });
+    } finally { setBusyId(null); }
+  }
+  async function reject(r) {
+    if (!canApprove) { toast.show('Not authorized to reject transfers', { type: 'error' }); return; }
+    const id = r._id || r.clientId;
+    try {
+      const remark = await promptDialog('Enter reason for rejection (required)');
+      if (!remark || !String(remark).trim()) { toast.show('Remark is required', { type: 'error' }); return; }
+      setBusyId(id);
+      if (!navigator.onLine) {
+        await enqueueHttp({ collection: 'transferrequests', label: 'Transfer reject', path: '/api/transfers/reject', method: 'POST', body: { id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark } });
+      } else {
+        await transfersApi.reject({ id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark });
+      }
+      dispatch(rejectTransfer({ id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark }));
+      toast.show('Transfer rejected', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to reject'), { type: 'error' });
+    } finally { setBusyId(null); }
   }
 
   return (
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <h1 style={{ margin: 0 }}>Transfers</h1>
-        <OfflineQueueIndicator collection="audits" label="Stock queued" />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {tab === 'initiate' && (
+            <button className="btn btn-primary" onClick={() => setOpenModal(true)}>
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2"/></svg>
+              Add Transfer
+            </button>
+          )}
+          <OfflineQueueIndicator collection="transferrequests" label="Transfers queued" />
+        </div>
       </div>
-      <div className="card" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <select className="select" value={productId} onChange={e => { setProductId(e.target.value); setVariantId(''); }}>
-          {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        {(products.find(p => p.id === productId)?.variants || []).length > 0 && (
-          <select className="select" value={variantId} onChange={e => setVariantId(e.target.value)} style={{ minWidth: 180 }}>
-            <option value="">Base</option>
-            {(products.find(p => p.id === productId)?.variants || []).map(v => (
-              <option key={v.id} value={v.id}>{v.label}</option>
-            ))}
-          </select>
-        )}
-        <BranchSelect value={fromId} onChange={setFromId} />
-        <BranchSelect value={toId} onChange={setToId} />
-        <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} style={{ width: 120 }} />
-        <button className="btn btn-primary" onClick={transfer} disabled={!canTransfer || saving}>
-          <svg viewBox="0 0 24 24" fill="none"><path d="M7 7h10M7 17h10M7 7l-3 3m3-3l-3-3M17 17l3 3m-3-3l3-3" stroke="currentColor" strokeWidth="2"/></svg>
-          {saving ? 'Saving…' : 'Transfer'}
-        </button>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        <button className={tab === 'initiate' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('initiate')}>Initiate</button>
+        <button className={tab === 'approvals' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('approvals')} disabled={!canApprove}>Approvals</button>
       </div>
+      {openModal && (
+        <Modal title="Add Transfer" onClose={() => setOpenModal(false)} footer={
+          <>
+            <button className="btn" onClick={() => setOpenModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={async () => { await transfer(); setOpenModal(false); }} disabled={!canTransfer || saving}>
+              <svg viewBox="0 0 24 24" fill="none"><path d="M7 7h10M7 17h10M7 7l-3 3m3-3l-3-3M17 17l3 3m-3-3l3-3" stroke="currentColor" strokeWidth="2"/></svg>
+              {saving ? 'Saving…' : 'Submit For Approval'}
+            </button>
+          </>
+        }>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Product</div>
+              <select className="select" value={productId} onChange={e => { setProductId(e.target.value); setVariantId(''); }}>
+                {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+            {(products.find(p => p.id === productId)?.variants || []).length > 0 && (
+              <label>
+                <div style={{ marginBottom: 6, color: '#64748b' }}>Variant</div>
+                <select className="select" value={variantId} onChange={e => setVariantId(e.target.value)} style={{ minWidth: 180 }}>
+                  <option value="">Base</option>
+                  {(products.find(p => p.id === productId)?.variants || []).map(v => (
+                    <option key={v.id} value={v.id}>{v.label}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>From</div>
+              <BranchSelect value={fromId} onChange={setFromId} />
+            </label>
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>To</div>
+              <BranchSelect value={toId} onChange={setToId} />
+            </label>
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Quantity</div>
+              <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} />
+            </label>
+          </div>
+        </Modal>
+      )}
+      {tab === 'approvals' && (
+        <div className="card" style={{ marginTop: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 className="section-title" style={{ marginBottom: 8 }}>Approvals</h2>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className={statusFilter === 'pending' ? 'btn btn-primary' : 'btn'} onClick={() => setStatusFilter('pending')}>Pending</button>
+              <button className={statusFilter === 'approved' ? 'btn btn-primary' : 'btn'} onClick={() => setStatusFilter('approved')}>Approved</button>
+              <button className={statusFilter === 'rejected' ? 'btn btn-primary' : 'btn'} onClick={() => setStatusFilter('rejected')}>Rejected</button>
+            </div>
+          </div>
+          <table className="table">
+            <thead>
+              <tr>
+                <th align="left">Product</th>
+                <th align="left">From</th>
+                <th align="left">To</th>
+                <th align="left">Qty</th>
+                <th align="left"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && <tr><td colSpan="5" style={{ padding: 12, color: '#64748b' }}>Loading…</td></tr>}
+              {!loading && pendingRequests.map(r => {
+                const p = products.find(x => x.id === r.productId);
+                return (
+                  <tr key={r._id || r.clientId} style={{ borderTop: '1px solid #e2e8f0', cursor: 'pointer' }} onClick={() => setDetail(r)}>
+                    <td>{p?.name || r.productId}</td>
+                    <td>{byId.get(r.from) || r.from}</td>
+                    <td>{byId.get(r.to) || r.to}</td>
+                    <td>{r.qty}</td>
+                    <td>
+                      {r.status === 'pending_approval' ? (
+                        <>
+                          <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); approve(r); }} disabled={!canApprove || busyId === (r._id || r.clientId)}>{busyId === (r._id || r.clientId) ? 'Working…' : 'Approve'}</button>
+                          <button className="btn" onClick={(e) => { e.stopPropagation(); reject(r); }} style={{ marginLeft: 6 }} disabled={!canApprove || busyId === (r._id || r.clientId)}>{busyId === (r._id || r.clientId) ? 'Working…' : 'Reject'}</button>
+                        </>
+                      ) : (
+                        <span style={{ color: r.status === 'approved' ? '#10b981' : '#ef4444', fontWeight: 600 }}>{r.status}</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!loading && pendingRequests.length === 0 && <tr><td colSpan="5" style={{ padding: 12, color: '#64748b' }}>No items</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="card" style={{ marginTop: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8, marginBottom: 8 }}>
           <label>
@@ -244,7 +410,7 @@ function TransfersPage() {
               const fromName = byId.get(d.from) || d.from || '—';
               const toName = byId.get(d.to) || d.to || '—';
               return (
-                <tr key={e.id} style={{ borderTop: '1px solid #e2e8f0' }}>
+                <tr key={e.id} style={{ borderTop: '1px solid #e2e8f0', cursor: 'pointer' }} onClick={() => setAuditDetail(e)}>
                   <td>{new Date(e.ts).toLocaleString()}</td>
                   <td>{e.actor}</td>
                   <td>{d.product || '—'}</td>
@@ -276,6 +442,39 @@ function TransfersPage() {
           </label>
         </div>
       </div>
+      {detail && (
+        <Modal title="Transfer Details" onClose={() => setDetail(null)}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div><div style={{ color: '#64748b' }}>Status</div><div>{detail.status}</div></div>
+            <div><div style={{ color: '#64748b' }}>Product</div><div>{products.find(p => p.id === detail.productId)?.name || detail.productId}</div></div>
+            {detail.variantId ? <div><div style={{ color: '#64748b' }}>Variant</div><div>{(products.find(p => p.id === detail.productId)?.variants || []).find(v => v.id === detail.variantId)?.label || detail.variantId}</div></div> : null}
+            <div><div style={{ color: '#64748b' }}>From</div><div>{byId.get(detail.from) || detail.from}</div></div>
+            <div><div style={{ color: '#64748b' }}>To</div><div>{byId.get(detail.to) || detail.to}</div></div>
+            <div><div style={{ color: '#64748b' }}>Qty</div><div>{detail.qty}</div></div>
+            <div><div style={{ color: '#64748b' }}>Initiator</div><div>{detail.initiatorName} {detail.initiatorRole ? `(${detail.initiatorRole})` : ''}</div></div>
+            <div><div style={{ color: '#64748b' }}>Initiation Remark</div><div>{detail.remark || '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Approver</div><div>{detail.approverName ? `${detail.approverName}${detail.approverRole ? ` (${detail.approverRole})` : ''}` : '—'}</div></div>
+            {detail.status === 'approved' && <div><div style={{ color: '#64748b' }}>Approval Remark</div><div>{detail.approvalRemark || '—'}</div></div>}
+            {detail.status === 'rejected' && <div><div style={{ color: '#64748b' }}>Rejection Remark</div><div>{detail.rejectionRemark || '—'}</div></div>}
+            <div><div style={{ color: '#64748b' }}>Created</div><div>{detail.createdAt ? new Date(detail.createdAt).toLocaleString() : '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Updated</div><div>{detail.updatedAt ? new Date(detail.updatedAt).toLocaleString() : '—'}</div></div>
+          </div>
+        </Modal>
+      )}
+      {auditDetail && (
+        <Modal title="Transfer Record" onClose={() => setAuditDetail(null)}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div><div style={{ color: '#64748b' }}>Timestamp</div><div>{auditDetail.ts ? new Date(auditDetail.ts).toLocaleString() : '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Actor</div><div>{auditDetail.actor || '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Product</div><div>{(auditDetail.details || {}).product || '—'}</div></div>
+            {(auditDetail.details || {}).variant ? <div><div style={{ color: '#64748b' }}>Variant</div><div>{(auditDetail.details || {}).variant}</div></div> : null}
+            <div><div style={{ color: '#64748b' }}>From</div><div>{byId.get((auditDetail.details || {}).from) || (auditDetail.details || {}).from || '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>To</div><div>{byId.get((auditDetail.details || {}).to) || (auditDetail.details || {}).to || '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Qty</div><div>{(auditDetail.details || {}).qty ?? '—'}</div></div>
+            <div style={{ gridColumn: '1 / -1' }}><div style={{ color: '#64748b' }}>Remark</div><div>{auditDetail.remark || '—'}</div></div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
