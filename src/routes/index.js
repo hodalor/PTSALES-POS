@@ -14,6 +14,7 @@ import audits from './audits.js';
 import cashsessions from './cashsessions.js';
 import expenses from './expenses.js';
 import invoices from './invoices.js';
+import purchases from './purchases.js';
 
 const router = Router();
 router.use('/products', products);
@@ -31,5 +32,6 @@ router.use('/audits', audits);
 router.use('/cashsessions', cashsessions);
 router.use('/expenses', expenses);
 router.use('/invoices', invoices);
+router.use('/purchases', purchases);
 
 export default router;
