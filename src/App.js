@@ -420,7 +420,7 @@ function App() {
             <Route path="/inventory" element={<ProtectedRoute feature="modules.inventory" roles={['Admin','Manager','Inventory Staff']} grant={['view_inventory','see_inventory']}><InventoryPage /></ProtectedRoute>} />
             <Route path="/purchases" element={<ProtectedRoute feature="modules.purchases" roles={['Admin','Manager','Inventory Staff']} grant={['view_purchases','see_purchases']}><PurchasesPage /></ProtectedRoute>} />
             <Route path="/expenses" element={<ProtectedRoute feature="modules.expenses" roles={['Admin','Manager']} grant={['view_expenses','see_expenses','add_expenses']}><ExpensesPage /></ProtectedRoute>} />
-          <Route path="/expense-approvals" element={<ProtectedRoute feature="modules.expenses" roles={['Admin','Manager','SuperAdmin']} grant={['approve_expenses']}><ExpenseApprovalsPage /></ProtectedRoute>} />
+          <Route path="/expense-approvals" element={<ProtectedRoute feature="modules.expenseApprovals" roles={['Admin','Manager','SuperAdmin']} grant={['approve_expenses']}><ExpenseApprovalsPage /></ProtectedRoute>} />
             <Route path="/transfers" element={<ProtectedRoute feature="modules.transfers" roles={['Admin','Manager','Inventory Staff']} grant={['view_transfers','see_transfers']}><TransfersPage /></ProtectedRoute>} />
             <Route path="/adjustments" element={<ProtectedRoute feature="modules.adjustments" roles={['Admin','Manager','Inventory Staff']} grant={['view_adjustments','see_adjustments']}><AdjustmentsPage /></ProtectedRoute>} />
             <Route path="/suppliers" element={<ProtectedRoute feature="modules.suppliers" roles={['Admin','Manager','Inventory Staff']} grant={['view_suppliers','see_suppliers']}><SuppliersPage /></ProtectedRoute>} />

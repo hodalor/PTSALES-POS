@@ -197,6 +197,7 @@ function AdminManualPage() {
           <li>Select Product → Variant (if any) → Branch → Delta (+/‑) → Apply with a required remark.</li>
           <li>Use for corrections, write‑offs or cycle count differences. All actions are audited.</li>
           <li>Damaged/Expired Removal: Use the dedicated removal tool to subtract a quantity with a reason; this records an audit entry and updates branch stock.</li>
+          <li>Approvals: Staff submit Adjustment Requests; Managers/Admins with the approve_adjustments grant review in the Approvals tab and Approve/Reject with a remark.</li>
         </ul>
       </Section>
 

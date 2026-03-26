@@ -10,7 +10,7 @@ export async function syncQueuedItem(item) {
     const path = String(p.path || '');
     const body = p.body;
     if (!path) throw new Error('Missing path');
-    const opts = { method };
+    const opts = { method, timeoutMs: 60000 };
     if (method !== 'GET') opts.body = JSON.stringify(body ?? {});
     await ensureOnlineJwt();
     try {

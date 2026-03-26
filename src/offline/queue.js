@@ -5,6 +5,10 @@ const STORE = 'queue';
 
 let syncing = false;
 
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
 async function getDb() {
   return openDB(DB_NAME, 1, {
     upgrade(db) {
@@ -43,14 +47,34 @@ export async function attemptSync(syncHandler) {
   syncing = true;
   try {
     const items = await getAll();
-    const results = await Promise.allSettled(
-      items.map(async item => {
-        await syncHandler(item);
+    items.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+    let allOk = true;
+    let total = items.length;
+    let failed = 0;
+    const errors = [];
+    for (const item of items) {
+      let ok = false;
+      let attempt = 0;
+      const maxAttempts = 3;
+      while (!ok && attempt < maxAttempts) {
+        try {
+          // exponential backoff: 0, 1s, 3s
+          if (attempt > 0) await sleep([0, 1000, 3000][attempt] || 5000);
+          await syncHandler(item);
+          ok = true;
+        } catch {
+          attempt += 1;
+        }
+      }
+      if (ok) {
         await remove(item.id);
-        return true;
-      })
-    );
-    return results.every(r => r.status === 'fulfilled');
+      } else {
+        allOk = false;
+        failed += 1;
+        errors.push(`Failed item id=${item.id}`);
+      }
+    }
+    return { ok: allOk, total, failed, errors };
   } finally {
     syncing = false;
   }

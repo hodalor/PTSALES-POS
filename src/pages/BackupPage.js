@@ -58,9 +58,16 @@ function BackupPage() {
     try { await ensureOnlineJwt(); } catch {}
     setLoading(true);
     try {
-      const ok = await attemptSync(syncQueuedItem);
-      if (ok) toast.show('Backup completed', { type: 'success' });
-      else toast.show('Some items failed to backup', { type: 'error' });
+      const result = await attemptSync(syncQueuedItem);
+      const ok = typeof result === 'boolean' ? result : Boolean(result?.ok);
+      if (ok) {
+        toast.show('Backup completed', { type: 'success' });
+      } else {
+        const failed = Number(result?.failed || 0);
+        const total = Number(result?.total || 0);
+        const err = Array.isArray(result?.errors) && result.errors.length > 0 ? ` • ${result.errors[0]}` : '';
+        toast.show(`Some items failed to backup (${failed}/${total})${err}`, { type: 'error' });
+      }
       try {
         await refreshAllData(dispatch);
       } catch {}

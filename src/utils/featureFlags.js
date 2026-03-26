@@ -14,6 +14,7 @@ export const FEATURE_CATALOG = [
   { key: 'modules.customers', label: 'Customers', group: 'Main Menus' },
   { key: 'modules.refunds', label: 'Refunds', group: 'Main Menus' },
   { key: 'modules.refundApprovals', label: 'Refund Approvals', group: 'Main Menus' },
+  { key: 'modules.expenseApprovals', label: 'Expense Approvals', group: 'Main Menus' },
   { key: 'modules.reports', label: 'Reports', group: 'Main Menus' },
   { key: 'modules.backup', label: 'Backup', group: 'Main Menus' },
 

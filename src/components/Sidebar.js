@@ -87,7 +87,7 @@ function Sidebar({ collapsed }) {
           <span className="sidebar-text">Expenses</span>
         </NavLink>
         )}
-        {isFeatureEnabled(settings, 'modules.expenses') && can(['Admin','Manager','SuperAdmin'],['approve_expenses']) && (
+        {isFeatureEnabled(settings, 'modules.expenses') && isFeatureEnabled(settings, 'modules.expenseApprovals') && can(['Admin','Manager','SuperAdmin'],['approve_expenses']) && (
         <NavLink to="/expense-approvals" className="sidebar-link" title="Expense Approvals">
           <svg viewBox="0 0 24 24" fill="none"><path d="M5 3h14v18H5z" stroke="currentColor" strokeWidth="2"/><path d="M9 17V9M13 17v-7M17 17v-4" stroke="currentColor" strokeWidth="2"/></svg>
           <span className="sidebar-text">Expense Approvals</span>
