@@ -7,9 +7,11 @@ import { addAudit } from '../store/auditSlice';
 import { formatCurrency } from '../utils/currency';
 import { useSelector as useReduxSelector } from 'react-redux';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
-import * as stockApi from '../api/stock';
+import * as purchasesApi from '../api/purchases';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
+import { approvePurchase, createPurchaseRequest, rejectPurchase } from '../store/purchasesSlice';
+import Modal from '../components/Modal';
 
 function PurchasesPage() {
   const products = useSelector(s => s.products.products);
@@ -34,6 +36,11 @@ function PurchasesPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState('initiate'); // initiate | approvals
+  const [openModal, setOpenModal] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('pending'); // pending | approved | rejected
+  const [detail, setDetail] = useState(null);
   const dispatch = useDispatch();
   const toast = useToast();
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
@@ -53,6 +60,7 @@ function PurchasesPage() {
     return grants.includes(g);
   }
   const canReceive = (['admin','manager','inventory staff'].includes(roleLower)) || has('add_purchases');
+  const canApprove = (['admin','manager','superadmin'].includes(roleLower)) || has('approve_purchases');
   const assigned = auth.user?.assignedBranches || 'all';
   const branchOptions = useMemo(() => {
     if (roleLower === 'superadmin' || roleLower === 'admin' || assigned === 'all') return branches;
@@ -107,12 +115,12 @@ function PurchasesPage() {
   async function receive() {
     if (saving) return;
     if (!canReceive) {
-      toast.show('Not authorized to receive stock', { type: 'error' });
+      toast.show('Not authorized to initiate purchases', { type: 'error' });
       return;
     }
     if (!navigator.onLine) {
       if (!offlineBackupAllowed) {
-        toast.show('Offline: cannot sync purchase to server', { type: 'error' });
+        toast.show('Offline: cannot submit purchase request', { type: 'error' });
         return;
       }
     }
@@ -127,6 +135,7 @@ function PurchasesPage() {
     const baseUnits = Number(qty) * factor;
     const cpu = factor > 0 ? (price / factor) : price;
     setSaving(true);
+    const clientId = `purchase-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const payload = {
       productId,
       branchId,
@@ -137,11 +146,15 @@ function PurchasesPage() {
       costPerUnit: cpu,
       expiryDate: expiryDate || undefined,
       remark: note.trim() || '',
-      variantId: variantId || undefined
+      variantId: variantId || undefined,
+      pack: pack ? pack.name : '',
+      initiatorName: auth.user?.name || 'unknown',
+      initiatorRole: auth.role || '',
+      clientId
     };
     if (!navigator.onLine) {
       try {
-        await enqueueHttp({ collection: 'audits', label: 'Stock receive', path: '/api/stock/receive', method: 'POST', body: payload });
+        await enqueueHttp({ collection: 'purchaserequests', label: 'Purchase request', path: '/api/purchases/requests', method: 'POST', body: payload });
       } catch (e) {
         toast.show(String(e?.message || 'Failed to save offline'), { type: 'error' });
         setSaving(false);
@@ -149,17 +162,33 @@ function PurchasesPage() {
       }
     } else {
       try {
-        await stockApi.receive(payload);
+        await purchasesApi.createRequest(payload);
       } catch (e) {
-        toast.show(String(e?.message || 'Failed to sync to server'), { type: 'error' });
+        toast.show(String(e?.message || 'Failed to submit request'), { type: 'error' });
         setSaving(false);
         return;
       }
     }
-    dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId, delta: baseUnits }));
+    dispatch(createPurchaseRequest({
+      productId,
+      variantId: variantId || null,
+      branchId,
+      baseUnits,
+      supplier: supplier.trim() || '',
+      cost: price,
+      costPerUnit: cpu,
+      expiryDate: expiryDate || null,
+      remark: note.trim() || '',
+      initiatorName: auth.user?.name || 'unknown',
+      initiatorRole: auth.role || '',
+      pack: pack ? pack.name : '',
+      status: 'pending_approval',
+      clientId,
+      created_at: new Date().toISOString()
+    }));
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
-      actionType: 'stock_receive',
+      actionType: 'purchase_initiated',
       details: { product: prod?.name || productId, variant: (prod?.variants || []).find(v => v.id === variantId)?.label || '', qty: Number(qty), pack: pack ? pack.name : 'Base Unit', factor, baseUnits, branchId, supplier: supplier.trim() || '', cost: price, costPerUnit: cpu, expiryDate: expiryDate || null },
       remark: note.trim() || '',
       branchId,
@@ -172,75 +201,236 @@ function PurchasesPage() {
     setCost('');
     setExpiryDate('');
     setNote('');
-    toast.show(navigator.onLine ? 'Stock received' : 'Saved offline. Will backup when online.', { type: 'success' });
+    toast.show(navigator.onLine ? 'Purchase request submitted for approval' : 'Saved offline. Will sync when online.', { type: 'success' });
     setSaving(false);
+  }
+
+  const requests = useSelector(s => s.purchases?.requests || []);
+  const allowedBranches = useMemo(() => {
+    if (roleLower === 'superadmin' || roleLower === 'admin' || assigned === 'all') return null; // null => all
+    return new Set(Array.isArray(assigned) ? assigned : [assigned]);
+  }, [roleLower, assigned]);
+  const pendingRequests = useMemo(() => {
+    return requests.filter(r => {
+      const s = r.status === 'pending_approval' ? 'pending' : r.status;
+      if (s !== statusFilter) return false;
+      if (fBranch && r.branchId !== fBranch) return false;
+      if (allowedBranches && !allowedBranches.has(r.branchId)) return false;
+      return true;
+    });
+  }, [requests, statusFilter, fBranch, allowedBranches]);
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      if (tab !== 'approvals') return;
+      setLoading(true);
+      try {
+        const rows = await purchasesApi.listRequests();
+        if (alive && Array.isArray(rows)) {
+          const { setPurchaseRequests } = await import('../store/purchasesSlice');
+          dispatch(setPurchaseRequests(rows));
+        }
+      } catch {}
+      if (alive) setLoading(false);
+    }
+    load();
+    return () => { alive = false; };
+  }, [tab, fBranch, dispatch]);
+  async function approve(r) {
+    if (!canApprove) { toast.show('Not authorized to approve purchases', { type: 'error' }); return; }
+    const id = r._id || r.clientId;
+    try {
+      const { promptDialog } = await import('../utils/dialogs');
+      let remark = await promptDialog('Enter remark for approval (required)');
+      if (!remark || !String(remark).trim()) { toast.show('Remark is required', { type: 'error' }); return; }
+      if (!navigator.onLine) {
+        await enqueueHttp({ collection: 'purchaserequests', label: 'Purchase approve', path: '/api/purchases/approve', method: 'POST', body: { id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark } });
+      } else {
+        await purchasesApi.approve({ id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark });
+      }
+      dispatch(approvePurchase({ id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark }));
+      dispatch(adjustStock({ productId: r.productId, variantId: r.variantId || undefined, branchId: r.branchId, delta: Number(r.baseUnits || 0) }));
+      toast.show('Purchase approved and stock updated', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to approve'), { type: 'error' });
+    }
+  }
+  async function reject(r) {
+    if (!canApprove) { toast.show('Not authorized to reject purchases', { type: 'error' }); return; }
+    const id = r._id || r.clientId;
+    try {
+      const { promptDialog } = await import('../utils/dialogs');
+      let remark = await promptDialog('Enter reason for rejection (required)');
+      if (!remark || !String(remark).trim()) { toast.show('Remark is required', { type: 'error' }); return; }
+      if (!navigator.onLine) {
+        await enqueueHttp({ collection: 'purchaserequests', label: 'Purchase reject', path: '/api/purchases/reject', method: 'POST', body: { id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark } });
+      } else {
+        await purchasesApi.reject({ id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark });
+      }
+      dispatch(rejectPurchase({ id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark }));
+      toast.show('Purchase rejected', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to reject'), { type: 'error' });
+    }
   }
 
   return (
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <h1 style={{ margin: 0 }}>Purchases (Receive Stock)</h1>
-        <OfflineQueueIndicator collection="audits" label="Stock queued" />
-      </div>
-      <div className="card" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: 8, alignItems: 'end' }}>
-        <label>
-          <div style={{ marginBottom: 6, color: '#64748b' }}>Product</div>
-          <select className="select" value={productId} onChange={e => { setProductId(e.target.value); setPackName(''); setVariantId(''); }} style={{ display: 'block', width: '100%' }}>
-            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </label>
-        {(products.find(p => p.id === productId)?.variants || []).length > 0 && (
-          <label>
-            <div style={{ marginBottom: 6, color: '#64748b' }}>Variant</div>
-            <select className="select" value={variantId} onChange={e => setVariantId(e.target.value)}>
-              <option value="">None (base)</option>
-              {(products.find(p => p.id === productId)?.variants || []).map(v => (
-                <option key={v.id} value={v.id}>{v.label}</option>
-              ))}
-            </select>
-          </label>
-        )}
-        <label>
-          <div style={{ marginBottom: 6, color: '#64748b' }}>Pack</div>
-          <select className="select" value={packName} onChange={e => setPackName(e.target.value)}>
-            <option value="">Base Unit</option>
-            {(products.find(p => p.id === productId)?.packs || []).map(pk => (
-              <option key={pk.name} value={pk.name}>{pk.name} = {pk.quantity} units</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <div style={{ marginBottom: 6, color: '#64748b' }}>Branch</div>
-          <BranchSelect value={branchId} onChange={setBranchId} />
-        </label>
-        <label>
-          <div style={{ marginBottom: 6, color: '#64748b' }}>Quantity</div>
-          <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} />
-        </label>
-        <label>
-          <div style={{ marginBottom: 6, color: '#64748b' }}>Supplier</div>
-          <input className="input" placeholder="e.g., FreshCo" value={supplier} onChange={e => setSupplier(e.target.value)} list="suppliers-list" />
-          <SuppliersDatalist />
-        </label>
-        <label>
-          <div style={{ marginBottom: 6, color: '#64748b' }}>Cost Price</div>
-          <input className="input" type="number" min="0" step="0.01" placeholder="0.00" value={cost} onChange={e => setCost(e.target.value)} />
-        </label>
-        <label>
-          <div style={{ marginBottom: 6, color: '#64748b' }}>Expiry Date</div>
-          <input className="input" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} />
-        </label>
-        <label style={{ gridColumn: '1 / span 4' }}>
-          <div style={{ marginBottom: 6, color: '#64748b' }}>Remark</div>
-          <input className="input" placeholder="Optional note" value={note} onChange={e => setNote(e.target.value)} />
-        </label>
-        <div>
-          <button className="btn btn-primary" onClick={receive} style={{ marginTop: 6 }} disabled={!canReceive || saving}>
-            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12M7 10l5 5 5-5" stroke="currentColor" strokeWidth="2"/><path d="M5 19h14" stroke="currentColor" strokeWidth="2"/></svg>
-            {saving ? 'Saving…' : 'Receive'}
+        <h1 style={{ margin: 0 }}>Purchases</h1>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {tab === 'initiate' && (
+          <button className="btn btn-primary" onClick={() => { setOpenModal(true); }}>
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2"/></svg>
+            Add Purchase
           </button>
+          )}
+          <OfflineQueueIndicator collection="purchaserequests" label="Purchases queued" />
+          <OfflineQueueIndicator collection="audits" label="Stock queued" />
         </div>
       </div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        <button className={tab === 'initiate' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('initiate')}>Initiate</button>
+        <button className={tab === 'approvals' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('approvals')} disabled={!canApprove}>Approvals</button>
+      </div>
+      {openModal && (
+        <Modal title="Add Purchase" onClose={() => setOpenModal(false)} footer={
+          <>
+            <button className="btn" onClick={() => setOpenModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={async () => { await receive(); setOpenModal(false); }} disabled={!canReceive || saving}>
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12M7 10l5 5 5-5" stroke="currentColor" strokeWidth="2"/><path d="M5 19h14" stroke="currentColor" strokeWidth="2"/></svg>
+              {saving ? 'Saving…' : 'Submit For Approval'}
+            </button>
+          </>
+        }>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Product</div>
+              <select className="select" value={productId} onChange={e => { setProductId(e.target.value); setPackName(''); setVariantId(''); }} style={{ display: 'block', width: '100%' }}>
+                {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Branch</div>
+              <BranchSelect value={branchId} onChange={setBranchId} />
+            </label>
+            {(products.find(p => p.id === productId)?.variants || []).length > 0 && (
+              <label>
+                <div style={{ marginBottom: 6, color: '#64748b' }}>Variant</div>
+                <select className="select" value={variantId} onChange={e => setVariantId(e.target.value)}>
+                  <option value="">None (base)</option>
+                  {(products.find(p => p.id === productId)?.variants || []).map(v => (
+                    <option key={v.id} value={v.id}>{v.label}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Pack</div>
+              <select className="select" value={packName} onChange={e => setPackName(e.target.value)}>
+                <option value="">Base Unit</option>
+                {(products.find(p => p.id === productId)?.packs || []).map(pk => (
+                  <option key={pk.name} value={pk.name}>{pk.name} = {pk.quantity} units</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Quantity</div>
+              <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} />
+            </label>
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Supplier</div>
+              <input className="input" placeholder="e.g., FreshCo" value={supplier} onChange={e => setSupplier(e.target.value)} list="suppliers-list" />
+              <SuppliersDatalist />
+            </label>
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Cost Price</div>
+              <input className="input" type="number" min="0" step="0.01" placeholder="0.00" value={cost} onChange={e => setCost(e.target.value)} />
+            </label>
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Expiry Date</div>
+              <input className="input" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} />
+            </label>
+            <label style={{ gridColumn: '1 / -1' }}>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Remark</div>
+              <input className="input" placeholder="Optional note" value={note} onChange={e => setNote(e.target.value)} />
+            </label>
+          </div>
+        </Modal>
+      )}
+      {tab === 'approvals' && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 className="section-title" style={{ marginBottom: 8 }}>Approvals</h2>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className={statusFilter === 'pending' ? 'btn btn-primary' : 'btn'} onClick={() => setStatusFilter('pending')}>Pending</button>
+              <button className={statusFilter === 'approved' ? 'btn btn-primary' : 'btn'} onClick={() => setStatusFilter('approved')}>Approved</button>
+              <button className={statusFilter === 'rejected' ? 'btn btn-primary' : 'btn'} onClick={() => setStatusFilter('rejected')}>Rejected</button>
+            </div>
+          </div>
+          <table className="table">
+            <thead>
+              <tr>
+                <th align="left">Product</th>
+                <th align="left">Branch</th>
+                <th align="left">Base Units</th>
+                <th align="left">Supplier</th>
+                <th align="left">Cost</th>
+                <th align="left"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && <tr><td colSpan="6" style={{ padding: 12, color: '#64748b' }}>Loading…</td></tr>}
+              {!loading && pendingRequests.map(r => {
+                const p = products.find(x => x.id === r.productId);
+                const branchName = byId.get(r.branchId) || r.branchId;
+                return (
+                  <tr key={r._id || r.clientId} style={{ borderTop: '1px solid #e2e8f0', cursor: 'pointer' }} onClick={() => setDetail(r)}>
+                    <td>{p?.name || r.productId}</td>
+                    <td>{branchName}</td>
+                    <td>{r.baseUnits}</td>
+                    <td>{r.supplier || '—'}</td>
+                    <td>{Number.isFinite(Number(r.cost)) ? formatCurrency(Number(r.cost), settings) : '—'}</td>
+                    <td>
+                      {r.status === 'pending_approval' ? (
+                        <>
+                          <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); approve(r); }} disabled={!canApprove}>Approve</button>
+                          <button className="btn" onClick={(e) => { e.stopPropagation(); reject(r); }} style={{ marginLeft: 6 }} disabled={!canApprove}>Reject</button>
+                        </>
+                      ) : (
+                        <span style={{ color: r.status === 'approved' ? '#10b981' : '#ef4444', fontWeight: 600 }}>{r.status}</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!loading && pendingRequests.length === 0 && <tr><td colSpan="6" style={{ padding: 12, color: '#64748b' }}>No items</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {detail && (
+        <Modal title="Purchase Details" onClose={() => setDetail(null)}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div><div style={{ color: '#64748b' }}>Status</div><div>{detail.status}</div></div>
+            <div><div style={{ color: '#64748b' }}>Branch</div><div>{byId.get(detail.branchId) || detail.branchId}</div></div>
+            <div><div style={{ color: '#64748b' }}>Product</div><div>{products.find(p => p.id === detail.productId)?.name || detail.productId}</div></div>
+            {detail.variantId ? <div><div style={{ color: '#64748b' }}>Variant</div><div>{(products.find(p => p.id === detail.productId)?.variants || []).find(v => v.id === detail.variantId)?.label || detail.variantId}</div></div> : null}
+            <div><div style={{ color: '#64748b' }}>Base Units</div><div>{detail.baseUnits}</div></div>
+            <div><div style={{ color: '#64748b' }}>Pack</div><div>{detail.pack || 'Base Unit'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Supplier</div><div>{detail.supplier || '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Cost</div><div>{Number.isFinite(Number(detail.cost)) ? formatCurrency(Number(detail.cost), settings) : '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Initiator</div><div>{detail.initiatorName} {detail.initiatorRole ? `(${detail.initiatorRole})` : ''}</div></div>
+            <div><div style={{ color: '#64748b' }}>Initiation Remark</div><div>{detail.remark || '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Approver</div><div>{detail.approverName ? `${detail.approverName}${detail.approverRole ? ` (${detail.approverRole})` : ''}` : '—'}</div></div>
+            {detail.status === 'approved' && <div><div style={{ color: '#64748b' }}>Approval Remark</div><div>{detail.approvalRemark || '—'}</div></div>}
+            {detail.status === 'rejected' && <div><div style={{ color: '#64748b' }}>Rejection Remark</div><div>{detail.rejectionRemark || '—'}</div></div>}
+            <div><div style={{ color: '#64748b' }}>Created</div><div>{detail.createdAt ? new Date(detail.createdAt).toLocaleString() : '—'}</div></div>
+            <div><div style={{ color: '#64748b' }}>Updated</div><div>{detail.updatedAt ? new Date(detail.updatedAt).toLocaleString() : '—'}</div></div>
+          </div>
+        </Modal>
+      )}
       <div className="card" style={{ marginTop: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr) auto', gap: 8, marginBottom: 8 }}>
           <label>

@@ -18,6 +18,7 @@ import { setSuppliers } from './store/suppliersSlice';
 import { setCustomers } from './store/customersSlice';
 import { setBranches } from './store/branchesSlice';
 import * as refundsApi from './api/refunds';
+import * as purchasesApi from './api/purchases';
 import * as salesApi from './api/sales';
 import { setRequests } from './store/refundsSlice';
 import { setSales } from './store/salesSlice';
@@ -254,7 +255,7 @@ function App() {
     (async () => {
       if (!isAuthed) return;
       try {
-        const [p, s, c, b, r, sl, u, au, invs] = await Promise.allSettled([
+        const [p, s, c, b, r, sl, u, au, invs, pr] = await Promise.allSettled([
           productsApi.list(),
           suppliersApi.list(),
           customersApi.list(),
@@ -263,7 +264,8 @@ function App() {
           salesApi.list(),
           usersApi.list(),
           auditsApi.list(),
-          invoicesApi.list()
+          invoicesApi.list(),
+          purchasesApi.listRequests()
         ]);
         if (alive && p.status === 'fulfilled' && Array.isArray(p.value)) dispatch(setProducts(p.value));
         if (alive && s.status === 'fulfilled' && Array.isArray(s.value)) dispatch(setSuppliers(s.value));
@@ -274,6 +276,10 @@ function App() {
         if (alive && u.status === 'fulfilled' && Array.isArray(u.value)) dispatch(setUsers(u.value));
         if (alive && au.status === 'fulfilled' && Array.isArray(au.value) && au.value.length > 0) dispatch(setAuditEntries(au.value));
         if (alive && invs.status === 'fulfilled' && Array.isArray(invs.value)) dispatch(setInvoices(invs.value));
+        if (alive && pr.status === 'fulfilled' && Array.isArray(pr.value)) {
+          const { setPurchaseRequests } = await import('./store/purchasesSlice');
+          dispatch(setPurchaseRequests(pr.value));
+        }
       } catch {}
     })();
     return () => { alive = false; };
@@ -320,7 +326,7 @@ function App() {
         return;
       }
       try {
-        const [p, s, c, b, r, sl, u, au, invs] = await Promise.allSettled([
+        const [p, s, c, b, r, sl, u, au, invs, pr] = await Promise.allSettled([
           productsApi.list(),
           suppliersApi.list(),
           customersApi.list(),
@@ -329,7 +335,8 @@ function App() {
           salesApi.list(),
           usersApi.list(),
           auditsApi.list(),
-          invoicesApi.list()
+          invoicesApi.list(),
+          purchasesApi.listRequests()
         ]);
         if (alive && p.status === 'fulfilled' && Array.isArray(p.value)) dispatch(setProducts(p.value));
         if (alive && s.status === 'fulfilled' && Array.isArray(s.value)) dispatch(setSuppliers(s.value));
@@ -340,6 +347,10 @@ function App() {
         if (alive && u.status === 'fulfilled' && Array.isArray(u.value)) dispatch(setUsers(u.value));
         if (alive && au.status === 'fulfilled' && Array.isArray(au.value) && au.value.length > 0) dispatch(setAuditEntries(au.value));
         if (alive && invs.status === 'fulfilled' && Array.isArray(invs.value)) dispatch(setInvoices(invs.value));
+        if (alive && pr.status === 'fulfilled' && Array.isArray(pr.value)) {
+          const { setPurchaseRequests } = await import('./store/purchasesSlice');
+          dispatch(setPurchaseRequests(pr.value));
+        }
       } catch {}
     }, Math.max(10000, Number(refreshSec) * 1000));
     return () => {

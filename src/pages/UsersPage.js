@@ -18,7 +18,7 @@ const ALL_GRANTS = [
   { key: 'view_products', label: 'Products' }, { key: 'add_products', label: 'Products: Add' }, { key: 'edit_products', label: 'Products: Edit' },
   { key: 'view_inventory', label: 'Inventory' }, { key: 'edit_inventory', label: 'Inventory: Edit' },
   { key: 'view_labels', label: 'Labels' },
-  { key: 'view_purchases', label: 'Purchases' }, { key: 'add_purchases', label: 'Purchases: Add' }, { key: 'edit_purchases', label: 'Purchases: Edit' },
+  { key: 'view_purchases', label: 'Purchases' }, { key: 'add_purchases', label: 'Purchases: Add' }, { key: 'edit_purchases', label: 'Purchases: Edit' }, { key: 'approve_purchases', label: 'Purchases: Approve' },
   { key: 'view_transfers', label: 'Transfers' }, { key: 'add_transfers', label: 'Transfers: Add' }, { key: 'edit_transfers', label: 'Transfers: Edit' },
   { key: 'view_adjustments', label: 'Adjustments' }, { key: 'add_adjustments', label: 'Adjustments: Add' }, { key: 'edit_adjustments', label: 'Adjustments: Edit' },
   { key: 'view_suppliers', label: 'Suppliers' }, { key: 'add_suppliers', label: 'Suppliers: Add' }, { key: 'edit_suppliers', label: 'Suppliers: Edit' },
@@ -74,10 +74,10 @@ function UsersPage() {
     const rl = String(r || '').toLowerCase();
     if (rl === 'superadmin') return allGrantKeys.slice();
     if (rl === 'admin') return [
-      'view_dashboard','view_pos','view_sales','view_products','add_products','edit_products','view_inventory','edit_inventory','view_labels','view_purchases','add_purchases','edit_purchases','view_transfers','add_transfers','edit_transfers','view_adjustments','add_adjustments','edit_adjustments','view_suppliers','add_suppliers','edit_suppliers','view_customers','add_customers','edit_customers','view_refunds','approve_refunds','add_refunds','view_reports','view_stock_records','view_cashdrawer','view_users','view_config','view_audit'
+      'view_dashboard','view_pos','view_sales','view_products','add_products','edit_products','view_inventory','edit_inventory','view_labels','view_purchases','add_purchases','edit_purchases','approve_purchases','view_transfers','add_transfers','edit_transfers','view_adjustments','add_adjustments','edit_adjustments','view_suppliers','add_suppliers','edit_suppliers','view_customers','add_customers','edit_customers','view_refunds','approve_refunds','add_refunds','view_reports','view_stock_records','view_cashdrawer','view_users','view_config','view_audit'
     ];
     if (rl === 'manager' || rl === 'branch manager') return [
-      'view_dashboard','view_pos','view_sales','view_products','add_products','edit_products','view_inventory','edit_inventory','view_labels','view_purchases','add_purchases','edit_purchases','view_transfers','add_transfers','edit_transfers','view_adjustments','add_adjustments','edit_adjustments','view_suppliers','add_suppliers','edit_suppliers','view_customers','add_customers','edit_customers','view_refunds','approve_refunds','add_refunds','view_reports','view_cashdrawer','view_config'
+      'view_dashboard','view_pos','view_sales','view_products','add_products','edit_products','view_inventory','edit_inventory','view_labels','view_purchases','add_purchases','edit_purchases','approve_purchases','view_transfers','add_transfers','edit_transfers','view_adjustments','add_adjustments','edit_adjustments','view_suppliers','add_suppliers','edit_suppliers','view_customers','add_customers','edit_customers','view_refunds','approve_refunds','add_refunds','view_reports','view_cashdrawer','view_config'
     ];
     if (rl === 'cashier') return ['view_pos','view_sales','add_sales','view_customers','view_refunds','add_refunds','view_cashdrawer'];
     if (rl === 'inventory staff') return ['view_products','view_inventory','edit_inventory','view_labels','view_purchases','add_purchases','view_transfers','add_transfers','view_adjustments','add_adjustments','view_suppliers'];
