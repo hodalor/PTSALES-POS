@@ -1,16 +1,12 @@
 import mongoose from 'mongoose';
 
-const PurchaseRequestSchema = new mongoose.Schema({
+const TransferRequestSchema = new mongoose.Schema({
   clientId: { type: String, unique: true, sparse: true, index: true },
   productId: String,
   variantId: String,
-  branchId: String,
-  baseUnits: Number,
-  pack: String,
-  supplier: String,
-  cost: Number,
-  costPerUnit: Number,
-  expiryDate: Date,
+  from: String,
+  to: String,
+  qty: Number,
   remark: String,
   initiatorName: String,
   initiatorRole: String,
@@ -23,7 +19,7 @@ const PurchaseRequestSchema = new mongoose.Schema({
   rejected_at: Date
 }, { timestamps: true });
 
-PurchaseRequestSchema.index({ branchId: 1, status: 1, createdAt: -1 });
-PurchaseRequestSchema.index({ clientId: 1 }, { unique: true, sparse: true });
+TransferRequestSchema.index({ to: 1, status: 1, createdAt: -1 });
+TransferRequestSchema.index({ clientId: 1 }, { unique: true, sparse: true });
 
-export default mongoose.model('PurchaseRequest', PurchaseRequestSchema);
+export default mongoose.model('TransferRequest', TransferRequestSchema);

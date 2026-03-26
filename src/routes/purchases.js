@@ -29,12 +29,16 @@ function setBranchQty(mapLike, branchId, qty) {
 r.get('/requests', async (req, res) => {
   const role = String(req.user?.role || '').toLowerCase();
   const assigned = req.user?.assignedBranches ?? 'all';
-  let q = {};
+  const statusRaw = String(req.query?.status || '').trim().toLowerCase();
+  const map = { pending: 'pending_approval', approved: 'approved', rejected: 'rejected' };
+  const q = {};
+  if (map[statusRaw]) q.status = map[statusRaw];
   if (!(role === 'superadmin' || role === 'admin') && assigned !== 'all') {
     const arr = Array.isArray(assigned) ? assigned : [assigned];
     q.branchId = { $in: arr };
   }
-  const rows = await PurchaseRequest.find(q).sort({ created_at: -1 }).limit(500);
+  const limit = Math.min(1000, Math.max(20, Number(req.query?.limit || 200)));
+  const rows = await PurchaseRequest.find(q).sort({ createdAt: -1 }).limit(limit).lean();
   res.json(rows);
 });
 
