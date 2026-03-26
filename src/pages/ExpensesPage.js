@@ -6,6 +6,7 @@ import { formatCurrency } from '../utils/currency';
 import * as expensesApi from '../api/expenses';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
+import Modal from '../components/Modal';
 
 function ExpensesPage() {
   const settings = useSelector(s => s.settings);
@@ -31,6 +32,7 @@ function ExpensesPage() {
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseNote, setExpenseNote] = useState('');
   const [saving, setSaving] = useState(false);
+  const [openModal, setOpenModal] = useState(false);
 
   useEffect(() => setBranchId(currentBranchId), [currentBranchId]);
   useEffect(() => setExpenseBranchId(currentBranchId), [currentBranchId]);
@@ -88,20 +90,17 @@ function ExpensesPage() {
           toast.show('Offline: cannot save expense', { type: 'error' });
           return;
         }
-        const clientId = `offline-expense-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-        const localRow = { ...payload, id: clientId, clientId, offline: true };
-        await enqueueHttp({ collection: 'expenses', label: 'Expense', path: '/api/expenses', method: 'POST', body: { ...payload, clientId } });
-        setRows(prev => [localRow, ...prev]);
+        const clientId = `expense-req-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        await enqueueHttp({ collection: 'expenserequests', label: 'Expense request', path: '/api/expenses/requests', method: 'POST', body: { ...payload, clientId } });
         setExpenseAmount('');
         setExpenseNote('');
-        toast.show('Saved offline. Will backup when online.', { type: 'success' });
+        toast.show('Saved offline (request). Will sync when online.', { type: 'success' });
         return;
       }
-      const row = await expensesApi.create({ ...payload, clientId: crypto.randomUUID() });
-      setRows(prev => [row, ...prev]);
+      await expensesApi.createRequest({ ...payload, clientId: crypto.randomUUID() });
       setExpenseAmount('');
       setExpenseNote('');
-      toast.show('Expense saved', { type: 'success' });
+      toast.show('Expense request submitted for approval', { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to save expense'), { type: 'error' });
     } finally {
@@ -127,7 +126,12 @@ function ExpensesPage() {
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <h1 style={{ margin: 0 }}>Expenses</h1>
-        <OfflineQueueIndicator collection="expenses" label="Expenses queued" />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="btn btn-primary" onClick={() => setOpenModal(true)} disabled={!canManage}>
+            Add Expense
+          </button>
+          <OfflineQueueIndicator collection="expenserequests" label="Expenses queued" />
+        </div>
       </div>
 
       <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 12 }}>
@@ -158,36 +162,39 @@ function ExpensesPage() {
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 12 }}>
-        <h2 className="section-title">Add Expense</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, alignItems: 'end' }}>
-          <label>
-            Branch
-            <BranchSelect value={expenseBranchId} onChange={setExpenseBranchId} />
-          </label>
-          <label>
-            Date
-            <input className="input" type="date" value={expenseDate} onChange={e => setExpenseDate(e.target.value)} />
-          </label>
-          <label>
-            Category
-            <input className="input" value={expenseCategory} onChange={e => setExpenseCategory(e.target.value)} placeholder="e.g. Rent, Fuel, Salary" />
-          </label>
-          <label>
-            Amount
-            <input className="input" type="number" min="0" step="0.01" value={expenseAmount} onChange={e => setExpenseAmount(e.target.value)} />
-          </label>
-          <label style={{ gridColumn: '1 / span 3' }}>
-            Note
-            <input className="input" value={expenseNote} onChange={e => setExpenseNote(e.target.value)} placeholder="Optional note" />
-          </label>
-          <div>
-            <button className="btn btn-primary" onClick={addExpense} disabled={saving || !canManage}>
-              {saving ? 'Saving…' : 'Save Expense'}
+      {openModal && (
+        <Modal title="Submit Expense Request" onClose={() => setOpenModal(false)} footer={
+          <>
+            <button className="btn" onClick={() => setOpenModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={async () => { await addExpense(); setOpenModal(false); }} disabled={saving || !canManage}>
+              {saving ? 'Saving…' : 'Submit For Approval'}
             </button>
+          </>
+        }>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, alignItems: 'end' }}>
+            <label>
+              Branch
+              <BranchSelect value={expenseBranchId} onChange={setExpenseBranchId} />
+            </label>
+            <label>
+              Date
+              <input className="input" type="date" value={expenseDate} onChange={e => setExpenseDate(e.target.value)} />
+            </label>
+            <label>
+              Category
+              <input className="input" value={expenseCategory} onChange={e => setExpenseCategory(e.target.value)} placeholder="e.g. Rent, Fuel, Salary" />
+            </label>
+            <label>
+              Amount
+              <input className="input" type="number" min="0" step="0.01" value={expenseAmount} onChange={e => setExpenseAmount(e.target.value)} />
+            </label>
+            <label style={{ gridColumn: '1 / span 3' }}>
+              Note
+              <input className="input" value={expenseNote} onChange={e => setExpenseNote(e.target.value)} placeholder="Optional note" />
+            </label>
           </div>
-        </div>
-      </div>
+        </Modal>
+      )}
 
       <div className="card">
         <h2 className="section-title">Expense Records</h2>

@@ -3,11 +3,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { adjustStock } from '../store/productsSlice';
 import { useToast } from '../components/ToastProvider';
 import BranchSelect from '../components/BranchSelect';
-import { addAudit } from '../store/auditSlice';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
-import * as stockApi from '../api/stock';
+import * as adjustmentsApi from '../api/adjustments';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
+import Modal from '../components/Modal';
+import { promptDialog } from '../utils/dialogs';
 
 function AdjustmentsPage() {
   const products = useSelector(s => s.products.products);
@@ -22,6 +23,12 @@ function AdjustmentsPage() {
   const [delta, setDelta] = useState(0);
   const [remark, setRemark] = useState('');
   const [savingAdjust, setSavingAdjust] = useState(false);
+  const [tab, setTab] = useState('initiate');
+  const [openModal, setOpenModal] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('pending');
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState(null);
+  const [detail, setDetail] = useState(null);
   const dispatch = useDispatch();
   const toast = useToast();
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
@@ -41,6 +48,7 @@ function AdjustmentsPage() {
     return grants.includes(g);
   }
   const canAdjust = (['admin','manager','inventory staff'].includes(roleLower)) || has('add_adjustments');
+  const canApprove = (['admin','manager','superadmin'].includes(roleLower)) || has('approve_adjustments');
 
   const byId = useMemo(() => {
     const map = new Map();
@@ -119,12 +127,18 @@ function AdjustmentsPage() {
       }
       return Number((selectedProduct.stockByBranch || {})[branchId] || 0);
     })();
-    if (!navigator.onLine) {
-      if (!offlineBackupAllowed) {
-        toast.show('Offline: cannot sync adjustment to server', { type: 'error' });
-        return;
-      }
-    }
+    const clientId = `adjust-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const payload = {
+      productId,
+      branchId,
+      delta: Number(delta),
+      actor: auth.user?.name || 'unknown',
+      variantId: variantId || undefined,
+      remark,
+      initiatorName: auth.user?.name || 'unknown',
+      initiatorRole: auth.role || '',
+      clientId
+    };
     if (!productId || !branchId || delta === 0) {
       toast.show('Select product/branch and enter non-zero delta', { type: 'error' });
       return;
@@ -140,19 +154,15 @@ function AdjustmentsPage() {
       toast.show('Remark is required for adjustments', { type: 'error' });
       return;
     }
-    const prod = selectedProduct;
     setSavingAdjust(true);
-    const payload = {
-      productId,
-      branchId,
-      delta: Number(delta),
-      actor: auth.user?.name || 'unknown',
-      variantId: variantId || undefined,
-      remark
-    };
     if (!navigator.onLine) {
+      if (!offlineBackupAllowed) {
+        toast.show('Offline: cannot submit request', { type: 'error' });
+        setSavingAdjust(false);
+        return;
+      }
       try {
-        await enqueueHttp({ collection: 'audits', label: 'Stock adjust', path: '/api/stock/adjust', method: 'POST', body: payload });
+        await enqueueHttp({ collection: 'adjustmentrequests', label: 'Adjustment request', path: '/api/adjustments/requests', method: 'POST', body: payload });
       } catch (e) {
         toast.show(String(e?.message || 'Failed to save offline'), { type: 'error' });
         setSavingAdjust(false);
@@ -160,26 +170,17 @@ function AdjustmentsPage() {
       }
     } else {
       try {
-        await stockApi.adjust(payload);
+        await adjustmentsApi.createRequest(payload);
       } catch (e) {
-        toast.show(String(e?.message || 'Failed to sync adjustment to server'), { type: 'error' });
+        toast.show(String(e?.message || 'Failed to submit request'), { type: 'error' });
         setSavingAdjust(false);
         return;
       }
     }
-    dispatch(adjustStock({ productId, variantId: variantId || undefined, branchId, delta: Number(delta) }));
-    dispatch(addAudit({
-      actor: auth.user?.name || 'unknown',
-      actionType: 'stock_adjust',
-      details: { product: prod?.name || productId, variant: (prod?.variants || []).find(v => v.id === variantId)?.label || '', delta: Number(delta), branchId },
-      remark,
-      branchId,
-      offline: !navigator.onLine
-    }));
     setDelta(0);
     setVariantId('');
     setRemark('');
-    toast.show(navigator.onLine ? 'Adjustment applied' : 'Saved offline. Will backup when online.', { type: 'success' });
+    toast.show(navigator.onLine ? 'Adjustment request submitted for approval' : 'Saved offline. Will sync when online.', { type: 'success' });
     setSavingAdjust(false);
   }
 
@@ -187,41 +188,80 @@ function AdjustmentsPage() {
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <h1 style={{ margin: 0 }}>Adjustments</h1>
-        <OfflineQueueIndicator collection="audits" label="Stock queued" />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {tab === 'initiate' && (
+            <button className="btn btn-primary" onClick={() => setOpenModal(true)}>
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 6v12M6 12h12" stroke="currentColor" strokeWidth="2"/></svg>
+              Add Adjustment
+            </button>
+          )}
+          <OfflineQueueIndicator collection="adjustmentrequests" label="Adjustments queued" />
+        </div>
       </div>
-      <div className="card" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <select className="select" value={productId} onChange={e => { setProductId(e.target.value); setVariantId(''); }}>
-          {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        {(products.find(p => p.id === productId)?.variants || []).length > 0 && (
-          <select className="select" value={variantId} onChange={e => setVariantId(e.target.value)} style={{ minWidth: 180 }}>
-            <option value="">Base</option>
-            {(products.find(p => p.id === productId)?.variants || []).map(v => (
-              <option key={v.id} value={v.id}>{v.label}</option>
-            ))}
-          </select>
-        )}
-        <BranchSelect value={branchId} onChange={setBranchId} />
-        <input
-          className="input"
-          type="number"
-          value={delta}
-          onChange={e => setDelta(Number(e.target.value))}
-          placeholder="Delta (+/-)"
-          style={{ width: 140 }}
-        />
-        <input
-          className="input"
-          placeholder="Remark (required)"
-          value={remark}
-          onChange={e => setRemark(e.target.value)}
-          style={{ minWidth: 240 }}
-        />
-        <button className="btn btn-primary" onClick={adjust} disabled={!canAdjust || savingAdjust}>
-          <svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2"/></svg>
-          {savingAdjust ? 'Saving…' : 'Apply'}
-        </button>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        <button className={tab === 'initiate' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('initiate')}>Initiate</button>
+        <button className={tab === 'approvals' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('approvals')} disabled={!canApprove}>Approvals</button>
       </div>
+      {openModal && (
+        <Modal title="Add Adjustment" onClose={() => setOpenModal(false)} footer={
+          <>
+            <button className="btn" onClick={() => setOpenModal(false)}>Cancel</button>
+            <button className="btn btn-primary" onClick={async () => { await adjust(); setOpenModal(false); }} disabled={!canAdjust || savingAdjust}>
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 6v12M6 12h12" stroke="currentColor" strokeWidth="2"/></svg>
+              {savingAdjust ? 'Saving…' : 'Submit For Approval'}
+            </button>
+          </>
+        }>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Product</div>
+              <select className="select" value={productId} onChange={e => { setProductId(e.target.value); setVariantId(''); }}>
+                {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+            {(products.find(p => p.id === productId)?.variants || []).length > 0 && (
+              <label>
+                <div style={{ marginBottom: 6, color: '#64748b' }}>Variant</div>
+                <select className="select" value={variantId} onChange={e => setVariantId(e.target.value)} style={{ minWidth: 180 }}>
+                  <option value="">Base</option>
+                  {(products.find(p => p.id === productId)?.variants || []).map(v => (
+                    <option key={v.id} value={v.id}>{v.label}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Branch</div>
+              <BranchSelect value={branchId} onChange={setBranchId} />
+            </label>
+            <label>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Delta (+/-)</div>
+              <input className="input" type="number" value={delta} onChange={e => setDelta(Number(e.target.value))} placeholder="Delta (+/-)" />
+            </label>
+            <label style={{ gridColumn: '1 / -1' }}>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Remark (required)</div>
+              <input className="input" value={remark} onChange={e => setRemark(e.target.value)} placeholder="Reason or note" />
+            </label>
+          </div>
+        </Modal>
+      )}
+      {tab === 'approvals' && (
+        <ApprovalsSection
+          canApprove={canApprove}
+          statusFilter={statusFilter}
+          setStatusFilter={setStatusFilter}
+          loading={loading}
+          setLoading={setLoading}
+          products={products}
+          byId={byId}
+          setDetail={setDetail}
+          busyId={busyId}
+          setBusyId={setBusyId}
+          toast={toast}
+          auth={auth}
+          dispatch={dispatch}
+        />
+      )}
       <div className="card" style={{ marginTop: 12 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr) auto', gap: 8, marginBottom: 8 }}>
           <label>
@@ -297,6 +337,143 @@ function AdjustmentsPage() {
           </label>
         </div>
       </div>
+      {detail && (
+        <Modal title="Adjustment Request" onClose={() => setDetail(null)}>
+          <RequestDetail detail={detail} products={products} byId={byId} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function ApprovalsSection({ canApprove, statusFilter, setStatusFilter, loading, setLoading, products, byId, setDetail, busyId, setBusyId, toast, auth, dispatch }) {
+  const [requests, setRequests] = useState([]);
+  const [reloadAt, setReloadAt] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      try {
+        let rows = await adjustmentsApi.listRequests({ status: statusFilter, limit: 200 });
+        if ((!Array.isArray(rows) || rows.length === 0) && (statusFilter === 'pending' || statusFilter === 'approved' || statusFilter === 'rejected')) {
+          const all = await adjustmentsApi.listRequests({ limit: 200 });
+          const wanted = statusFilter === 'pending' ? ['pending', 'pending_approval'] : [statusFilter];
+          rows = Array.isArray(all) ? all.filter(r => wanted.includes(String(r.status || ''))) : [];
+        }
+        if (alive) setRequests(Array.isArray(rows) ? rows : []);
+      } catch (e) {
+        if (alive) {
+          setRequests([]);
+          try { toast.show(String(e?.message || 'Failed to load requests'), { type: 'error' }); } catch {}
+        }
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [statusFilter, setLoading, reloadAt]);
+  async function approve(r) {
+    if (!canApprove) { toast.show('Not authorized to approve adjustments', { type: 'error' }); return; }
+    const id = r._id || r.clientId;
+    try {
+      const remark = await promptDialog('Enter remark for approval (required)');
+      if (!remark || !String(remark).trim()) { toast.show('Remark is required', { type: 'error' }); return; }
+      setBusyId(id);
+      if (!navigator.onLine) {
+        await enqueueHttp({ collection: 'adjustmentrequests', label: 'Adjustment approve', path: '/api/adjustments/approve', method: 'POST', body: { id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark } });
+      } else {
+        await adjustmentsApi.approve({ id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark });
+      }
+      dispatch(adjustStock({ productId: r.productId, variantId: r.variantId || undefined, branchId: r.branchId, delta: Number(r.delta || 0) }));
+      toast.show('Adjustment approved and stock updated', { type: 'success' });
+      setRequests(prev => prev.map(x => String(x._id || x.clientId) === String(id) ? { ...x, status: 'approved', approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', approvalRemark: remark, approved_at: new Date().toISOString() } : x));
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to approve'), { type: 'error' });
+    } finally { setBusyId(null); }
+  }
+  async function reject(r) {
+    if (!canApprove) { toast.show('Not authorized to reject adjustments', { type: 'error' }); return; }
+    const id = r._id || r.clientId;
+    try {
+      const remark = await promptDialog('Enter reason for rejection (required)');
+      if (!remark || !String(remark).trim()) { toast.show('Remark is required', { type: 'error' }); return; }
+      setBusyId(id);
+      if (!navigator.onLine) {
+        await enqueueHttp({ collection: 'adjustmentrequests', label: 'Adjustment reject', path: '/api/adjustments/reject', method: 'POST', body: { id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark } });
+      } else {
+        await adjustmentsApi.reject({ id, approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', remark });
+      }
+      toast.show('Adjustment rejected', { type: 'success' });
+      setRequests(prev => prev.map(x => String(x._id || x.clientId) === String(id) ? { ...x, status: 'rejected', approverName: auth.user?.name || 'unknown', approverRole: auth.role || '', rejectionRemark: remark, rejected_at: new Date().toISOString() } : x));
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to reject'), { type: 'error' });
+    } finally { setBusyId(null); }
+  }
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2 className="section-title" style={{ marginBottom: 8 }}>Approvals</h2>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className={statusFilter === 'pending' ? 'btn btn-primary' : 'btn'} onClick={() => setStatusFilter('pending')}>Pending</button>
+          <button className={statusFilter === 'approved' ? 'btn btn-primary' : 'btn'} onClick={() => setStatusFilter('approved')}>Approved</button>
+          <button className={statusFilter === 'rejected' ? 'btn btn-primary' : 'btn'} onClick={() => setStatusFilter('rejected')}>Rejected</button>
+          <button className="btn" onClick={() => setReloadAt(Date.now())} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+        </div>
+      </div>
+      <table className="table">
+        <thead>
+          <tr>
+            <th align="left">Product</th>
+            <th align="left">Branch</th>
+            <th align="left">Delta</th>
+            <th align="left"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading && <tr><td colSpan="4" style={{ padding: 12, color: '#64748b' }}>Loading…</td></tr>}
+          {!loading && requests.map(r => {
+            const p = products.find(x => x.id === r.productId);
+            return (
+              <tr key={r._id || r.clientId} style={{ borderTop: '1px solid #e2e8f0', cursor: 'pointer' }} onClick={() => setDetail(r)}>
+                <td>{p?.name || r.productId}{r.variantId ? ` • ${(p?.variants || []).find(v => v.id === r.variantId)?.label || r.variantId}` : ''}</td>
+                <td>{byId.get(r.branchId) || r.branchId}</td>
+                <td>{r.delta}</td>
+                <td>
+                  {r.status === 'pending_approval' ? (
+                    <>
+                      <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); approve(r); }} disabled={!canApprove || busyId === (r._id || r.clientId)}>{busyId === (r._id || r.clientId) ? 'Working…' : 'Approve'}</button>
+                      <button className="btn" onClick={(e) => { e.stopPropagation(); reject(r); }} style={{ marginLeft: 6 }} disabled={!canApprove || busyId === (r._id || r.clientId)}>{busyId === (r._id || r.clientId) ? 'Working…' : 'Reject'}</button>
+                    </>
+                  ) : (
+                    <span style={{ color: r.status === 'approved' ? '#10b981' : '#ef4444', fontWeight: 600 }}>{r.status}</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+          {!loading && requests.length === 0 && <tr><td colSpan="4" style={{ padding: 12, color: '#64748b' }}>No items</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RequestDetail({ detail, products, byId }) {
+  const p = products.find(x => x.id === detail.productId);
+  const vLabel = detail.variantId ? ((p?.variants || []).find(v => v.id === detail.variantId)?.label || detail.variantId) : '';
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      <div><div style={{ color: '#64748b' }}>Status</div><div>{detail.status}</div></div>
+      <div><div style={{ color: '#64748b' }}>Product</div><div>{p?.name || detail.productId}{vLabel ? ` • ${vLabel}` : ''}</div></div>
+      <div><div style={{ color: '#64748b' }}>Branch</div><div>{byId.get(detail.branchId) || detail.branchId}</div></div>
+      <div><div style={{ color: '#64748b' }}>Delta</div><div>{detail.delta}</div></div>
+      <div><div style={{ color: '#64748b' }}>Initiator</div><div>{detail.initiatorName} {detail.initiatorRole ? `(${detail.initiatorRole})` : ''}</div></div>
+      <div><div style={{ color: '#64748b' }}>Initiation Remark</div><div>{detail.remark || '—'}</div></div>
+      <div><div style={{ color: '#64748b' }}>Approver</div><div>{detail.approverName ? `${detail.approverName}${detail.approverRole ? ` (${detail.approverRole})` : ''}` : '—'}</div></div>
+      {detail.status === 'approved' && <div><div style={{ color: '#64748b' }}>Approval Remark</div><div>{detail.approvalRemark || '—'}</div></div>}
+      {detail.status === 'rejected' && <div><div style={{ color: '#64748b' }}>Rejection Remark</div><div>{detail.rejectionRemark || '—'}</div></div>}
+      <div><div style={{ color: '#64748b' }}>Created</div><div>{detail.createdAt ? new Date(detail.createdAt).toLocaleString() : '—'}</div></div>
+      <div><div style={{ color: '#64748b' }}>Updated</div><div>{detail.updatedAt ? new Date(detail.updatedAt).toLocaleString() : '—'}</div></div>
     </div>
   );
 }

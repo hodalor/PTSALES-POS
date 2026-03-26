@@ -45,6 +45,7 @@ import DocsPage from './pages/DocsPage';
 import StockRecordsPage from './pages/StockRecordsPage';
 import ServerLogsPage from './pages/ServerLogsPage';
 import ExpensesPage from './pages/ExpensesPage';
+import ExpenseApprovalsPage from './pages/ExpenseApprovalsPage';
 import GodHandPage from './pages/GodHandPage';
 import BackupPage from './pages/BackupPage';
 import InvoicesPage from './pages/InvoicesPage';
@@ -56,6 +57,8 @@ import * as usersApi from './api/users';
 import { setUsers } from './store/usersSlice';
 import * as auditsApi from './api/audits';
 import * as invoicesApi from './api/invoices';
+import * as adjustmentsApi from './api/adjustments';
+import * as expensesApi from './api/expenses';
 import { setEntries as setAuditEntries } from './store/auditSlice';
 import { setInvoices } from './store/invoicesSlice';
 import { ensureOnlineJwt } from './offline/reAuth';
@@ -256,7 +259,7 @@ function App() {
     (async () => {
       if (!isAuthed) return;
       try {
-        const [p, s, c, b, r, sl, u, au, invs, pr, tr] = await Promise.allSettled([
+        const [p, s, c, b, r, sl, u, au, invs, pr, tr, exr, adr] = await Promise.allSettled([
           productsApi.list(),
           suppliersApi.list(),
           customersApi.list(),
@@ -267,7 +270,9 @@ function App() {
           auditsApi.list(),
           invoicesApi.list(),
           purchasesApi.listRequests({ status: 'pending', limit: 200 }),
-          transfersApi.listRequests({ status: 'pending', limit: 200 })
+          transfersApi.listRequests({ status: 'pending', limit: 200 }),
+          expensesApi.listRequests({ status: 'pending', limit: 200 }),
+          adjustmentsApi.listRequests({ status: 'pending', limit: 200 })
         ]);
         if (alive && p.status === 'fulfilled' && Array.isArray(p.value)) dispatch(setProducts(p.value));
         if (alive && s.status === 'fulfilled' && Array.isArray(s.value)) dispatch(setSuppliers(s.value));
@@ -285,6 +290,14 @@ function App() {
         if (alive && tr.status === 'fulfilled' && Array.isArray(tr.value)) {
           const { setTransferRequests } = await import('./store/transfersSlice');
           dispatch(setTransferRequests(tr.value));
+        }
+        if (alive && exr.status === 'fulfilled' && Array.isArray(exr.value)) {
+          const { setExpenseRequests } = await import('./store/expenseRequestsSlice');
+          dispatch(setExpenseRequests(exr.value));
+        }
+        if (alive && adr.status === 'fulfilled' && Array.isArray(adr.value)) {
+          const { setAdjustmentRequests } = await import('./store/adjustmentRequestsSlice');
+          dispatch(setAdjustmentRequests(adr.value));
         }
       } catch {}
     })();
@@ -332,7 +345,7 @@ function App() {
         return;
       }
       try {
-        const [p, s, c, b, r, sl, u, au, invs, pr, tr] = await Promise.allSettled([
+        const [p, s, c, b, r, sl, u, au, invs, pr, tr, exr, adr] = await Promise.allSettled([
           productsApi.list(),
           suppliersApi.list(),
           customersApi.list(),
@@ -343,7 +356,9 @@ function App() {
           auditsApi.list(),
           invoicesApi.list(),
           purchasesApi.listRequests({ status: 'pending', limit: 200 }),
-          transfersApi.listRequests({ status: 'pending', limit: 200 })
+          transfersApi.listRequests({ status: 'pending', limit: 200 }),
+          expensesApi.listRequests({ status: 'pending', limit: 200 }),
+          adjustmentsApi.listRequests({ status: 'pending', limit: 200 })
         ]);
         if (alive && p.status === 'fulfilled' && Array.isArray(p.value)) dispatch(setProducts(p.value));
         if (alive && s.status === 'fulfilled' && Array.isArray(s.value)) dispatch(setSuppliers(s.value));
@@ -361,6 +376,14 @@ function App() {
         if (alive && tr.status === 'fulfilled' && Array.isArray(tr.value)) {
           const { setTransferRequests } = await import('./store/transfersSlice');
           dispatch(setTransferRequests(tr.value));
+        }
+        if (alive && exr.status === 'fulfilled' && Array.isArray(exr.value)) {
+          const { setExpenseRequests } = await import('./store/expenseRequestsSlice');
+          dispatch(setExpenseRequests(exr.value));
+        }
+        if (alive && adr.status === 'fulfilled' && Array.isArray(adr.value)) {
+          const { setAdjustmentRequests } = await import('./store/adjustmentRequestsSlice');
+          dispatch(setAdjustmentRequests(adr.value));
         }
       } catch {}
     }, Math.max(10000, Number(refreshSec) * 1000));
@@ -391,6 +414,7 @@ function App() {
             <Route path="/inventory" element={<ProtectedRoute feature="modules.inventory" roles={['Admin','Manager','Inventory Staff']} grant={['view_inventory','see_inventory']}><InventoryPage /></ProtectedRoute>} />
             <Route path="/purchases" element={<ProtectedRoute feature="modules.purchases" roles={['Admin','Manager','Inventory Staff']} grant={['view_purchases','see_purchases']}><PurchasesPage /></ProtectedRoute>} />
             <Route path="/expenses" element={<ProtectedRoute feature="modules.expenses" roles={['Admin','Manager']} grant={['view_expenses','see_expenses','add_expenses']}><ExpensesPage /></ProtectedRoute>} />
+          <Route path="/expense-approvals" element={<ProtectedRoute feature="modules.expenses" roles={['Admin','Manager','SuperAdmin']} grant={['approve_expenses']}><ExpenseApprovalsPage /></ProtectedRoute>} />
             <Route path="/transfers" element={<ProtectedRoute feature="modules.transfers" roles={['Admin','Manager','Inventory Staff']} grant={['view_transfers','see_transfers']}><TransfersPage /></ProtectedRoute>} />
             <Route path="/adjustments" element={<ProtectedRoute feature="modules.adjustments" roles={['Admin','Manager','Inventory Staff']} grant={['view_adjustments','see_adjustments']}><AdjustmentsPage /></ProtectedRoute>} />
             <Route path="/suppliers" element={<ProtectedRoute feature="modules.suppliers" roles={['Admin','Manager','Inventory Staff']} grant={['view_suppliers','see_suppliers']}><SuppliersPage /></ProtectedRoute>} />

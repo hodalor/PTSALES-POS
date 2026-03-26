@@ -16,6 +16,8 @@ import transfersReducer from './transfersSlice';
 import offlineQueueReducer from './offlineQueueSlice';
 import { loadState, saveState } from './persist';
 import invoicesReducer from './invoicesSlice';
+import expenseRequestsReducer from './expenseRequestsSlice';
+import adjustmentRequestsReducer from './adjustmentRequestsSlice';
 
 const preloadedState = loadState();
 const store = configureStore({
@@ -34,6 +36,8 @@ const store = configureStore({
     refunds: refundsReducer,
     purchases: purchasesReducer,
     transfers: transfersReducer,
+    expenseRequests: expenseRequestsReducer,
+    adjustmentRequests: adjustmentRequestsReducer,
     offlineQueue: offlineQueueReducer,
     invoices: invoicesReducer
   },

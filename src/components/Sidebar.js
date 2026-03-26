@@ -87,6 +87,12 @@ function Sidebar({ collapsed }) {
           <span className="sidebar-text">Expenses</span>
         </NavLink>
         )}
+        {isFeatureEnabled(settings, 'modules.expenses') && can(['Admin','Manager','SuperAdmin'],['approve_expenses']) && (
+        <NavLink to="/expense-approvals" className="sidebar-link" title="Expense Approvals">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M5 3h14v18H5z" stroke="currentColor" strokeWidth="2"/><path d="M9 17V9M13 17v-7M17 17v-4" stroke="currentColor" strokeWidth="2"/></svg>
+          <span className="sidebar-text">Expense Approvals</span>
+        </NavLink>
+        )}
         {isFeatureEnabled(settings, 'modules.transfers') && can(['Admin','Manager','Inventory Staff','SuperAdmin'],['view_transfers','see_transfers']) && (
         <NavLink to="/transfers" className="sidebar-link" title="Transfers">
           <svg viewBox="0 0 24 24" fill="none"><path d="M7 7h10M7 17h10M7 7l-3 3m3-3l-3-3M17 17l3 3m-3-3l3-3" stroke="currentColor" strokeWidth="2"/></svg>
