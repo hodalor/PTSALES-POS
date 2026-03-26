@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import Expense from '../models/Expense.js';
+import ExpenseRequest from '../models/ExpenseRequest.js';
 import Audit from '../models/Audit.js';
 import ServerLog from '../models/ServerLog.js';
 import { requireAuth, requireRoleOrPerm } from '../middleware/auth.js';
@@ -22,6 +23,95 @@ r.get('/', async (req, res) => {
   }
   const rows = await Expense.find(q).sort({ date: -1, createdAt: -1 }).limit(2000);
   res.json(rows);
+});
+
+r.get('/requests', requireRoleOrPerm(['Admin','Manager'], 'approve_expenses'), async (req, res) => {
+  const statusRaw = String(req.query.status || '').trim().toLowerCase();
+  const limit = Math.min(2000, Math.max(1, Number(req.query.limit) || 200));
+  const map = { pending: 'pending_approval', approved: 'approved', rejected: 'rejected' };
+  const q = {};
+  if (map[statusRaw]) q.status = map[statusRaw];
+  const rows = await ExpenseRequest.find(q).sort({ createdAt: -1 }).limit(limit).lean();
+  res.json(rows);
+});
+
+r.post('/requests', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (req, res) => {
+  const { branchId, date, category, amount, note, clientId } = req.body || {};
+  if (!branchId || !date || !category) return res.status(400).json({ error: 'Missing branchId/date/category' });
+  const amt = Number(amount);
+  if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'Amount must be a positive number' });
+  const cid = String(clientId || '').trim();
+  if (cid) {
+    const existing = await ExpenseRequest.findOne({ clientId: cid });
+    if (existing) return res.json(existing);
+  }
+  const row = await ExpenseRequest.create({
+    clientId: cid || undefined,
+    branchId: String(branchId),
+    date: new Date(date),
+    category: String(category),
+    amount: amt,
+    note: String(note || ''),
+    initiatorName: req.user?.name || '',
+    initiatorRole: req.user?.role || ''
+  });
+  await Audit.create({
+    actor: req.user?.name || 'unknown',
+    actionType: 'expense_request_create',
+    details: { id: String(row._id), branchId: row.branchId, category: row.category, amount: row.amount },
+    branchId: row.branchId
+  });
+  res.json(row);
+});
+
+r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_expenses'), async (req, res) => {
+  const { id, remark } = req.body || {};
+  const row = await ExpenseRequest.findById(id);
+  if (!row) return res.status(404).json({ error: 'Request not found' });
+  if (row.status !== 'pending_approval') return res.status(400).json({ error: 'Request not pending' });
+  const exp = await Expense.create({
+    branchId: row.branchId,
+    date: row.date,
+    category: row.category,
+    amount: row.amount,
+    note: row.note,
+    createdBy: req.user?.name || 'unknown'
+  });
+  row.status = 'approved';
+  row.approverName = req.user?.name || '';
+  row.approverRole = req.user?.role || '';
+  row.approvalRemark = String(remark || '');
+  row.approved_at = new Date();
+  await row.save();
+  await Audit.create({
+    actor: req.user?.name || 'unknown',
+    actionType: 'expense_approve',
+    details: { id: String(row._id), expenseId: String(exp._id), branchId: row.branchId, category: row.category, amount: row.amount },
+    remark: String(remark || ''),
+    branchId: row.branchId
+  });
+  res.json({ ok: true, expense: exp, request: row });
+});
+
+r.post('/reject', requireRoleOrPerm(['Admin','Manager'], 'approve_expenses'), async (req, res) => {
+  const { id, remark } = req.body || {};
+  const row = await ExpenseRequest.findById(id);
+  if (!row) return res.status(404).json({ error: 'Request not found' });
+  if (row.status !== 'pending_approval') return res.status(400).json({ error: 'Request not pending' });
+  row.status = 'rejected';
+  row.approverName = req.user?.name || '';
+  row.approverRole = req.user?.role || '';
+  row.rejectionRemark = String(remark || '');
+  row.rejected_at = new Date();
+  await row.save();
+  await Audit.create({
+    actor: req.user?.name || 'unknown',
+    actionType: 'expense_reject',
+    details: { id: String(row._id), branchId: row.branchId, category: row.category, amount: row.amount },
+    remark: String(remark || ''),
+    branchId: row.branchId
+  });
+  res.json({ ok: true, request: row });
 });
 
 r.post('/', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (req, res) => {
