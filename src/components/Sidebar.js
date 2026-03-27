@@ -10,6 +10,11 @@ function Sidebar({ collapsed }) {
   const grants = useSelector(s => s.auth.grants);
   const offlineTotal = useSelector(s => s.offlineQueue.total);
   const rl = String(role || '').toLowerCase();
+  const expensePending = useSelector(s => (s.expenseRequests?.requests || []).filter(r => String(r.status || '') === 'pending_approval').length);
+  const refundPending = useSelector(s => (s.refunds?.requests || []).filter(r => String(r.status || '') === 'pending_approval').length);
+  const adjustmentPending = useSelector(s => (s.adjustmentRequests?.requests || []).filter(r => String(r.status || '') === 'pending_approval').length);
+  const purchasePending = useSelector(s => (s.purchases?.requests || []).filter(r => String(r.status || '') === 'pending_approval').length);
+  const transferPending = useSelector(s => (s.transfers?.requests || []).filter(r => String(r.status || '') === 'pending_approval').length);
   const can = (list, grant) => {
     if (!Array.isArray(list) || list.length === 0) return true;
     if (rl === 'superadmin') return true;
@@ -76,33 +81,58 @@ function Sidebar({ collapsed }) {
         </NavLink>
         )}
         {isFeatureEnabled(settings, 'modules.purchases') && can(['Admin','Manager','Inventory Staff','SuperAdmin'],['view_purchases','see_purchases']) && (
-        <NavLink to="/purchases" className="sidebar-link" title="Purchases">
+        <NavLink to="/purchases" className="sidebar-link" title="Purchases" style={{ display: 'flex', alignItems: 'center' }}>
           <svg viewBox="0 0 24 24" fill="none"><path d="M6 6h13l-1 10a2 2 0 01-2 2H8a2 2 0 01-2-2L5 4H3" stroke="currentColor" strokeWidth="2"/></svg>
           <span className="sidebar-text">Purchases</span>
+          {purchasePending > 0 && can(['Admin','Manager','SuperAdmin'],['approve_purchases']) && (
+            <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+              {purchasePending}
+            </span>
+          )}
         </NavLink>
         )}
         {isFeatureEnabled(settings, 'modules.expenses') && can(['Admin','Manager','SuperAdmin'],['view_expenses','see_expenses','add_expenses']) && (
-        <NavLink to="/expenses" className="sidebar-link" title="Expenses">
+        <NavLink to="/expenses" className="sidebar-link" title="Expenses" style={{ display: 'flex', alignItems: 'center' }}>
           <svg viewBox="0 0 24 24" fill="none"><path d="M6 3h12v18H6z" stroke="currentColor" strokeWidth="2"/><path d="M9 7h6M9 11h6M9 15h4" stroke="currentColor" strokeWidth="2"/></svg>
           <span className="sidebar-text">Expenses</span>
+          {expensePending > 0 && isFeatureEnabled(settings, 'modules.expenseApprovals') && can(['Admin','Manager','SuperAdmin'],['approve_expenses']) && (
+            <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+              {expensePending}
+            </span>
+          )}
         </NavLink>
         )}
         {isFeatureEnabled(settings, 'modules.expenses') && isFeatureEnabled(settings, 'modules.expenseApprovals') && can(['Admin','Manager','SuperAdmin'],['approve_expenses']) && (
-        <NavLink to="/expense-approvals" className="sidebar-link" title="Expense Approvals">
+        <NavLink to="/expense-approvals" className="sidebar-link" title="Expense Approvals" style={{ display: 'flex', alignItems: 'center' }}>
           <svg viewBox="0 0 24 24" fill="none"><path d="M5 3h14v18H5z" stroke="currentColor" strokeWidth="2"/><path d="M9 17V9M13 17v-7M17 17v-4" stroke="currentColor" strokeWidth="2"/></svg>
           <span className="sidebar-text">Expense Approvals</span>
+          {expensePending > 0 && (
+            <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+              {expensePending}
+            </span>
+          )}
         </NavLink>
         )}
         {isFeatureEnabled(settings, 'modules.transfers') && can(['Admin','Manager','Inventory Staff','SuperAdmin'],['view_transfers','see_transfers']) && (
-        <NavLink to="/transfers" className="sidebar-link" title="Transfers">
+        <NavLink to="/transfers" className="sidebar-link" title="Transfers" style={{ display: 'flex', alignItems: 'center' }}>
           <svg viewBox="0 0 24 24" fill="none"><path d="M7 7h10M7 17h10M7 7l-3 3m3-3l-3-3M17 17l3 3m-3-3l3-3" stroke="currentColor" strokeWidth="2"/></svg>
           <span className="sidebar-text">Transfers</span>
+          {transferPending > 0 && can(['Admin','Manager','SuperAdmin'],['approve_transfers']) && (
+            <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+              {transferPending}
+            </span>
+          )}
         </NavLink>
         )}
         {isFeatureEnabled(settings, 'modules.adjustments') && can(['Admin','Manager','Inventory Staff','SuperAdmin'],['view_adjustments','see_adjustments']) && (
-        <NavLink to="/adjustments" className="sidebar-link" title="Adjustments">
+        <NavLink to="/adjustments" className="sidebar-link" title="Adjustments" style={{ display: 'flex', alignItems: 'center' }}>
           <svg viewBox="0 0 24 24" fill="none"><path d="M12 6v12M6 12h12" stroke="currentColor" strokeWidth="2"/></svg>
           <span className="sidebar-text">Adjustments</span>
+          {adjustmentPending > 0 && can(['Admin','Manager','SuperAdmin'],['approve_adjustments']) && (
+            <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+              {adjustmentPending}
+            </span>
+          )}
         </NavLink>
         )}
         {isFeatureEnabled(settings, 'modules.suppliers') && can(['Admin','Manager','Inventory Staff','SuperAdmin'],['view_suppliers','see_suppliers']) && (
@@ -124,9 +154,14 @@ function Sidebar({ collapsed }) {
         </NavLink>
         )}
         {isFeatureEnabled(settings, 'modules.refundApprovals') && can(['Admin','Manager','SuperAdmin'],['approve_refunds']) && (
-        <NavLink to="/refund-approvals" className="sidebar-link" title="Refund Approvals">
+        <NavLink to="/refund-approvals" className="sidebar-link" title="Refund Approvals" style={{ display: 'flex', alignItems: 'center' }}>
           <svg viewBox="0 0 24 24" fill="none"><path d="M5 3h14v18H5z" stroke="currentColor" strokeWidth="2"/><path d="M9 17V9M13 17v-7M17 17v-4" stroke="currentColor" strokeWidth="2"/></svg>
           <span className="sidebar-text">Refund Approvals</span>
+          {refundPending > 0 && (
+            <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+              {refundPending}
+            </span>
+          )}
         </NavLink>
         )}
         {isFeatureEnabled(settings, 'modules.reports') && can(['Admin','Manager','Auditor','SuperAdmin'],['view_reports','see_reports']) && (
@@ -136,13 +171,13 @@ function Sidebar({ collapsed }) {
         </NavLink>
         )}
         {isFeatureEnabled(settings, 'modules.backup') && can(['Admin','Manager','SuperAdmin'], null) && (
-        <NavLink to="/backup" className="sidebar-link" title="Backup" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <NavLink to="/backup" className="sidebar-link" title="Backup" style={{ display: 'flex', alignItems: 'center' }}>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
             <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16v10H4V7z" stroke="currentColor" strokeWidth="2"/><path d="M8 11h8" stroke="currentColor" strokeWidth="2"/></svg>
             <span className="sidebar-text">Backup</span>
           </span>
           {Number(offlineTotal || 0) > 0 && (
-            <span style={{ minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+            <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
               {Number(offlineTotal || 0)}
             </span>
           )}
