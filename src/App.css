@@ -407,6 +407,14 @@ html, body, #root {
   color: #64748b;
 }
 
+.pos-layout {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  padding: 16px;
+  align-items: flex-start;
+}
+
 /* Topbar */
 .topbar {
   display: flex;
@@ -539,6 +547,32 @@ html, body, #root {
   }
   .login-card {
     padding: 18px;
+  }
+  .pos-layout {
+    grid-template-columns: 1fr;
+    padding: 12px;
+    gap: 12px;
+  }
+  .toolbar {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+  .toolbar .input {
+    flex: 1 1 100%;
+  }
+  .cart-item {
+    grid-template-columns: 1fr;
+    align-items: flex-start;
+  }
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .topbar > div:last-child {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
   }
 }
 @media (max-width: 360px) {

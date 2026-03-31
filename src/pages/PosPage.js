@@ -470,7 +470,7 @@ function PosPage() {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, padding: 16 }}>
+    <div className="pos-layout">
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h2>Products</h2>
