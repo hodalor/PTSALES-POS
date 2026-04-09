@@ -23,6 +23,47 @@ function normalizeStockByBranch(x) {
   return {};
 }
 
+function hasNumber(value) {
+  if (value === null || value === undefined || value === '') return false;
+  const n = Number(value);
+  return Number.isFinite(n);
+}
+
+function toNumberOrZero(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function normalizePricingPayload(body = {}) {
+  const out = { ...body };
+  const basePrice = toNumberOrZero(out.price || 0);
+  if (hasNumber(out.retailPrice)) out.retailPrice = toNumberOrZero(out.retailPrice);
+  else out.retailPrice = basePrice;
+  if (hasNumber(out.wholesalePrice)) out.wholesalePrice = toNumberOrZero(out.wholesalePrice);
+  else out.wholesalePrice = out.retailPrice;
+  if (hasNumber(out.agentPrice)) out.agentPrice = toNumberOrZero(out.agentPrice);
+  else out.agentPrice = out.wholesalePrice;
+  out.allowCredit = out.allowCredit !== false;
+  out.minimumCreditPercentage = Math.max(0, Math.min(100, Number(out.minimumCreditPercentage || 0)));
+  out.wholesaleStockByBranch = normalizeStockByBranch(out.wholesaleStockByBranch);
+  if (Array.isArray(out.variants)) {
+    out.variants = out.variants.map(v => {
+      const next = { ...(v || {}) };
+      const variantBase = toNumberOrZero(next.price != null ? next.price : out.price || 0);
+      next.sku = next.sku || '';
+      if (hasNumber(next.retailPrice)) next.retailPrice = toNumberOrZero(next.retailPrice);
+      else next.retailPrice = variantBase || out.retailPrice || 0;
+      if (hasNumber(next.wholesalePrice)) next.wholesalePrice = toNumberOrZero(next.wholesalePrice);
+      else next.wholesalePrice = next.retailPrice || out.wholesalePrice || 0;
+      if (hasNumber(next.agentPrice)) next.agentPrice = toNumberOrZero(next.agentPrice);
+      else next.agentPrice = next.wholesalePrice || out.agentPrice || 0;
+      next.wholesaleStockByBranch = normalizeStockByBranch(next.wholesaleStockByBranch);
+      return next;
+    });
+  }
+  return out;
+}
+
 function pad12Digits(n) {
   const s = String(n).replace(/\D/g, '');
   if (s.length >= 12) return s.slice(-12);
@@ -56,8 +97,25 @@ r.get('/', async (req, res) => {
     const obj = p.toObject ? p.toObject({ flattenMaps: true }) : p;
     if (!obj.id && obj._id) obj.id = String(obj._id);
     obj.stockByBranch = normalizeStockByBranch(obj.stockByBranch);
+    obj.wholesaleStockByBranch = normalizeStockByBranch(obj.wholesaleStockByBranch);
+    const basePrice = toNumberOrZero(obj.price || 0);
+    obj.retailPrice = hasNumber(obj.retailPrice) ? toNumberOrZero(obj.retailPrice) : basePrice;
+    obj.wholesalePrice = hasNumber(obj.wholesalePrice) ? toNumberOrZero(obj.wholesalePrice) : obj.retailPrice;
+    obj.agentPrice = hasNumber(obj.agentPrice) ? toNumberOrZero(obj.agentPrice) : obj.wholesalePrice;
+    obj.allowCredit = obj.allowCredit !== false;
+    obj.minimumCreditPercentage = Math.max(0, Math.min(100, Number(obj.minimumCreditPercentage || 0)));
     if (Array.isArray(obj.variants)) {
-      obj.variants = obj.variants.map((v, idx) => ({ id: v.id || v.label || String(idx), label: v.label, sku: v.sku || '', price: v.price, stockByBranch: normalizeStockByBranch(v.stockByBranch) }));
+      obj.variants = obj.variants.map((v, idx) => ({
+        id: v.id || v.label || String(idx),
+        label: v.label,
+        sku: v.sku || '',
+        price: v.price,
+        retailPrice: hasNumber(v.retailPrice) ? toNumberOrZero(v.retailPrice) : (hasNumber(v.price) ? toNumberOrZero(v.price) : obj.retailPrice),
+        wholesalePrice: hasNumber(v.wholesalePrice) ? toNumberOrZero(v.wholesalePrice) : (hasNumber(v.retailPrice) ? toNumberOrZero(v.retailPrice) : obj.wholesalePrice),
+        agentPrice: hasNumber(v.agentPrice) ? toNumberOrZero(v.agentPrice) : (hasNumber(v.wholesalePrice) ? toNumberOrZero(v.wholesalePrice) : obj.agentPrice),
+        stockByBranch: normalizeStockByBranch(v.stockByBranch),
+        wholesaleStockByBranch: normalizeStockByBranch(v.wholesaleStockByBranch)
+      }));
     }
     return obj;
   });
@@ -65,7 +123,7 @@ r.get('/', async (req, res) => {
 });
 
 r.post('/', requireRoleOrPerm(['Admin','Manager'], 'edit_products'), async (req, res) => {
-  const body = req.body || {};
+  const body = normalizePricingPayload(req.body || {});
   if (!body.barcode) body.barcode = generateEAN13();
   const p = await Product.create(body);
   if (!p.id) {
@@ -93,7 +151,7 @@ r.put('/:id', requireRoleOrPerm(['Admin','Manager'], 'edit_products'), async (re
   const id = req.params.id;
   const query = productLookupQuery(id);
   const before = await Product.findOne(query);
-  const payload = req.body || {};
+  const payload = normalizePricingPayload(req.body || {});
   if (payload && payload.stockByBranch != null) {
     delete payload.stockByBranch;
   }

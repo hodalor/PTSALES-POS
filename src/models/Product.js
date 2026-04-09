@@ -3,7 +3,13 @@ import mongoose from 'mongoose';
 const VariantSchema = new mongoose.Schema({
   id: { type: String, required: true },
   label: { type: String, required: true },
-  stockByBranch: { type: Map, of: Number, default: {} }
+  sku: { type: String, default: '' },
+  price: { type: Number, default: 0 },
+  retailPrice: { type: Number, default: 0 },
+  wholesalePrice: { type: Number, default: 0 },
+  agentPrice: { type: Number, default: 0 },
+  stockByBranch: { type: Map, of: Number, default: {} },
+  wholesaleStockByBranch: { type: Map, of: Number, default: {} }
 }, { _id: false });
 
 const PackSchema = new mongoose.Schema({
@@ -21,6 +27,9 @@ const ProductSchema = new mongoose.Schema({
   name: { type: String, required: true },
   sku: { type: String, required: true, unique: true },
   price: { type: Number, required: true, default: 0 },
+  retailPrice: { type: Number, default: 0 },
+  wholesalePrice: { type: Number, default: 0 },
+  agentPrice: { type: Number, default: 0 },
   costPrice: { type: Number, default: 0 },
   category: { type: String },
   barcode: { type: String },
@@ -35,7 +44,10 @@ const ProductSchema = new mongoose.Schema({
   attributes: { type: [AttrSchema], default: [] },
   packs: { type: [PackSchema], default: [] },
   variants: { type: [VariantSchema], default: [] },
-  stockByBranch: { type: Map, of: Number, default: {} }
+  stockByBranch: { type: Map, of: Number, default: {} },
+  wholesaleStockByBranch: { type: Map, of: Number, default: {} },
+  allowCredit: { type: Boolean, default: true },
+  minimumCreditPercentage: { type: Number, default: 0 }
 }, { timestamps: true, toJSON: { flattenMaps: true }, toObject: { flattenMaps: true } });
 
 export default mongoose.model('Product', ProductSchema);

@@ -7,7 +7,8 @@ const SaleItemSchema = new mongoose.Schema({
   variantId: String,
   spec: String,
   qty: Number,
-  price: Number
+  price: Number,
+  priceTier: { type: String, default: 'retail' }
 }, { _id: false });
 
 const PaymentSchema = new mongoose.Schema({
@@ -30,12 +31,19 @@ const SaleSchema = new mongoose.Schema({
   total: { type: Number, default: 0 },
   costTotal: { type: Number, default: 0 },
   profitTotal: { type: Number, default: 0 },
+  posType: { type: String, enum: ['retail', 'wholesale'], default: 'retail' },
+  inventoryType: { type: String, enum: ['retail', 'wholesale'], default: 'retail' },
+  defaultPriceTier: { type: String, enum: ['retail', 'wholesale', 'agent'], default: 'retail' },
   loyaltyPointsEarned: { type: Number, default: 0 },
   loyaltyPointsRedeemed: { type: Number, default: 0 },
   loyaltyDiscount: { type: Number, default: 0 },
   invoiceSerial: { type: String },
   receiptNumber: { type: String },
   payment_methods: { type: [PaymentSchema], default: [] },
+  creditSaleId: { type: String, index: true },
+  creditDueDate: { type: Date },
+  creditAmountPaidNow: { type: Number, default: 0 },
+  creditBalance: { type: Number, default: 0 },
   created_at: { type: Date, default: Date.now }
 }, { timestamps: true });
 

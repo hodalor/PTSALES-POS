@@ -7,8 +7,11 @@ import Settings from '../models/Settings.js';
 import Invoice from '../models/Invoice.js';
 import Branch from '../models/Branch.js';
 import Customer from '../models/Customer.js';
+import CreditSale from '../models/CreditSale.js';
 import { requireAuth, requireRoleOrPerm } from '../middleware/auth.js';
 import mongoose from 'mongoose';
+import { getMapQty, getStockTarget, markInventoryModified, resolveTierPrice, setMapQty } from '../utils/inventory.js';
+import { refreshCreditSaleStatus, updateCustomerCreditMetrics } from '../utils/credit.js';
 
 const r = Router();
 
@@ -19,20 +22,6 @@ function productLookupQuery(productId) {
   const or = [{ id: pid }];
   if (mongoose.isValidObjectId(pid)) or.unshift({ _id: pid });
   return { $or: or };
-}
-
-function getBranchQty(mapLike, branchId) {
-  if (!mapLike) return 0;
-  if (typeof mapLike.get === 'function') return Number(mapLike.get(branchId) || 0);
-  return Number(mapLike[branchId] || 0);
-}
-function setBranchQty(mapLike, branchId, qty) {
-  if (!mapLike) return;
-  if (typeof mapLike.set === 'function') {
-    mapLike.set(branchId, qty);
-  } else {
-    mapLike[branchId] = qty;
-  }
 }
 
 r.get('/', async (req, res) => {
@@ -46,6 +35,13 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
   if (!branchId) return res.status(400).json({ error: 'Missing branchId' });
   const items = Array.isArray(payload.items) ? payload.items : [];
   if (items.length === 0) return res.status(400).json({ error: 'Sale must include items' });
+  const posType = String(payload.posType || 'retail').toLowerCase() === 'wholesale' ? 'wholesale' : 'retail';
+  const inventoryType = String(payload.inventoryType || (posType === 'wholesale' ? 'wholesale' : 'retail')).toLowerCase() === 'wholesale' ? 'wholesale' : 'retail';
+  const allowedPriceTiers = new Set(['retail', 'wholesale', 'agent']);
+  const defaultPriceTier = allowedPriceTiers.has(String(payload.defaultPriceTier || '').toLowerCase())
+    ? String(payload.defaultPriceTier || '').toLowerCase()
+    : (posType === 'wholesale' ? 'wholesale' : 'retail');
+  const creditPayload = payload.creditSale && payload.creditSale.enabled ? payload.creditSale : null;
   const clientId = String(payload.clientId || '').trim();
   if (clientId) {
     const existing = await Sale.findOne({ clientId });
@@ -56,7 +52,10 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
     variantId: it.variantId || null,
     qty: Math.abs(Number(it.qty) || 0),
     sku: it.sku || '',
-    name: it.name || ''
+    name: it.name || '',
+    spec: it.spec || '',
+    requestedPrice: Number(it.price || 0),
+    priceTier: allowedPriceTiers.has(String(it.priceTier || '').toLowerCase()) ? String(it.priceTier || '').toLowerCase() : defaultPriceTier
   }));
   if (cleaned.some(it => !it.productId || !Number.isFinite(it.qty) || it.qty <= 0)) {
     return res.status(400).json({ error: 'Each item must include productId and positive qty' });
@@ -66,6 +65,7 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
   let customerCode = String(payload.customerCode || '').trim();
   let customerName = String(payload.customerName || '').trim();
   let customerPhone = String(payload.customerPhone || '').trim();
+  let customerDoc = null;
   if (customerId || customerCode) {
     let cust = null;
     if (customerId) {
@@ -77,6 +77,7 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
       customerId = cust ? String(cust._id) : '';
     }
     if (!cust) return res.status(400).json({ error: 'Customer not found' });
+    customerDoc = cust;
     customerCode = String(cust.customerCode || customerCode || '');
     customerName = String(cust.name || customerName || '');
     customerPhone = String(cust.phone || customerPhone || '');
@@ -118,6 +119,7 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
 
   const touched = [];
   let costTotal = 0;
+  const finalItems = [];
   try {
     for (const it of cleaned) {
       const p = await Product.findOne(productLookupQuery(it.productId));
@@ -126,58 +128,52 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
         err.status = 400;
         throw err;
       }
-      if (it.variantId) {
-        const idx = Array.isArray(p.variants) ? p.variants.findIndex(v => v.id === it.variantId) : -1;
-        if (idx < 0) {
-          const err = new Error(`Variant not found for product ${p.name}`);
-          err.status = 400;
-          throw err;
-        }
-        const v = p.variants[idx];
-        if (!v.stockByBranch) v.stockByBranch = new Map();
-        const prev = getBranchQty(v.stockByBranch, branchId);
-        if (prev < it.qty) {
-          const err = new Error(`Insufficient stock for ${p.name} (${v.label}) at ${branchCode}`);
-          err.status = 400;
-          throw err;
-        }
-        touched.push({ p, kind: 'variant', idx, branchId, prev });
-        setBranchQty(v.stockByBranch, branchId, Math.max(0, prev - it.qty));
-        p.variants[idx] = v;
-        p.markModified('variants');
-        await p.save();
-      } else {
-        if (!p.stockByBranch) p.stockByBranch = new Map();
-        const prev = getBranchQty(p.stockByBranch, branchId);
-        if (prev < it.qty) {
-          const err = new Error(`Insufficient stock for ${p.name} at ${branchCode}`);
-          err.status = 400;
-          throw err;
-        }
-        touched.push({ p, kind: 'base', branchId, prev });
-        setBranchQty(p.stockByBranch, branchId, Math.max(0, prev - it.qty));
-        p.markModified('stockByBranch');
-        await p.save();
+      const variant = it.variantId && Array.isArray(p.variants)
+        ? p.variants.find(v => String(v.id) === String(it.variantId))
+        : null;
+      if (it.variantId && !variant) {
+        const err = new Error(`Variant not found for product ${p.name}`);
+        err.status = 400;
+        throw err;
       }
+      const target = getStockTarget(p, it.variantId, inventoryType);
+      if (!target) {
+        const err = new Error(`Inventory target not found for ${p.name}`);
+        err.status = 400;
+        throw err;
+      }
+      const prev = getMapQty(target.container, branchId);
+      if (prev < it.qty) {
+        const label = variant?.label ? `${p.name} (${variant.label})` : p.name;
+        const err = new Error(`Insufficient ${inventoryType} stock for ${label} at ${branchCode}`);
+        err.status = 400;
+        throw err;
+      }
+      touched.push({ target, branchId, prev });
+      setMapQty(target.container, branchId, Math.max(0, prev - it.qty));
+      markInventoryModified(target);
+      await p.save();
       const cp = Number(p.costPrice || 0);
       if (Number.isFinite(cp) && cp > 0) costTotal += cp * it.qty;
+      const itemPrice = resolveTierPrice(variant || p, it.priceTier, it.requestedPrice || p.price || 0);
+      finalItems.push({
+        productId: it.productId,
+        variantId: it.variantId || null,
+        qty: it.qty,
+        sku: it.sku || variant?.sku || p.sku || '',
+        name: it.name || (variant?.label ? `${p.name} (${variant.label})` : p.name),
+        spec: it.spec || '',
+        priceTier: it.priceTier,
+        price: itemPrice
+      });
     }
   } catch (e) {
     try {
       for (let i = touched.length - 1; i >= 0; i--) {
         const t = touched[i];
-        if (t.kind === 'variant') {
-          const v = t.p.variants[t.idx];
-          if (!v.stockByBranch) v.stockByBranch = new Map();
-          setBranchQty(v.stockByBranch, t.branchId, t.prev);
-          t.p.variants[t.idx] = v;
-          t.p.markModified('variants');
-        } else {
-          if (!t.p.stockByBranch) t.p.stockByBranch = new Map();
-          setBranchQty(t.p.stockByBranch, t.branchId, t.prev);
-          t.p.markModified('stockByBranch');
-        }
-        await t.p.save();
+        setMapQty(t.target.container, t.branchId, t.prev);
+        markInventoryModified(t.target);
+        await t.target.product.save();
       }
     } catch {}
     return res.status(e?.status || 500).json({ error: e?.message || 'Failed to apply sale stock changes' });
@@ -185,8 +181,17 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
 
   let sale;
   let customerPointsAfter = null;
+  let creditSale = null;
   try {
-    const revenueTotal = Number(payload.total || 0);
+    function badRequest(message) {
+      const err = new Error(message);
+      err.status = 400;
+      throw err;
+    }
+    const subtotal = finalItems.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.qty || 0)), 0);
+    const discount = Math.max(0, Number(payload.discount || 0));
+    const tax = Math.max(0, Number(payload.tax || 0));
+    const revenueTotal = Math.max(0, subtotal - discount + tax);
     const profitTotal = revenueTotal - Number(costTotal || 0);
     const loyaltyEnabled = !!settingsData.loyaltyEnabled;
     const earnAmount = Number(settingsData.loyaltyEarnAmount || 0);
@@ -204,9 +209,9 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
     if (loyaltyEnabled && customerId) {
       const reqRedeemed = Math.max(0, Math.floor(Number(payload.loyaltyPointsRedeemed || 0)));
       if (reqRedeemed > 0) {
-        if (reqRedeemed < minRedeemPoints) return res.status(400).json({ error: `Minimum redeem is ${minRedeemPoints} point(s)` });
+        if (reqRedeemed < minRedeemPoints) badRequest(`Minimum redeem is ${minRedeemPoints} point(s)`);
         const cust = await Customer.findById(customerId);
-        if (!cust) return res.status(400).json({ error: 'Customer not found' });
+        if (!cust) badRequest('Customer not found');
         const bal = Math.max(0, Math.floor(Number(cust.loyaltyPoints || 0)));
         redeemed = Math.min(reqRedeemed, bal);
         loyaltyDiscount = Math.max(0, redeemed * (Number.isFinite(redeemValue) ? redeemValue : 0));
@@ -216,26 +221,102 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
           redeemed = redeemValue > 0 ? Math.floor(loyaltyDiscount / redeemValue) : 0;
         }
         const disc = Number(payload.discount || 0);
-        if (disc + 0.0001 < loyaltyDiscount) return res.status(400).json({ error: 'Discount is less than loyalty discount' });
+        if (disc + 0.0001 < loyaltyDiscount) badRequest('Discount is less than loyalty discount');
       }
+    }
+
+    const payments = Array.isArray(payload.payment_methods)
+      ? payload.payment_methods.map(p => ({ type: String(p.type || ''), amount: Math.max(0, Number(p.amount || 0)) }))
+      : [];
+    const paidOutsideCredit = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    if (!creditPayload && paidOutsideCredit + 0.0001 < revenueTotal) {
+      badRequest('Payment incomplete');
+    }
+    let creditUpfront = 0;
+    let creditDueDate = null;
+    if (creditPayload) {
+      if (!customerId || !customerDoc) badRequest('EasyBuy requires a registered customer');
+      creditUpfront = Math.max(0, Math.min(revenueTotal, Number(creditPayload.amountPaidNow || 0)));
+      creditDueDate = creditPayload.dueDate ? new Date(creditPayload.dueDate) : null;
+      if (!creditDueDate || Number.isNaN(creditDueDate.getTime())) badRequest('EasyBuy due date is required');
+      const globalPercent = Math.max(0, Math.min(100, Number(settingsData.minimumUpfrontPaymentPercent || 0)));
+      const globalFixed = Math.max(0, Number(settingsData.minimumUpfrontPaymentFixed || 0));
+      let requiredUpfront = Math.max(revenueTotal * (globalPercent / 100), globalFixed);
+      for (const item of finalItems) {
+        const product = await Product.findOne(productLookupQuery(item.productId));
+        const pct = Math.max(0, Math.min(100, Number(product?.minimumCreditPercentage || 0)));
+        if (product?.allowCredit === false) {
+          badRequest(`${product.name} is not eligible for credit sales`);
+        }
+        requiredUpfront = Math.max(requiredUpfront, (Number(item.price || 0) * Number(item.qty || 0)) * (pct / 100));
+      }
+      requiredUpfront = Math.min(revenueTotal, requiredUpfront);
+      if (creditUpfront + 0.0001 < requiredUpfront) {
+        badRequest(`Minimum upfront payment is ${requiredUpfront.toFixed(2)}`);
+      }
+      const maxCreditLimit = Math.max(0, Number(customerDoc.maxCreditLimit || settingsData.maxCreditLimitPerCustomer || 0));
+      const requestedBalance = Math.max(0, revenueTotal - creditUpfront);
+      if (maxCreditLimit > 0 && (Number(customerDoc.outstandingBalance || 0) + requestedBalance) > maxCreditLimit) {
+        badRequest('Customer exceeds the configured credit limit');
+      }
+      payments.push({ type: 'easybuy', amount: requestedBalance });
     }
 
     sale = await Sale.create({
       ...payload,
-      items: cleaned,
+      posType,
+      inventoryType,
+      defaultPriceTier,
+      items: finalItems,
       customerId: customerId || undefined,
       customerCode: customerCode || undefined,
       customerName: customerName || undefined,
       customerPhone: customerPhone || undefined,
+      subtotal,
+      discount,
+      tax,
+      total: revenueTotal,
+      payment_methods: payments,
       invoiceSerial,
       receiptNumber,
+      creditDueDate: creditPayload ? creditDueDate : undefined,
+      creditAmountPaidNow: creditPayload ? creditUpfront : 0,
+      creditBalance: creditPayload ? Math.max(0, revenueTotal - creditUpfront) : 0,
       costTotal: Number(costTotal || 0),
       profitTotal: Number(profitTotal || 0),
       loyaltyPointsEarned: earned,
       loyaltyPointsRedeemed: redeemed,
       loyaltyDiscount: loyaltyDiscount
     });
-    if (loyaltyEnabled && customerId && (earned !== 0 || sale.loyaltyPointsRedeemed !== 0)) {
+    if (creditPayload) {
+      creditSale = await CreditSale.create({
+        customer_id: customerId,
+        saleId: String(sale._id),
+        branchId,
+        posType,
+        inventoryType,
+        items: finalItems.map(item => ({
+          productId: item.productId,
+          variantId: item.variantId || '',
+          sku: item.sku || '',
+          name: item.name || '',
+          qty: Number(item.qty || 0),
+          price: Number(item.price || 0),
+          priceTier: item.priceTier || defaultPriceTier
+        })),
+        total_amount: revenueTotal,
+        amount_paid: creditUpfront,
+        balance: Math.max(0, revenueTotal - creditUpfront),
+        due_date: creditDueDate,
+        penalty_per_day: Math.max(0, Number(settingsData.penaltyPerDay || 0)),
+        status: 'active'
+      });
+      await refreshCreditSaleStatus(creditSale);
+      sale.creditSaleId = String(creditSale._id);
+      await sale.save();
+      await updateCustomerCreditMetrics(customerId);
+    }
+    if (loyaltyEnabled && customerId && !creditPayload && (earned !== 0 || sale.loyaltyPointsRedeemed !== 0)) {
       const updated = await Customer.findByIdAndUpdate(
         customerId,
         { $inc: { loyaltyPoints: Number(earned || 0) - Number(sale.loyaltyPointsRedeemed || 0) } },
@@ -247,27 +328,18 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
     try {
       for (let i = touched.length - 1; i >= 0; i--) {
         const t = touched[i];
-        if (t.kind === 'variant') {
-          const v = t.p.variants[t.idx];
-          if (!v.stockByBranch) v.stockByBranch = new Map();
-          setBranchQty(v.stockByBranch, t.branchId, t.prev);
-          t.p.variants[t.idx] = v;
-          t.p.markModified('variants');
-        } else {
-          if (!t.p.stockByBranch) t.p.stockByBranch = new Map();
-          setBranchQty(t.p.stockByBranch, t.branchId, t.prev);
-          t.p.markModified('stockByBranch');
-        }
-        await t.p.save();
+        setMapQty(t.target.container, t.branchId, t.prev);
+        markInventoryModified(t.target);
+        await t.target.product.save();
       }
     } catch {}
-    return res.status(500).json({ error: 'Failed to create sale' });
+    return res.status(e?.status || 500).json({ error: e?.message || 'Failed to create sale' });
   }
 
   await Audit.create({
     actor: sale.sellerName || 'unknown',
-    actionType: 'stock_sale_deduct',
-    details: { items: sale.items.map(i => ({ sku: i.sku, qty: i.qty, productId: i.productId || null, variantId: i.variantId || null })), invoiceSerial, receiptNumber },
+    actionType: posType === 'wholesale' ? 'stock_wholesale_sale_deduct' : 'stock_sale_deduct',
+    details: { items: sale.items.map(i => ({ sku: i.sku, qty: i.qty, productId: i.productId || null, variantId: i.variantId || null, priceTier: i.priceTier || defaultPriceTier })), invoiceSerial, receiptNumber, inventoryType, posType },
     branchId: sale.branchId,
     ts: new Date()
   });
@@ -284,6 +356,7 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
   } catch {}
   const out = sale?.toObject ? sale.toObject() : sale;
   if (customerPointsAfter != null) out.customerPointsAfter = customerPointsAfter;
+  if (creditSale) out.creditSale = creditSale;
   try {
     const payTerms = Array.isArray(sale.payment_methods) ? sale.payment_methods.map(p => {
       const t = String(p.type || '').toLowerCase();
@@ -291,14 +364,15 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
       if (t === 'card') return 'Card';
       if (t === 'mobile' || t === 'momo' || t === 'mobile money') return 'Mobile Money';
       if (t === 'wallet') return 'Wallet';
+      if (t === 'easybuy') return 'EasyBuy';
       return t ? (t[0].toUpperCase() + t.slice(1)) : 'Cash';
     }).join(', ') : 'Cash';
     await Invoice.create({
       number: sale.invoiceSerial || '',
       date: sale.created_at || new Date(),
       saleId: String(sale._id),
-      source: 'pos',
-      paymentStatus: 'paid',
+      source: posType === 'wholesale' ? 'wholesale-pos' : 'pos',
+      paymentStatus: creditSale ? (Number(creditSale.balance || 0) > 0 ? 'active' : 'paid') : 'paid',
       customer: {
         name: sale.customerName || '',
         phone: sale.customerPhone || '',

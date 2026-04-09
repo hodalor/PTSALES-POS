@@ -12,7 +12,16 @@ const CustomerSchema = new mongoose.Schema({
   photo: { type: String },
   vip: { type: Boolean, default: false },
   anniversaryDate: { type: Date },
-  loyaltyPoints: { type: Number, default: 0 }
+  loyaltyPoints: { type: Number, default: 0 },
+  maxCreditLimit: { type: Number, default: 0 },
+  totalCreditPurchases: { type: Number, default: 0 },
+  totalCreditPaid: { type: Number, default: 0 },
+  outstandingBalance: { type: Number, default: 0 },
+  overdueDays: { type: Number, default: 0 },
+  onTimePayments: { type: Number, default: 0 },
+  latePayments: { type: Number, default: 0 },
+  creditScore: { type: Number, default: 100 },
+  creditRank: { type: String, default: 'Bronze' }
 }, { timestamps: true });
 
 export default mongoose.model('Customer', CustomerSchema);

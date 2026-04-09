@@ -17,6 +17,9 @@ import invoices from './invoices.js';
 import purchases from './purchases.js';
 import transfers from './transfers.js';
 import adjustments from './adjustments.js';
+import approvals from './approvals.js';
+import wholesale from './wholesale.js';
+import credits from './credits.js';
 
 const router = Router();
 router.use('/products', products);
@@ -37,5 +40,8 @@ router.use('/invoices', invoices);
 router.use('/purchases', purchases);
 router.use('/transfers', transfers);
 router.use('/adjustments', adjustments);
+router.use('/approvals', approvals);
+router.use('/wholesale', wholesale);
+router.use('/credits', credits);
 
 export default router;
