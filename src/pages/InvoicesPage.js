@@ -19,6 +19,7 @@ function InvoicesPage() {
   const invoices = useSelector(s => s.invoices.invoices);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState('new');
+  const [invoiceKind, setInvoiceKind] = useState('all'); // all, retail, wholesale
   const showNewTab = isFeatureEnabled(settings, 'tabs.invoiceNew');
   const showRecordsTab = isFeatureEnabled(settings, 'tabs.invoiceRecords');
   useEffect(() => {
@@ -341,8 +342,13 @@ function InvoicesPage() {
       ) : (tab === 'records' && showRecordsTab) ? (
       <div className="card">
         <h2 className="section-title" style={{ margin: '8px 0' }}>Invoice Records</h2>
-        <div className="toolbar" style={{ marginBottom: 8 }}>
+        <div className="toolbar" style={{ marginBottom: 8, display: 'flex', gap: 8 }}>
           <input className="input" placeholder="Search by number, customer, order no., supplier/other refs" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ width: '100%' }} />
+          <div style={{ display: 'inline-flex', gap: 4 }}>
+            <button className={invoiceKind === 'all' ? 'btn btn-primary' : 'btn'} onClick={() => setInvoiceKind('all')}>All</button>
+            <button className={invoiceKind === 'retail' ? 'btn btn-primary' : 'btn'} onClick={() => setInvoiceKind('retail')}>Retail</button>
+            <button className={invoiceKind === 'wholesale' ? 'btn btn-primary' : 'btn'} onClick={() => setInvoiceKind('wholesale')}>Wholesale</button>
+          </div>
         </div>
         <table className="table">
           <thead>
@@ -359,6 +365,11 @@ function InvoicesPage() {
           <tbody>
             {invoices
               .filter(inv => {
+                if (invoiceKind === 'retail') {
+                  if (inv.source && inv.source !== 'pos') return false;
+                } else if (invoiceKind === 'wholesale') {
+                  if (inv.source && inv.source !== 'wholesale-pos') return false;
+                }
                 const q = searchTerm.trim().toLowerCase();
                 if (!q) return true;
                 const fields = [

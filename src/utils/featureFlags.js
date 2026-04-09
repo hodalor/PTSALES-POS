@@ -1,6 +1,7 @@
 export const FEATURE_CATALOG = [
   { key: 'modules.dashboard', label: 'Dashboard', group: 'Main Menus' },
   { key: 'modules.pos', label: 'POS', group: 'Main Menus' },
+  { key: 'modules.wholesalePos', label: 'Wholesale POS', group: 'Main Menus' },
   { key: 'modules.invoices', label: 'Invoices', group: 'Main Menus' },
   { key: 'modules.sales', label: 'Sales', group: 'Main Menus' },
   { key: 'modules.products', label: 'Products', group: 'Main Menus' },
@@ -12,6 +13,8 @@ export const FEATURE_CATALOG = [
   { key: 'modules.adjustments', label: 'Adjustments', group: 'Main Menus' },
   { key: 'modules.suppliers', label: 'Suppliers', group: 'Main Menus' },
   { key: 'modules.customers', label: 'Customers', group: 'Main Menus' },
+  { key: 'modules.creditControl', label: 'Credit Control', group: 'Main Menus' },
+  { key: 'modules.approvalsCenter', label: 'Approvals Center', group: 'Main Menus' },
   { key: 'modules.refunds', label: 'Refunds', group: 'Main Menus' },
   { key: 'modules.refundApprovals', label: 'Refund Approvals', group: 'Main Menus' },
   { key: 'modules.expenseApprovals', label: 'Expense Approvals', group: 'Main Menus' },

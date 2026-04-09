@@ -108,6 +108,21 @@ function CustomersPage() {
     const sc = String(selected.customerCode || '');
     return sales.filter(s => String(s.customerId || '') === sid || (sc && String(s.customerCode || '') === sc));
   }, [sales, selected]);
+  const paymentSummary = useMemo(() => {
+    if (!selected) return { paidCount: 0, creditCount: 0, paidTotal: 0, creditTotal: 0 };
+    return history.reduce((acc, sale) => {
+      const hasCredit = Array.isArray(sale.payment_methods) && sale.payment_methods.some(p => String(p.type || '').toLowerCase() === 'easybuy');
+      const total = Number(sale.total || 0);
+      if (hasCredit) {
+        acc.creditCount += 1;
+        acc.creditTotal += total;
+      } else {
+        acc.paidCount += 1;
+        acc.paidTotal += total;
+      }
+      return acc;
+    }, { paidCount: 0, creditCount: 0, paidTotal: 0, creditTotal: 0 });
+  }, [history, selected]);
 
   const activeProfile = useMemo(() => {
     return modalMode === 'create' ? createForm : editForm;
@@ -416,6 +431,29 @@ function CustomersPage() {
                   Loyalty points: {Number(selected.loyaltyPoints || 0)}
                 </div>
               )}
+              {modalMode !== 'create' && selected && (
+                <div style={{ gridColumn: '1 / span 2', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginTop: 8 }}>
+                  <div className="card" style={{ padding: 12 }}>
+                    <div style={{ color: '#64748b', fontSize: 12 }}>Outstanding Credit</div>
+                    <strong>{formatCurrency(Number(selected.outstandingBalance || 0), settings)}</strong>
+                  </div>
+                  <div className="card" style={{ padding: 12 }}>
+                    <div style={{ color: '#64748b', fontSize: 12 }}>Credit Purchases</div>
+                    <strong>{paymentSummary.creditCount} sale(s)</strong>
+                    <div style={{ color: '#94a3b8', fontSize: 12 }}>{formatCurrency(paymentSummary.creditTotal, settings)}</div>
+                  </div>
+                  <div className="card" style={{ padding: 12 }}>
+                    <div style={{ color: '#64748b', fontSize: 12 }}>Paid Purchases</div>
+                    <strong>{paymentSummary.paidCount} sale(s)</strong>
+                    <div style={{ color: '#94a3b8', fontSize: 12 }}>{formatCurrency(paymentSummary.paidTotal, settings)}</div>
+                  </div>
+                  <div className="card" style={{ padding: 12 }}>
+                    <div style={{ color: '#64748b', fontSize: 12 }}>Credit Rank</div>
+                    <strong style={{ color: Number(selected.overdueDays || 0) > 0 ? '#b91c1c' : '#15803d' }}>{selected.creditRank || 'Bronze'}</strong>
+                    <div style={{ color: '#94a3b8', fontSize: 12 }}>Score {Number(selected.creditScore || 0)}</div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -425,6 +463,7 @@ function CustomersPage() {
                 <tr>
                   <th align="left">Date</th>
                   <th align="left">Invoice</th>
+                  <th align="left">Payment Type</th>
                   <th align="left">Items</th>
                   <th align="left">Total</th>
                 </tr>
@@ -434,12 +473,13 @@ function CustomersPage() {
                   <tr key={s.id || s._id}>
                     <td>{new Date(s.created_at).toLocaleString()}</td>
                     <td>{s.invoiceSerial || '—'}</td>
+                    <td>{Array.isArray(s.payment_methods) && s.payment_methods.some(p => String(p.type || '').toLowerCase() === 'easybuy') ? 'Credit' : 'Paid'}</td>
                     <td>{(s.items || []).map(i => `${i.name}x${i.qty}`).join(', ')}</td>
                     <td>{formatCurrency(Number(s.total) || 0, settings)}</td>
                   </tr>
                 ))}
                 {history.length === 0 && (
-                  <tr><td colSpan="4" style={{ padding: 12, color: '#94a3b8' }}>No purchases</td></tr>
+                  <tr><td colSpan="5" style={{ padding: 12, color: '#94a3b8' }}>No purchases</td></tr>
                 )}
               </tbody>
             </table>

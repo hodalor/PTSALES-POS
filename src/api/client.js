@@ -17,9 +17,10 @@ export async function fetchJson(path, opts = {}) {
   if (method === 'GET') {
     url += (url.includes('?') ? '&' : '?') + `_=${Date.now()}`;
   }
-  const timeoutMs = Number(opts.timeoutMs) || 15000;
+  const defaultTimeout = method === 'GET' ? 30000 : 180000;
+  const timeoutMs = opts.timeoutMs === 0 ? 0 : (Number(opts.timeoutMs) || defaultTimeout);
   const ac = new AbortController();
-  const tid = setTimeout(() => { try { ac.abort(); } catch {} }, timeoutMs);
+  const tid = timeoutMs > 0 ? setTimeout(() => { try { ac.abort(); } catch {} }, timeoutMs) : null;
   let roleHeader = {};
   try {
     const raw = localStorage.getItem('ptSales:state');
@@ -45,13 +46,13 @@ export async function fetchJson(path, opts = {}) {
       ...opts
     });
   } catch (e) {
-    clearTimeout(tid);
+    if (tid) clearTimeout(tid);
     if (e && (e.name === 'AbortError' || String(e.message || '').toLowerCase().includes('aborted'))) {
-      throw new Error('Request timed out');
+      throw new Error('Request timed out while processing. Refresh to confirm whether the operation completed.');
     }
     throw e;
   } finally {
-    clearTimeout(tid);
+    if (tid) clearTimeout(tid);
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '');

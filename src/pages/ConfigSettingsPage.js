@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent, setClientAppName, setClientLogoUrl, setInvoiceCompanyAddress, setInvoiceFooter, setInvoiceDeclaration, setInvoiceSignatoryLabel, setInvoiceTitle, setInvoiceWordsLabel, setInvoiceGeneratedNote, setInvoiceNumberDigits, setInvoicePaidStampEnabled, setInvoicePaidStampLabel, setInvoicePaidStampThankYou, setInvoicePaidStampShowDate, setInvoicePaidStampColor, setReceiptBrandName } from '../store/settingsSlice';
+import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent, setClientAppName, setClientLogoUrl, setInvoiceCompanyAddress, setInvoiceFooter, setInvoiceDeclaration, setInvoiceSignatoryLabel, setInvoiceTitle, setInvoiceWordsLabel, setInvoiceGeneratedNote, setInvoiceNumberDigits, setInvoicePaidStampEnabled, setInvoicePaidStampLabel, setInvoicePaidStampThankYou, setInvoicePaidStampShowDate, setInvoicePaidStampColor, setReceiptBrandName, setAllSettings } from '../store/settingsSlice';
 import { addBranch, removeBranch, updateBranch } from '../store/branchesSlice';
 import * as branchesApi from '../api/branches';
 import { useRef, useState } from 'react';
@@ -28,6 +28,7 @@ function ConfigSettingsPage() {
   const canManageBranches = roleLower === 'admin' || roleLower === 'superadmin';
   const isSuperAdmin = roleLower === 'superadmin';
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
+  const setSetting = (key, value) => dispatch(setAllSettings({ ...(settings || {}), [key]: value }));
   const [apiBase, setApiBaseState] = useState(() => {
     try { return getApiBase(); } catch { return ''; }
   });
@@ -416,6 +417,35 @@ function ConfigSettingsPage() {
               style={{ display: 'block', width: '100%', marginTop: 6 }}
             />
           </label>
+          <div style={{ marginTop: 12 }}>
+            <h3 className="section-title" style={{ margin: '8px 0' }}>EasyBuy Rules</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <label>
+                Minimum upfront (%)
+                <input className="input" type="number" min="0" max="100" value={settings.minimumUpfrontPaymentPercent || 0} onChange={e => setSetting('minimumUpfrontPaymentPercent', Number(e.target.value) || 0)} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+              <label>
+                Minimum upfront (fixed)
+                <input className="input" type="number" min="0" value={settings.minimumUpfrontPaymentFixed || 0} onChange={e => setSetting('minimumUpfrontPaymentFixed', Number(e.target.value) || 0)} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+              <label>
+                Penalty per day
+                <input className="input" type="number" min="0" value={settings.penaltyPerDay || 0} onChange={e => setSetting('penaltyPerDay', Number(e.target.value) || 0)} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+              <label>
+                Max overdue allowed
+                <input className="input" type="number" min="0" value={settings.maxOverdueAllowed || 0} onChange={e => setSetting('maxOverdueAllowed', Number(e.target.value) || 0)} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+              <label>
+                Max credit limit per customer
+                <input className="input" type="number" min="0" value={settings.maxCreditLimitPerCustomer || 0} onChange={e => setSetting('maxCreditLimitPerCustomer', Number(e.target.value) || 0)} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 28 }}>
+                <input type="checkbox" checked={settings.partialPaymentAllowed !== false} onChange={e => setSetting('partialPaymentAllowed', e.target.checked)} />
+                Partial repayments allowed
+              </label>
+            </div>
+          </div>
           <div style={{ marginTop: 12 }}>
             <h3 className="section-title" style={{ margin: '8px 0' }}>Loyalty Points</h3>
             <label style={{ display: 'block', marginBottom: 8 }}>

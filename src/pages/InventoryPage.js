@@ -18,6 +18,7 @@ function InventoryPage() {
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const allowManualStockEdit = false;
   const [branchId, setBranchId] = useState(currentBranchId);
+  const [viewInventoryType, setViewInventoryType] = useState('retail');
   const [modalId, setModalId] = useState(null);
   const [openVariantsFor, setOpenVariantsFor] = useState(null);
   const dispatch = useDispatch();
@@ -81,6 +82,10 @@ function InventoryPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <label style={{ fontSize: 12, color: '#64748b' }}>Branch</label>
           <BranchSelect value={branchId} onChange={setBranchId} style={{ minWidth: 220 }} />
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            <button className={viewInventoryType === 'retail' ? 'btn btn-primary' : 'btn'} onClick={() => setViewInventoryType('retail')}>Retail</button>
+            <button className={viewInventoryType === 'wholesale' ? 'btn btn-primary' : 'btn'} onClick={() => setViewInventoryType('wholesale')}>Wholesale</button>
+          </div>
         </div>
       </div>
       <div className="card">
@@ -90,19 +95,22 @@ function InventoryPage() {
               <th align="left">Product</th>
               <th align="left">Price</th>
               <th align="left">Barcode</th>
-              <th align="left">Stock ({branch?.code || branch?.name})</th>
+              <th align="left">Stock ({viewInventoryType === 'wholesale' ? 'Wholesale' : 'Retail'} – {branch?.code || branch?.name})</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(p => {
               const low = p.lowStock ?? 0;
-              const cur = p.stockByBranch?.[branchId] || 0;
+              const cur = (viewInventoryType === 'wholesale' ? (p.wholesaleStockByBranch || {})[branchId] : (p.stockByBranch || {})[branchId]) || 0;
+              const basePrice = viewInventoryType === 'wholesale'
+                ? (p.wholesalePrice != null ? p.wholesalePrice : p.price)
+                : (p.retailPrice != null ? p.retailPrice : p.price);
               const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
               return (
                 <>
                   <tr key={p.id} onClick={() => setModalId(p.id)} style={{ cursor: 'pointer' }}>
                     <td>{p.name}</td>
-                    <td>{formatCurrency(p.price || 0, settings)}</td>
+                    <td>{formatCurrency(basePrice || 0, settings)}</td>
                     <td><code style={{ fontSize: 12 }}>{p.barcode || '—'}</code></td>
                     <td onClick={e => e.stopPropagation()}>
                       {hasVariants ? (
@@ -135,7 +143,7 @@ function InventoryPage() {
                                 className="input"
                                 type="number"
                                 min="0"
-                                value={v.stockByBranch?.[branchId] || 0}
+                                value={(viewInventoryType === 'wholesale' ? (v.wholesaleStockByBranch || {})[branchId] : (v.stockByBranch || {})[branchId]) || 0}
                                 onChange={e => setStockWithAudit(p, v.id, branchId, Number(e.target.value))}
                                 style={{ width: 120 }}
                                 disabled
@@ -167,17 +175,19 @@ function InventoryPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
                 <div><strong>SKU:</strong> {selected.sku}</div>
                 <div><strong>Category:</strong> {selected.category || '—'}</div>
-                <div><strong>Price:</strong> {formatCurrency(Number(selected.price || 0), settings)}</div>
+                <div><strong>Retail Price:</strong> {formatCurrency(Number(selected.retailPrice != null ? selected.retailPrice : selected.price || 0), settings)}</div>
+                <div><strong>Wholesale Price:</strong> {formatCurrency(Number(selected.wholesalePrice != null ? selected.wholesalePrice : selected.price || 0), settings)}</div>
                 <div><strong>Barcode:</strong> <code style={{ fontSize: 12 }}>{selected.barcode || '—'}</code></div>
                 <div><strong>Low Stock:</strong> {selected.lowStock ?? 0}</div>
-                <div><strong>Total Across Branches:</strong> {Object.values(selected.stockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
+                <div><strong>Total Retail Across Branches:</strong> {Object.values(selected.stockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
+                <div><strong>Total Wholesale Across Branches:</strong> {Object.values(selected.wholesaleStockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
                 <div style={{ gridColumn: '1 / -1', marginTop: 8 }}>
                   <strong>Branch Breakdown</strong>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 6, marginTop: 6 }}>
                     {branches.map(b => (
-                      <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <small style={{ width: 90 }}>{b.code || b.name}</small>
-                        <input
+                        <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <small style={{ width: 90 }}>{b.code || b.name}</small>
+                          <input
                           className="input"
                           type="number"
                           min="0"
@@ -186,6 +196,15 @@ function InventoryPage() {
                           style={{ width: 80 }}
                           disabled
                         />
+                          <input
+                            className="input"
+                            type="number"
+                            min="0"
+                            value={selected.wholesaleStockByBranch?.[b.id] || 0}
+                            onChange={e => setStockWithAudit(selected, null, b.id, Number(e.target.value))}
+                            style={{ width: 80, marginLeft: 4 }}
+                            disabled
+                          />
                       </div>
                     ))}
                   </div>
@@ -195,13 +214,22 @@ function InventoryPage() {
                     <strong>Variants (current branch)</strong>
                     <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
                       {selected.variants.map(v => (
-                        <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, alignItems: 'center' }}>
+                        <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, alignItems: 'center' }}>
                           <div><strong>{v.label}</strong> <span style={{ color: '#64748b' }}>{v.sku || ''}</span></div>
                           <input
                             className="input"
                             type="number"
                             min="0"
                             value={v.stockByBranch?.[branchId] || 0}
+                            onChange={e => setStockWithAudit(selected, v.id, branchId, Number(e.target.value))}
+                            style={{ width: 100 }}
+                            disabled
+                          />
+                          <input
+                            className="input"
+                            type="number"
+                            min="0"
+                            value={v.wholesaleStockByBranch?.[branchId] || 0}
                             onChange={e => setStockWithAudit(selected, v.id, branchId, Number(e.target.value))}
                             style={{ width: 100 }}
                             disabled

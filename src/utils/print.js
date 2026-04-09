@@ -79,6 +79,10 @@ export function buildBrandedReceiptHtml({ settings, sale }) {
   const qtySum = (sale.items || []).reduce((s, it) => s + (Number(it.qty)||0), 0);
   const paid = (sale.payment_methods || []).reduce((s, p) => s + (Number(p.amount)||0), 0);
   const change = Math.max(0, paid - (Number(sale.total)||0));
+  const easyBuyDueDate = sale?.creditDueDate || sale?.creditSale?.due_date || sale?.creditSale?.dueDate || null;
+  const easyBuyPaidNow = Number(sale?.creditAmountPaidNow ?? sale?.creditSale?.amount_paid ?? sale?.creditSale?.amountPaidNow ?? 0);
+  const easyBuyBalance = Number(sale?.creditBalance ?? sale?.creditSale?.balance ?? Math.max(0, Number(sale.total || 0) - easyBuyPaidNow));
+  const hasEasyBuy = (sale.payment_methods || []).some(p => String(p.type || '').toLowerCase() === 'easybuy') || !!easyBuyDueDate;
   const isPaid = paid >= (Number(sale.total) || 0) - 0.005;
   const showPaidStamp = stampEnabled && isPaid;
   const today = new Date(sale.created_at || Date.now()).toLocaleDateString();
@@ -151,6 +155,9 @@ export function buildBrandedReceiptHtml({ settings, sale }) {
     <div class="hr"></div>
     <div class="title">TENDER</div>
     ${payments}
+    ${hasEasyBuy ? `<div class="sp"><span>EASYBUY PAID</span><span>${formatCurrency(easyBuyPaidNow, settings)}</span></div>` : ''}
+    ${hasEasyBuy ? `<div class="sp"><span>EASYBUY BALANCE</span><span>${formatCurrency(easyBuyBalance, settings)}</span></div>` : ''}
+    ${hasEasyBuy && easyBuyDueDate ? `<div class="sp"><span>EASYBUY DUE DATE</span><span>${new Date(easyBuyDueDate).toLocaleDateString()}</span></div>` : ''}
     <div class="sp"><span>ROUNDING</span><span>${formatCurrency(0, settings)}</span></div>
     <div class="sp"><span>CHANGE</span><span>${formatCurrency(change, settings)}</span></div>
     <div class="sp"><span class="muted">TOTAL ITEMS:</span><span class="muted">${qtySum}</span></div>

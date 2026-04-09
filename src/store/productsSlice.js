@@ -41,9 +41,22 @@ const productsSlice = createSlice({
           label: v.label,
           sku: v.sku || '',
           price: v.price,
-          stockByBranch: v.stockByBranch || {}
+          retailPrice: v.retailPrice != null ? Number(v.retailPrice) : (v.price != null ? Number(v.price) : Number(p.retailPrice != null ? p.retailPrice : p.price || 0)),
+          wholesalePrice: v.wholesalePrice != null ? Number(v.wholesalePrice) : (v.retailPrice != null ? Number(v.retailPrice) : Number(p.wholesalePrice != null ? p.wholesalePrice : p.price || 0)),
+          agentPrice: v.agentPrice != null ? Number(v.agentPrice) : (v.wholesalePrice != null ? Number(v.wholesalePrice) : Number(p.agentPrice != null ? p.agentPrice : p.price || 0)),
+          stockByBranch: v.stockByBranch || {},
+          wholesaleStockByBranch: v.wholesaleStockByBranch || {}
         })) : [];
-        return { ...p, id: id, stockByBranch: p.stockByBranch || {}, variants };
+        return {
+          ...p,
+          id,
+          retailPrice: p.retailPrice != null ? Number(p.retailPrice) : Number(p.price || 0),
+          wholesalePrice: p.wholesalePrice != null ? Number(p.wholesalePrice) : Number(p.retailPrice != null ? p.retailPrice : p.price || 0),
+          agentPrice: p.agentPrice != null ? Number(p.agentPrice) : Number(p.wholesalePrice != null ? p.wholesalePrice : (p.retailPrice != null ? p.retailPrice : p.price || 0)),
+          stockByBranch: p.stockByBranch || {},
+          wholesaleStockByBranch: p.wholesaleStockByBranch || {},
+          variants
+        };
       });
       const seen = new Set(mapped.map(p => p.id).filter(Boolean));
       const offline = state.products.filter(p => p && p.offline && !seen.has(p.id));
@@ -57,7 +70,22 @@ const productsSlice = createSlice({
       },
       prepare(product) {
         const id = product?.id != null ? String(product.id) : nanoid();
-        const payload = { id, stockByBranch: {}, attributes: [], packs: [], unitKind: 'none', unitValue: null, unitSymbol: '', sizeLabel: '', shoeSize: '', ...product };
+        const payload = {
+          id,
+          stockByBranch: {},
+          wholesaleStockByBranch: {},
+          attributes: [],
+          packs: [],
+          unitKind: 'none',
+          unitValue: null,
+          unitSymbol: '',
+          sizeLabel: '',
+          shoeSize: '',
+          retailPrice: product?.retailPrice != null ? Number(product.retailPrice) : Number(product?.price || 0),
+          wholesalePrice: product?.wholesalePrice != null ? Number(product.wholesalePrice) : Number(product?.retailPrice != null ? product.retailPrice : product?.price || 0),
+          agentPrice: product?.agentPrice != null ? Number(product.agentPrice) : Number(product?.wholesalePrice != null ? product.wholesalePrice : (product?.retailPrice != null ? product.retailPrice : product?.price || 0)),
+          ...product
+        };
         if (!payload.barcode) {
           payload.barcode = generateEAN13();
         }

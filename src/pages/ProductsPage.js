@@ -44,6 +44,8 @@ function ProductsPage() {
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
   const [price, setPrice] = useState('');
+  const [wholesalePrice, setWholesalePrice] = useState('');
+  const [agentPrice, setAgentPrice] = useState('');
   const [category, setCategory] = useState(categories[0] || '');
   const [newCategory, setNewCategory] = useState('');
   const [initialStock, setInitialStock] = useState(0);
@@ -62,17 +64,20 @@ function ProductsPage() {
   const [variants, setVariants] = useState([{ label: '', sku: '', price: '' }]);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [pricingOpen, setPricingOpen] = useState(false);
+  const [creditOpen, setCreditOpen] = useState(false);
   const [unitsOpen, setUnitsOpen] = useState(false);
   const [attrsOpen, setAttrsOpen] = useState(false);
   const [packsOpen, setPacksOpen] = useState(false);
   const [variantsOpen, setVariantsOpen] = useState(false);
+  const [allowCredit, setAllowCredit] = useState(true);
+  const [minimumCreditPercentage, setMinimumCreditPercentage] = useState('');
   
   const [openStockFor, setOpenStockFor] = useState(null);
   const toast = useToast();
   const [saving, setSaving] = useState(false);
 
   function resetForm() {
-    setName(''); setSku(''); setPrice(''); 
+    setName(''); setSku(''); setPrice(''); setWholesalePrice(''); setAgentPrice('');
     setCategory(categories[0] || ''); setNewCategory('');
     setInitialStock(0); setEditStockQty(0); setLowStock(0); setImagePreview('');
     setCostPrice(''); setExpiryDate('');
@@ -83,10 +88,13 @@ function ProductsPage() {
     setVariants([{ label: '', sku: '', price: '' }]);
     setAdvancedOpen(false);
     setPricingOpen(false);
+    setCreditOpen(false);
     setUnitsOpen(false);
     setAttrsOpen(false);
     setPacksOpen(false);
     setVariantsOpen(false);
+    setAllowCredit(true);
+    setMinimumCreditPercentage('');
   }
 
   function populateForm(p) {
@@ -95,6 +103,8 @@ function ProductsPage() {
     setName(p.name);
     setSku(p.sku);
     setPrice(String(p.price || 0));
+    setWholesalePrice(String(p.wholesalePrice != null ? p.wholesalePrice : (p.price || 0)));
+    setAgentPrice(String(p.agentPrice != null ? p.agentPrice : (p.price || 0)));
     setCostPrice(p.costPrice != null ? String(p.costPrice) : '');
     setExpiryDate(p.expiryDate ? String(p.expiryDate).slice(0, 10) : '');
     setCategory(p.category || '');
@@ -105,13 +115,17 @@ function ProductsPage() {
     setUnitSymbol(p.unitSymbol || '');
     setSizeLabel(p.sizeLabel || '');
     setShoeSize(p.shoeSize || '');
-    const hasPricing = (p.costPrice != null && String(p.costPrice) !== '' && Number(p.costPrice) > 0) || !!p.expiryDate;
+    setAllowCredit(p.allowCredit !== false);
+    setMinimumCreditPercentage(p.minimumCreditPercentage != null ? String(p.minimumCreditPercentage) : '');
+    const hasPricing = (p.costPrice != null && String(p.costPrice) !== '' && Number(p.costPrice) > 0) || !!p.expiryDate || Number(p.wholesalePrice || 0) > 0 || Number(p.agentPrice || 0) > 0;
+    const hasCredit = p.allowCredit === false || Number(p.minimumCreditPercentage || 0) > 0;
     const hasUnits = (p.unitKind && p.unitKind !== 'none') || p.unitValue != null || !!p.unitSymbol || !!p.sizeLabel || !!p.shoeSize;
     const hasAttrs = Array.isArray(p.attributes) && p.attributes.length > 0;
     const hasPacks = Array.isArray(p.packs) && p.packs.length > 0;
     const hasVars = Array.isArray(p.variants) && p.variants.length > 0;
-    setAdvancedOpen(hasPricing || hasUnits || hasAttrs || hasPacks || hasVars);
+    setAdvancedOpen(hasPricing || hasCredit || hasUnits || hasAttrs || hasPacks || hasVars);
     setPricingOpen(hasPricing);
+    setCreditOpen(hasCredit);
     setUnitsOpen(hasUnits);
     setAttrsOpen(hasAttrs);
     setPacksOpen(hasPacks);
@@ -199,11 +213,16 @@ function ProductsPage() {
             name: name.trim(),
             sku: sku.trim(),
             price: Number(price),
+            retailPrice: Number(price),
+            wholesalePrice: Number(wholesalePrice || price || 0),
+            agentPrice: Number(agentPrice || wholesalePrice || price || 0),
             costPrice: Number(costPrice) || 0,
             expiryDate: expiryDate ? new Date(expiryDate).toISOString() : null,
             category,
             lowStock: Number(lowStock) || 0,
             image: imagePreview || null,
+            allowCredit,
+            minimumCreditPercentage: Math.max(0, Number(minimumCreditPercentage) || 0),
             unitKind,
             unitValue: unitKind === 'volume' || unitKind === 'mass' || unitKind === 'length' ? Number(unitValue) || null : null,
             unitSymbol: unitKind === 'volume' || unitKind === 'mass' || unitKind === 'length' ? unitSymbol : '',
@@ -301,11 +320,16 @@ function ProductsPage() {
             name: name.trim(),
             sku: sku.trim(),
             price: Number(price),
+            retailPrice: Number(price),
+            wholesalePrice: Number(wholesalePrice || price || 0),
+            agentPrice: Number(agentPrice || wholesalePrice || price || 0),
             costPrice: Number(costPrice) || 0,
             expiryDate: expiryDate ? new Date(expiryDate).toISOString() : null,
             category,
             lowStock: Number(lowStock) || 0,
             image: imagePreview || null,
+            allowCredit,
+            minimumCreditPercentage: Math.max(0, Number(minimumCreditPercentage) || 0),
             unitKind,
             unitValue: (unitKind === 'volume' || unitKind === 'mass' || unitKind === 'length') ? (Number(unitValue) || null) : null,
             unitSymbol: (unitKind === 'volume' || unitKind === 'mass' || unitKind === 'length') ? unitSymbol : '',
@@ -389,9 +413,13 @@ function ProductsPage() {
             if (original.name !== name.trim()) changed.name = { from: original.name, to: name.trim() };
             if (original.sku !== sku.trim()) changed.sku = { from: original.sku, to: sku.trim() };
             if (Number(original.price) !== Number(price)) changed.price = { from: Number(original.price), to: Number(price) };
+            if (Number(original.wholesalePrice || original.price || 0) !== (Number(wholesalePrice || price) || 0)) changed.wholesalePrice = { from: Number(original.wholesalePrice || original.price || 0), to: Number(wholesalePrice || price) || 0 };
+            if (Number(original.agentPrice || original.price || 0) !== (Number(agentPrice || wholesalePrice || price) || 0)) changed.agentPrice = { from: Number(original.agentPrice || original.price || 0), to: Number(agentPrice || wholesalePrice || price) || 0 };
             if ((original.category || '') !== category) changed.category = { from: original.category || '', to: category };
             if ((original.lowStock || 0) !== Number(lowStock)) changed.lowStock = { from: original.lowStock || 0, to: Number(lowStock) };
             if (Number(original.costPrice || 0) !== (Number(costPrice) || 0)) changed.costPrice = { from: Number(original.costPrice || 0), to: Number(costPrice) || 0 };
+            if ((original.allowCredit !== false) !== allowCredit) changed.allowCredit = { from: original.allowCredit !== false, to: allowCredit };
+            if (Number(original.minimumCreditPercentage || 0) !== (Number(minimumCreditPercentage) || 0)) changed.minimumCreditPercentage = { from: Number(original.minimumCreditPercentage || 0), to: Number(minimumCreditPercentage) || 0 };
             const oldExp = original.expiryDate ? String(original.expiryDate).slice(0, 10) : '';
             if (oldExp !== (expiryDate || '')) changed.expiryDate = { from: oldExp, to: expiryDate || '' };
             if ((original.unitKind || 'none') !== unitKind) changed.unitKind = { from: original.unitKind || 'none', to: unitKind };
@@ -838,15 +866,37 @@ function ProductsPage() {
                 <label className="label">Name</label>
                 <input className="input" placeholder="Name" value={name} onChange={e => setName(e.target.value)} style={{ display: 'block', width: '100%' }} />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
                 <div>
                     <label className="label">SKU</label>
                     <input className="input" placeholder="SKU" value={sku} onChange={e => setSku(e.target.value)} style={{ display: 'block', width: '100%' }} />
                 </div>
                 <div>
-                    <label className="label">Price</label>
-                    <input className="input" placeholder="Price" type="number" value={price} onChange={e => setPrice(e.target.value)} style={{ display: 'block', width: '100%' }} />
+                    <label className="label">Retail Price</label>
+                    <input className="input" placeholder="Retail selling price" type="number" value={price} onChange={e => setPrice(e.target.value)} style={{ display: 'block', width: '100%' }} />
                 </div>
+                <div>
+                    <label className="label">Wholesale Price</label>
+                    <input className="input" placeholder="Wholesale selling price" type="number" value={wholesalePrice} onChange={e => setWholesalePrice(e.target.value)} style={{ display: 'block', width: '100%' }} />
+                </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div>
+                <label className="label">Agent Price</label>
+                <input className="input" placeholder="Agent selling price" type="number" value={agentPrice} onChange={e => setAgentPrice(e.target.value)} style={{ display: 'block', width: '100%' }} />
+              </div>
+              <div>
+                <label className="label">Credit Rules</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 42 }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <input type="checkbox" checked={allowCredit} onChange={e => setAllowCredit(e.target.checked)} />
+                    Allow EasyBuy
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div style={{ color: '#94a3b8', fontSize: 12 }}>
+              Retail, Wholesale, and Agent prices are stored separately and used independently across retail POS, wholesale POS, inventory, sales, and invoices.
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 <div>
@@ -902,6 +952,34 @@ function ProductsPage() {
                         <div className="label" style={{ color: '#cbd5e1' }}>Expiry Date</div>
                         <div style={{ color: '#94a3b8', fontSize: 12, marginTop: 4 }}>Use for products that expire (alerts and inventory planning).</div>
                         <input className="input" type="date" value={expiryDate} onChange={e => setExpiryDate(e.target.value)} />
+                      </label>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ border: '1px solid #111827', borderRadius: 12, padding: 12, background: '#000' }}>
+                  <button className="btn" onClick={() => setCreditOpen(v => !v)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>EasyBuy Product Rules</span>
+                    <span style={{ display: 'inline-flex', width: 18, height: 18 }}>
+                      {creditOpen ? (
+                        <svg viewBox="0 0 24 24" fill="none"><path d="M18 15l-6-6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      ) : (
+                        <svg viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      )}
+                    </span>
+                  </button>
+                  {creditOpen && (
+                    <div style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <label>
+                        <div className="label" style={{ color: '#cbd5e1' }}>Allow credit</div>
+                        <select className="select" value={allowCredit ? 'yes' : 'no'} onChange={e => setAllowCredit(e.target.value === 'yes')}>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </label>
+                      <label>
+                        <div className="label" style={{ color: '#cbd5e1' }}>Minimum upfront %</div>
+                        <input className="input" type="number" min="0" max="100" step="0.01" value={minimumCreditPercentage} onChange={e => setMinimumCreditPercentage(e.target.value)} />
                       </label>
                     </div>
                   )}

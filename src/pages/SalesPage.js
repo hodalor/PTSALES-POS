@@ -15,13 +15,23 @@ function SalesPage() {
   const roleLower = String(auth.role || '').toLowerCase();
   const canSeeAll = roleLower === 'admin' || roleLower === 'superadmin';
   const [showAll, setShowAll] = useState(false);
+  const [saleKind, setSaleKind] = useState('all'); // all, retail, wholesale
   const [tab, setTab] = useState('sales'); // sales, leaderboard, branches
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   function branchLabel(sale) {
     return sale.branchName || (branches.find(b => b.id === sale.branchId)?.name || sale.branchId || '-');
   }
-  const filteredSales = (canSeeAll && showAll) ? sales : sales.filter(sale => sale.branchId === currentBranchId);
+  const filteredByBranch = (canSeeAll && showAll) ? sales : sales.filter(sale => sale.branchId === currentBranchId);
+  const filteredSales = useMemo(() => {
+    let list = filteredByBranch;
+    if (saleKind === 'retail') {
+      list = list.filter(s => String(s.posType || 'retail') === 'retail');
+    } else if (saleKind === 'wholesale') {
+      list = list.filter(s => String(s.posType || 'retail') === 'wholesale');
+    }
+    return list;
+  }, [filteredByBranch, saleKind]);
 
   const leaderboard = useMemo(() => {
     const map = new Map();
@@ -109,6 +119,13 @@ function SalesPage() {
         <button className={tab === 'sales' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('sales')}>Sales</button>
         <button className={tab === 'leaderboard' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('leaderboard')}>Sales Rep Leaderboard</button>
         <button className={tab === 'branches' ? 'btn btn-primary' : 'btn'} onClick={() => setTab('branches')}>Branch Comparison</button>
+        {tab === 'sales' && (
+        <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6 }}>
+          <button className={saleKind === 'all' ? 'btn btn-primary' : 'btn'} onClick={() => setSaleKind('all')}>All</button>
+          <button className={saleKind === 'retail' ? 'btn btn-primary' : 'btn'} onClick={() => setSaleKind('retail')}>Retail</button>
+          <button className={saleKind === 'wholesale' ? 'btn btn-primary' : 'btn'} onClick={() => setSaleKind('wholesale')}>Wholesale</button>
+        </span>
+        )}
       </div>
       {tab === 'sales' && (
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, margin: '8px 0' }}>
@@ -179,6 +196,7 @@ function SalesPage() {
           <tr>
             <th align="left">Date</th>
             <th align="left">Branch</th>
+            <th align="left">Type</th>
             <th align="left">Seller</th>
             <th align="left">Invoice</th>
             <th align="left">Items</th>
@@ -191,6 +209,7 @@ function SalesPage() {
             <tr key={sale.id}>
               <td>{new Date(sale.created_at).toLocaleString()}</td>
               <td>{branchLabel(sale)}</td>
+              <td>{String(sale.posType || 'retail') === 'wholesale' ? 'Wholesale' : 'Retail'}</td>
               <td>{sale.sellerName || '-'}</td>
               <td>{sale.invoiceSerial || '—'}</td>
               <td>{sale.items.map(i => `${i.name}${i.spec ? ' ['+i.spec+']' : ''}x${i.qty}`).join(', ')}</td>

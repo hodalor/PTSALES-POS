@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { addItem, removeItem, setQuantity, clearCart, setDiscount, addHeld, removeHeld, replaceCart, updateHeld } from '../store/cartSlice';
+import { addItem, removeItem, setQuantity, updateItemPricing, clearCart, setDiscount, addHeld, removeHeld, replaceCart, updateHeld } from '../store/cartSlice';
 import { adjustStock } from '../store/productsSlice';
 import { recordSale } from '../store/salesSlice';
 import { addInvoice } from '../store/invoicesSlice';
@@ -8,7 +8,7 @@ import { buildBrandedReceiptHtml, printReceiptHtml } from '../utils/print';
 import { escposReceipt, escposOpenDrawer, downloadText } from '../utils/escpos';
 import { useToast } from '../components/ToastProvider';
 import { formatCurrency } from '../utils/currency';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { addAudit } from '../store/auditSlice';
 import { productSpec } from '../utils/productSpec';
 import { createSale } from '../api/sales';
@@ -17,18 +17,25 @@ import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import { confirmDialog, promptDialog } from '../utils/dialogs';
 import { isFeatureEnabled } from '../utils/featureFlags';
 
-function PosPage() {
+function PosPage({ mode = 'retail' }) {
   const cart = useSelector(state => state.cart);
-  const heldSales = cart.heldSales || [];
+  const heldSales = useMemo(() => cart.heldSales || [], [cart.heldSales]);
   const products = useSelector(s => s.products.products);
   const customers = useSelector(s => s.customers.customers);
   const branches = useSelector(s => s.branches.branches);
   const branchId = useSelector(s => s.settings.currentBranchId);
   const settings = useSelector(s => s.settings);
   const auth = useSelector(s => s.auth);
+  const isWholesale = String(mode || '').toLowerCase() === 'wholesale';
+  const modeLabel = isWholesale ? 'Wholesale POS' : 'POS';
+  const initialPriceTier = isWholesale ? 'wholesale' : 'retail';
   const [query, setQuery] = useState('');
   const [payments, setPayments] = useState([{ type: 'cash', amount: '' }]);
-  const [view, setView] = useState('grid');
+  const [view, setView] = useState(isWholesale ? 'list' : 'grid');
+  const [selectedPriceTier, setSelectedPriceTier] = useState(initialPriceTier);
+  const [easyBuyEnabled, setEasyBuyEnabled] = useState(false);
+  const [easyBuyAmountPaidNow, setEasyBuyAmountPaidNow] = useState('');
+  const [easyBuyDueDate, setEasyBuyDueDate] = useState('');
   const [taxOverridePct, setTaxOverridePct] = useState('');
   const [taxOverrideRemark, setTaxOverrideRemark] = useState('');
   const [saving, setSaving] = useState(false);
@@ -43,31 +50,55 @@ function PosPage() {
     try { return localStorage.getItem('ptSales:heldQuery') || ''; } catch { return ''; }
   });
   const toast = useToast();
+  useEffect(() => {
+    setSelectedPriceTier(initialPriceTier);
+    setView(isWholesale ? 'list' : 'grid');
+  }, [initialPriceTier, isWholesale]);
   const sellables = useMemo(() => {
     const out = [];
     products.forEach(p => {
+      const basePrices = {
+        retail: Number(p.retailPrice || p.price || 0),
+        wholesale: Number(p.wholesalePrice || p.retailPrice || p.price || 0),
+        agent: Number(p.agentPrice || p.wholesalePrice || p.retailPrice || p.price || 0)
+      };
       if (Array.isArray(p.variants) && p.variants.length > 0) {
         p.variants.forEach(v => {
+          const prices = {
+            retail: Number(v.retailPrice || v.price || basePrices.retail || 0),
+            wholesale: Number(v.wholesalePrice || v.retailPrice || v.price || basePrices.wholesale || 0),
+            agent: Number(v.agentPrice || v.wholesalePrice || v.retailPrice || v.price || basePrices.agent || 0)
+          };
           out.push({
             id: `${p.id}:${v.id}`,
             productId: p.id,
             variantId: v.id,
             name: `${p.name} (${v.label})`,
             sku: v.sku || `${p.sku}-${v.label}`,
-            price: (v.price != null ? v.price : p.price),
+            price: prices[selectedPriceTier] ?? prices.retail,
+            prices,
             image: p.image,
-            stockByBranch: v.stockByBranch || {},
+            stockByBranch: isWholesale ? (v.wholesaleStockByBranch || {}) : (v.stockByBranch || {}),
             lowStock: p.lowStock,
             attributes: p.attributes,
-            unitKind: p.unitKind, unitValue: p.unitValue, unitSymbol: p.unitSymbol, sizeLabel: p.sizeLabel, shoeSize: p.shoeSize
+            unitKind: p.unitKind, unitValue: p.unitValue, unitSymbol: p.unitSymbol, sizeLabel: p.sizeLabel, shoeSize: p.shoeSize,
+            allowCredit: p.allowCredit !== false,
+            minimumCreditPercentage: Number(p.minimumCreditPercentage || 0)
           });
         });
       } else {
-        out.push(p);
+        out.push({
+          ...p,
+          price: basePrices[selectedPriceTier] ?? basePrices.retail,
+          prices: basePrices,
+          stockByBranch: isWholesale ? (p.wholesaleStockByBranch || {}) : (p.stockByBranch || {}),
+          allowCredit: p.allowCredit !== false,
+          minimumCreditPercentage: Number(p.minimumCreditPercentage || 0)
+        });
       }
     });
     return out;
-  }, [products]);
+  }, [isWholesale, products, selectedPriceTier]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return sellables;
@@ -122,7 +153,7 @@ function PosPage() {
       });
     }
     return list;
-  }, [heldSales, heldSort, heldQuery, customers, branchId]);
+  }, [heldSales, heldSort, heldQuery, customers]);
 
   function onChangeHeldSort(v) {
     setHeldSort(v);
@@ -148,21 +179,41 @@ function PosPage() {
   const discount = Math.max(0, Number(manualDiscount || 0) + Number(loyaltyDiscount || 0));
   const tax = Math.max(0, (subtotal - discount) * taxRate);
   const total = Math.max(0, subtotal - discount + tax);
-  const paid = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const paid = easyBuyEnabled ? Math.max(0, Number(easyBuyAmountPaidNow || 0)) : payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
   const due = Math.max(0, total - paid);
-  const change = Math.max(0, paid - total);
+  const change = easyBuyEnabled ? 0 : Math.max(0, paid - total);
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const heldUiEnabled = isFeatureEnabled(settings, 'tabs.posHeldSales');
+  const easyBuyAllowed = !!selectedCustomer && cart.items.length > 0;
+  const easyBuyBlockedItem = cart.items.find(item => item.allowCredit === false);
+  const easyBuyMinimum = cart.items.reduce((sum, item) => {
+    const pct = Math.max(0, Number(item.minimumCreditPercentage || 0));
+    return sum + ((Number(item.price || 0) * Number(item.quantity || 0)) * (pct / 100));
+  }, 0);
+  const customerOutstanding = Number(selectedCustomer?.outstandingBalance || 0);
+  const customerMaxCreditLimit = Number(selectedCustomer?.maxCreditLimit || settings.maxCreditLimitPerCustomer || 0);
+  const customerCreditScore = Number(selectedCustomer?.creditScore || 0);
 
   function addToCart(p) {
     const available = p.stockByBranch?.[branchId] || 0;
-    const inCart = cart.items.find(i => i.sku === p.sku)?.quantity || 0;
+    const inCart = cart.items.filter(i => i.sku === p.sku).reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
     if (available - inCart <= 0) {
       toast.show('Out of stock for current branch', { type: 'error' });
       return;
     }
     const spec = productSpec(p);
-    dispatch(addItem({ name: p.name, sku: p.sku, price: p.price, spec, productId: p.productId || p.id, variantId: p.variantId || null }));
+    dispatch(addItem({
+      name: p.name,
+      sku: p.sku,
+      price: p.price,
+      priceTier: selectedPriceTier,
+      prices: p.prices || { retail: p.price, wholesale: p.price, agent: p.price },
+      allowCredit: p.allowCredit !== false,
+      minimumCreditPercentage: Number(p.minimumCreditPercentage || 0),
+      spec,
+      productId: p.productId || p.id,
+      variantId: p.variantId || null
+    }));
   }
 
   function addPaymentRow() {
@@ -201,6 +252,10 @@ function PosPage() {
       redeemPoints,
       taxOverridePct,
       taxOverrideRemark,
+      easyBuyEnabled,
+      easyBuyAmountPaidNow,
+      easyBuyDueDate,
+      selectedPriceTier,
       payments: payments.map(p => ({ type: p.type, amount: p.amount })),
       view
     };
@@ -211,6 +266,9 @@ function PosPage() {
     setRedeemPoints('');
     setTaxOverridePct('');
     setTaxOverrideRemark('');
+    setEasyBuyEnabled(false);
+    setEasyBuyAmountPaidNow('');
+    setEasyBuyDueDate('');
     setPayments([{ type: 'cash', amount: '' }]);
     toast.show('Sale held', { type: 'success' });
   }
@@ -226,6 +284,9 @@ function PosPage() {
     setRedeemPoints('');
     setTaxOverridePct('');
     setTaxOverrideRemark('');
+    setEasyBuyEnabled(false);
+    setEasyBuyAmountPaidNow('');
+    setEasyBuyDueDate('');
     setPayments([{ type: 'cash', amount: '' }]);
   }
 
@@ -240,6 +301,10 @@ function PosPage() {
     setRedeemPoints(h.redeemPoints || '');
     setTaxOverridePct(h.taxOverridePct ?? '');
     setTaxOverrideRemark(h.taxOverrideRemark ?? '');
+    setEasyBuyEnabled(!!h.easyBuyEnabled);
+    setEasyBuyAmountPaidNow(h.easyBuyAmountPaidNow || '');
+    setEasyBuyDueDate(h.easyBuyDueDate || '');
+    setSelectedPriceTier(h.selectedPriceTier || initialPriceTier);
     setPayments(Array.isArray(h.payments) && h.payments.length > 0 ? h.payments.map(p => ({ type: p.type, amount: p.amount })) : [{ type: 'cash', amount: '' }]);
     try { if (h.view) setView(h.view); } catch {}
     dispatch(removeHeld(h.id));
@@ -269,9 +334,31 @@ function PosPage() {
 
   async function completeSale(escpos = false) {
     if (saving) return;
-    if (due > 0) {
+    if (!easyBuyEnabled && due > 0) {
       toast.show('Payment incomplete', { type: 'error' });
       return;
+    }
+    if (easyBuyEnabled) {
+      if (!easyBuyAllowed || !selectedCustomer) {
+        toast.show('EasyBuy requires a registered customer', { type: 'error' });
+        return;
+      }
+      if (easyBuyBlockedItem) {
+        toast.show(`${easyBuyBlockedItem.name} is not allowed for credit sales`, { type: 'error' });
+        return;
+      }
+      if (!easyBuyDueDate) {
+        toast.show('Select a due date for EasyBuy', { type: 'error' });
+        return;
+      }
+      if ((Number(easyBuyAmountPaidNow || 0) + 0.0001) < Number(easyBuyMinimum || 0)) {
+        toast.show(`Minimum upfront payment is ${formatCurrency(easyBuyMinimum, settings)}`, { type: 'error' });
+        return;
+      }
+      if (customerMaxCreditLimit > 0 && (customerOutstanding + due) > customerMaxCreditLimit) {
+        toast.show('Customer exceeds the configured credit limit', { type: 'error' });
+        return;
+      }
     }
     if (!navigator.onLine) {
       if (!offlineBackupAllowed) {
@@ -295,6 +382,9 @@ function PosPage() {
       customerCode: selectedCustomer ? (selectedCustomer.customerCode || '') : '',
       customerName: selectedCustomer ? (selectedCustomer.name || '') : '',
       customerPhone: selectedCustomer ? (selectedCustomer.phone || '') : '',
+      posType: isWholesale ? 'wholesale' : 'retail',
+      inventoryType: isWholesale ? 'wholesale' : 'retail',
+      defaultPriceTier: selectedPriceTier,
       loyaltyPointsRedeemed: (settings.loyaltyEnabled && selectedCustomer) ? redeemable : 0,
       items: cart.items.map(i => ({
         name: i.name,
@@ -302,6 +392,7 @@ function PosPage() {
         spec: i.spec,
         qty: i.quantity,
         price: i.price,
+        priceTier: i.priceTier || selectedPriceTier,
         productId: i.productId,
         variantId: i.variantId || null
       })),
@@ -309,7 +400,15 @@ function PosPage() {
       discount,
       tax,
       total,
-      payment_methods: payments.map(p => ({ type: p.type, amount: Number(p.amount) || 0 })),
+      payment_methods: easyBuyEnabled ? [{ type: 'easybuy', amount: due }] : payments.map(p => ({ type: p.type, amount: Number(p.amount) || 0 })),
+      creditDueDate: easyBuyEnabled ? easyBuyDueDate : undefined,
+      creditAmountPaidNow: easyBuyEnabled ? Number(easyBuyAmountPaidNow || 0) : 0,
+      creditBalance: easyBuyEnabled ? due : 0,
+      creditSale: easyBuyEnabled ? {
+        enabled: true,
+        amountPaidNow: Number(easyBuyAmountPaidNow || 0),
+        dueDate: easyBuyDueDate
+      } : undefined,
       status: 'completed',
       created_at: new Date().toISOString()
     };
@@ -350,6 +449,7 @@ function PosPage() {
           if (t === 'card') return 'Card';
           if (t === 'mobile' || t === 'momo' || t === 'mobile money') return 'Mobile Money';
           if (t === 'wallet') return 'Wallet';
+          if (t === 'easybuy') return 'EasyBuy';
           return t ? (t[0].toUpperCase() + t.slice(1)) : 'Cash';
         })
         .join(', ');
@@ -358,8 +458,8 @@ function PosPage() {
         number: invNumber,
         date: saleForUi.created_at || new Date().toISOString(),
         saleId: saleForUi.id || saleForUi._id || '',
-        paymentStatus: 'paid',
-        source: 'pos',
+        paymentStatus: easyBuyEnabled ? 'active' : 'paid',
+        source: isWholesale ? 'wholesale-pos' : 'pos',
         customer: selectedCustomer ? {
           name: selectedCustomer.name || '',
           phone: selectedCustomer.phone || '',
@@ -393,8 +493,8 @@ function PosPage() {
     }
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
-      actionType: 'stock_sale_deduct',
-      details: { items: sale.items.map(it => ({ sku: it.sku, qty: it.qty })), branchId },
+      actionType: isWholesale ? 'stock_wholesale_sale_deduct' : 'stock_sale_deduct',
+      details: { items: sale.items.map(it => ({ sku: it.sku, qty: it.qty, priceTier: it.priceTier || selectedPriceTier })), branchId, mode: isWholesale ? 'wholesale' : 'retail' },
       branchId,
       offline: !navigator.onLine
     }));
@@ -410,8 +510,8 @@ function PosPage() {
     }
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
-      actionType: 'sale_complete',
-      details: { total: sale.total, items: sale.items.length },
+      actionType: easyBuyEnabled ? 'credit_sale_complete' : 'sale_complete',
+      details: { total: sale.total, items: sale.items.length, mode: isWholesale ? 'wholesale' : 'retail', easyBuy: easyBuyEnabled },
       branchId,
       offline: !navigator.onLine
     }));
@@ -419,6 +519,9 @@ function PosPage() {
     setSelectedCustomerId('');
     setCustomerQuery('');
     setRedeemPoints('');
+    setEasyBuyEnabled(false);
+    setEasyBuyAmountPaidNow('');
+    setEasyBuyDueDate('');
     if (escpos) {
       const text = escposReceipt({
         header: { title: settings.appName, store: settings.receiptHeader, branch: branchName, phone: settings.businessPhone || '', cashier: saleForUi.sellerName, customer: saleForUi.customerName ? `${saleForUi.customerName}${saleForUi.customerCode ? ` (${saleForUi.customerCode})` : ''}` : '', receiptId: saleForUi.id || saleForUi._id, receiptNumber: saleForUi.receiptNumber, invoiceSerial: saleForUi.invoiceSerial },
@@ -473,11 +576,21 @@ function PosPage() {
     <div className="pos-layout">
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2>Products</h2>
+          <div>
+            <h2 style={{ marginBottom: 4 }}>{modeLabel}</h2>
+            <div style={{ color: '#64748b', fontSize: 12 }}>{isWholesale ? 'Wholesale inventory with multi-price selling' : 'Retail inventory with EasyBuy support'}</div>
+          </div>
           <OfflineQueueIndicator collection="sales" label="Sales queued" />
         </div>
         <div className="toolbar">
           <input className="input" placeholder="Search name, SKU or scan barcode" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onSearchKeyDown} style={{ width: '100%' }} />
+          {isWholesale && (
+          <select className="select" value={selectedPriceTier} onChange={e => setSelectedPriceTier(e.target.value)} style={{ minWidth: 140 }}>
+            <option value="retail">Retail Price</option>
+            <option value="wholesale">Wholesale Price</option>
+            <option value="agent">Agent Price</option>
+          </select>
+          )}
           <div style={{ display: 'flex', gap: 6 }}>
             <button className={`btn-toggle ${view === 'grid' ? 'active' : ''}`} onClick={() => setView('grid')}>
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z" stroke="currentColor" strokeWidth="2"/></svg>
@@ -579,43 +692,52 @@ function PosPage() {
         <div className="card" style={{ marginBottom: 12 }}>
           <div style={{ fontWeight: 700, marginBottom: 6 }}>Customer (optional)</div>
           {selectedCustomer ? (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-              <div>
-                <div style={{ fontWeight: 700 }}>{selectedCustomer.name}</div>
-                <div style={{ color: '#64748b', fontSize: 12 }}>
-                  {selectedCustomer.customerCode || '—'} {selectedCustomer.phone ? `• ${selectedCustomer.phone}` : ''}
+            <div style={{ display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{selectedCustomer.name}</div>
+                  <div style={{ color: '#64748b', fontSize: 12 }}>
+                    {selectedCustomer.customerCode || '—'} {selectedCustomer.phone ? `• ${selectedCustomer.phone}` : ''}
+                  </div>
                 </div>
+                <button className="btn" onClick={() => { setSelectedCustomerId(''); setCustomerQuery(''); setEasyBuyEnabled(false); }}>
+                  Clear
+                </button>
               </div>
-              <button className="btn" onClick={() => { setSelectedCustomerId(''); setCustomerQuery(''); }}>
-                Clear
-              </button>
+              <div style={{ display: 'grid', gap: 4, color: '#475569', fontSize: 13 }}>
+                <div>Credit Rank: <strong>{selectedCustomer.creditRank || 'Bronze'}</strong> • Score: <strong>{customerCreditScore}</strong></div>
+                <div>Outstanding: <strong>{formatCurrency(customerOutstanding, settings)}</strong></div>
+                <div>On-time: <strong>{Number(selectedCustomer.onTimePayments || 0)}</strong> • Late: <strong>{Number(selectedCustomer.latePayments || 0)}</strong></div>
+              </div>
             </div>
           ) : (
             <div style={{ position: 'relative' }}>
-              <input
-                className="input"
-                placeholder="Search by phone, customer ID, name, ID card"
-                value={customerQuery}
-                onChange={e => setCustomerQuery(e.target.value)}
-              />
-              {customerMatches.length > 0 && (
-                <div style={{ position: 'absolute', top: 44, left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', zIndex: 20 }}>
-                  {customerMatches.map(c => (
-                    <button
-                      key={c.id}
-                      className="btn"
-                      onClick={() => { setSelectedCustomerId(c.id); setCustomerQuery(''); }}
-                      style={{ width: '100%', justifyContent: 'space-between', borderRadius: 0 }}
-                    >
-                      <span style={{ textAlign: 'left' }}>
-                        <div style={{ fontWeight: 700 }}>{c.name}</div>
-                        <div style={{ color: '#64748b', fontSize: 12 }}>{c.customerCode || '—'} {c.phone ? `• ${c.phone}` : ''}</div>
-                      </span>
-                      <span>Select</span>
-                    </button>
-                  ))}
-                </div>
-              )}
+              <div>
+                <input
+                  className="input"
+                  placeholder="Search by phone, customer ID, name, ID card"
+                  value={customerQuery}
+                  onChange={e => setCustomerQuery(e.target.value)}
+                />
+                {customerMatches.length > 0 && (
+                  <div style={{ position: 'absolute', top: 44, left: 0, right: 0, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden', zIndex: 20 }}>
+                    {customerMatches.map(c => (
+                      <button
+                        key={c.id}
+                        className="btn"
+                        onClick={() => { setSelectedCustomerId(c.id); setCustomerQuery(''); }}
+                        style={{ width: '100%', justifyContent: 'space-between', borderRadius: 0 }}
+                      >
+                        <span style={{ textAlign: 'left' }}>
+                          <div style={{ fontWeight: 700 }}>{c.name}</div>
+                          <div style={{ color: '#64748b', fontSize: 12 }}>{c.customerCode || '—'} {c.phone ? `• ${c.phone}` : ''}</div>
+                        </span>
+                        <span>Select</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -635,7 +757,39 @@ function PosPage() {
                 onChange={e => dispatch(setQuantity({ id: item.id, quantity: Number(e.target.value) }))}
                 style={{ width: 70 }}
               />
-              <span style={{ fontWeight: 700 }}>{formatCurrency(item.price, settings)}</span>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {isWholesale ? (
+                <>
+                <select
+                  className="select"
+                  value={item.priceTier || selectedPriceTier}
+                  onChange={e => {
+                    const tier = e.target.value;
+                    const nextPrice = Number(item.prices?.[tier] ?? item.price ?? 0);
+                    dispatch(updateItemPricing({ id: item.id, priceTier: tier, price: nextPrice }));
+                  }}
+                >
+                  <option value="retail">Retail</option>
+                  <option value="wholesale">Wholesale</option>
+                  <option value="agent">Agent</option>
+                </select>
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={item.price}
+                  onChange={e => dispatch(updateItemPricing({ id: item.id, priceTier: item.priceTier || selectedPriceTier, price: Number(e.target.value) || 0 }))}
+                  style={{ width: 110 }}
+                />
+                <span style={{ fontSize: 12, color: '#64748b' }}>
+                  R: {formatCurrency(item.prices?.retail ?? item.price, settings)} • W: {formatCurrency(item.prices?.wholesale ?? item.price, settings)} • A: {formatCurrency(item.prices?.agent ?? item.price, settings)}
+                </span>
+                </>
+                ) : (
+                <span style={{ fontWeight: 700 }}>{formatCurrency(item.price, settings)}</span>
+                )}
+              </div>
               <button className="btn" onClick={() => dispatch(removeItem(item.id))}>
                 <svg viewBox="0 0 24 24" fill="none"><path d="M6 7h12M10 11v6M14 11v6M9 7l1-2h4l1 2M7 7l1 12h8l1-12" stroke="currentColor" strokeWidth="2"/></svg>
                 Remove
@@ -665,27 +819,61 @@ function PosPage() {
             <div><strong>Total: {formatCurrency(total, settings)}</strong></div>
           </div>
           <div style={{ marginTop: 8 }}>
-            <h3 style={{ margin: '8px 0' }}>Payments</h3>
-            {payments.map((p, i) => (
-              <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                <select className="select" value={p.type} onChange={e => updatePayment(i, 'type', e.target.value)}>
-                  <option value="cash">Cash</option>
-                  <option value="card">Card</option>
-                  <option value="mobile">Mobile</option>
-                  <option value="wallet">Wallet</option>
-                </select>
-                <input className="input" type="number" placeholder="amount" value={p.amount} onChange={e => updatePayment(i, 'amount', e.target.value)} style={{ width: 140 }} />
-                {payments.length > 1 && <button className="btn" onClick={() => removePaymentRow(i)}>
-                  <svg viewBox="0 0 24 24" fill="none"><path d="M6 7h12M10 11v6M14 11v6M9 7l1-2h4l1 2M7 7l1 12h8l1-12" stroke="currentColor" strokeWidth="2"/></svg>
-                  Remove
-                </button>}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+              <h3 style={{ margin: 0 }}>Payments</h3>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={easyBuyEnabled}
+                  disabled={!easyBuyAllowed}
+                  onChange={e => setEasyBuyEnabled(e.target.checked)}
+                />
+                EasyBuy
+              </label>
+            </div>
+            {easyBuyEnabled ? (
+              <div style={{ display: 'grid', gap: 8 }}>
+                <div style={{ color: easyBuyBlockedItem ? '#b91c1c' : '#64748b', fontSize: 12 }}>
+                  {easyBuyBlockedItem
+                    ? `${easyBuyBlockedItem.name} does not allow credit sales`
+                    : `Minimum upfront: ${formatCurrency(easyBuyMinimum, settings)}${customerMaxCreditLimit > 0 ? ` • Limit: ${formatCurrency(customerMaxCreditLimit, settings)}` : ''}`}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <label>
+                    <div style={{ marginBottom: 6, color: '#64748b' }}>Amount paid now</div>
+                    <input className="input" type="number" min="0" value={easyBuyAmountPaidNow} onChange={e => setEasyBuyAmountPaidNow(e.target.value)} />
+                  </label>
+                  <label>
+                    <div style={{ marginBottom: 6, color: '#64748b' }}>Due date</div>
+                    <input className="input" type="date" value={easyBuyDueDate} onChange={e => setEasyBuyDueDate(e.target.value)} />
+                  </label>
+                </div>
+                <div style={{ color: '#64748b' }}>Paid now: {formatCurrency(paid, settings)} | Remaining balance: {formatCurrency(due, settings)}</div>
               </div>
-            ))}
-            <button className="btn" onClick={addPaymentRow}>
-              <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2"/></svg>
-              Add Payment
-            </button>
-            <div style={{ marginTop: 6, color: '#64748b' }}>Paid: {formatCurrency(paid, settings)} | Due: {formatCurrency(due, settings)} | Change: {formatCurrency(change, settings)}</div>
+            ) : (
+              <>
+                {payments.map((p, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                    <select className="select" value={p.type} onChange={e => updatePayment(i, 'type', e.target.value)}>
+                      <option value="cash">Cash</option>
+                      <option value="card">Card</option>
+                      <option value="mobile">Mobile</option>
+                      <option value="wallet">Wallet</option>
+                    </select>
+                    <input className="input" type="number" placeholder="amount" value={p.amount} onChange={e => updatePayment(i, 'amount', e.target.value)} style={{ width: 140 }} />
+                    {payments.length > 1 && <button className="btn" onClick={() => removePaymentRow(i)}>
+                      <svg viewBox="0 0 24 24" fill="none"><path d="M6 7h12M10 11v6M14 11v6M9 7l1-2h4l1 2M7 7l1 12h8l1-12" stroke="currentColor" strokeWidth="2"/></svg>
+                      Remove
+                    </button>}
+                  </div>
+                ))}
+                <button className="btn" onClick={addPaymentRow}>
+                  <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2"/></svg>
+                  Add Payment
+                </button>
+                <div style={{ marginTop: 6, color: '#64748b' }}>Paid: {formatCurrency(paid, settings)} | Due: {formatCurrency(due, settings)} | Change: {formatCurrency(change, settings)}</div>
+              </>
+            )}
           </div>
           {canOverrideTax && (
             <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>

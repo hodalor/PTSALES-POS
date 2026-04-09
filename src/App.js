@@ -36,6 +36,15 @@ import SuppliersPage from './pages/SuppliersPage';
 import SalesPage from './pages/SalesPage';
 import CashDrawerPage from './pages/CashDrawerPage';
 import RefundApprovalsPage from './pages/RefundApprovalsPage';
+import ApprovalsPage from './pages/ApprovalsPage';
+import CreditControlPage from './pages/CreditControlPage';
+import EasyBuyGoodClientsPage from './pages/EasyBuyGoodClientsPage';
+import EasyBuyDefaultersPage from './pages/EasyBuyDefaultersPage';
+import EasyBuyRepaymentApprovalsPage from './pages/EasyBuyRepaymentApprovalsPage';
+import WholesalePurchasePage from './pages/WholesalePurchasePage';
+import WholesaleTransferPage from './pages/WholesaleTransferPage';
+import WholesaleAdjustmentPage from './pages/WholesaleAdjustmentPage';
+import WholesaleRefundPage from './pages/WholesaleRefundPage';
 import ToastProvider from './components/ToastProvider';
 import LabelsPage from './pages/LabelsPage';
 import AuditLogPage from './pages/AuditLogPage';
@@ -413,7 +422,12 @@ function App() {
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/" element={<Navigate to="/pos" replace />} />
             <Route path="/dashboard" element={<ProtectedRoute feature="modules.dashboard" roles={['Admin','Manager']} grant={['view_dashboard','see_dashboard']}><DashboardPage /></ProtectedRoute>} />
-            <Route path="/pos" element={<ProtectedRoute feature="modules.pos" roles={['Admin','Manager','Cashier']} grant={['view_pos','see_pos']}><PosPage /></ProtectedRoute>} />
+            <Route path="/pos" element={<ProtectedRoute feature="modules.pos" roles={['Admin','Manager','Cashier']} grant={['view_pos','see_pos']}><PosPage mode="retail" /></ProtectedRoute>} />
+            <Route path="/wholesale-pos" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','Cashier']} grant={['view_wholesale_pos']}><PosPage mode="wholesale" /></ProtectedRoute>} />
+            <Route path="/wholesale-purchase" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','Inventory Staff','Cashier']} grant={['view_wholesale_pos']}><WholesalePurchasePage /></ProtectedRoute>} />
+            <Route path="/wholesale-transfer" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','Inventory Staff','Cashier']} grant={['view_wholesale_pos']}><WholesaleTransferPage /></ProtectedRoute>} />
+            <Route path="/wholesale-adjustment" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','Inventory Staff','Cashier']} grant={['view_wholesale_pos']}><WholesaleAdjustmentPage /></ProtectedRoute>} />
+            <Route path="/wholesale-refund" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','Inventory Staff','Cashier']} grant={['view_wholesale_pos']}><WholesaleRefundPage /></ProtectedRoute>} />
             <Route path="/sales" element={<ProtectedRoute feature="modules.sales" roles={['Admin','Manager','Cashier']} grant={['view_sales','see_sales']}><SalesPage /></ProtectedRoute>} />
             <Route path="/invoices" element={<ProtectedRoute feature="modules.invoices" roles={['Admin','Manager','Cashier']} grant={['view_invoices','see_invoices']}><InvoicesPage /></ProtectedRoute>} />
             <Route path="/products" element={<ProtectedRoute feature="modules.products" roles={['Admin','Manager','Inventory Staff']} grant={['view_products','see_products']}><ProductsPage /></ProtectedRoute>} />
@@ -428,6 +442,11 @@ function App() {
             <Route path="/reports" element={<ProtectedRoute feature="modules.reports" roles={['Admin','Manager','Auditor']} grant={['view_reports','see_reports']}><ReportsPage /></ProtectedRoute>} />
             <Route path="/backup" element={<ProtectedRoute feature="modules.backup" roles={['Admin','Manager','SuperAdmin']}><BackupPage /></ProtectedRoute>} />
             <Route path="/customers" element={<ProtectedRoute feature="modules.customers" roles={['Admin','Manager','Cashier']} grant={['view_customers','see_customers']}><CustomersPage /></ProtectedRoute>} />
+            <Route path="/credit-control" element={<ProtectedRoute feature="modules.creditControl" roles={['Admin','Manager','Cashier']} grant={['view_credit_control']}><CreditControlPage /></ProtectedRoute>} />
+            <Route path="/easybuy/good-clients" element={<ProtectedRoute feature="modules.creditControl" roles={['Admin','Manager','Cashier']} grant={['view_credit_control']}><EasyBuyGoodClientsPage /></ProtectedRoute>} />
+            <Route path="/easybuy/defaulters" element={<ProtectedRoute feature="modules.creditControl" roles={['Admin','Manager','Cashier']} grant={['view_credit_control']}><EasyBuyDefaultersPage /></ProtectedRoute>} />
+            <Route path="/easybuy/repayment-approvals" element={<ProtectedRoute feature="modules.creditControl" roles={['Admin','Manager','SuperAdmin']} grant={['approve_credit_director','approve_credit_manager','view_credit_control']}><EasyBuyRepaymentApprovalsPage /></ProtectedRoute>} />
+            <Route path="/approvals-center" element={<ProtectedRoute feature="modules.approvalsCenter" roles={['Admin','Manager','SuperAdmin']} grant={['view_approvals','approve_wholesale_director','approve_wholesale_manager','approve_credit_director','approve_credit_manager']}><ApprovalsPage /></ProtectedRoute>} />
             <Route path="/refunds" element={<ProtectedRoute feature="modules.refunds" roles={['Admin','Manager','Cashier']} grant={['view_refunds','see_refunds']}><RefundsPage /></ProtectedRoute>} />
             <Route path="/refund-approvals" element={<ProtectedRoute feature="modules.refundApprovals" roles={['Admin','Manager','SuperAdmin']} grant="approve_refunds"><RefundApprovalsPage /></ProtectedRoute>} />
             <Route path="/stock-records" element={<ProtectedRoute feature="admin.stockRecords" roles={['Admin','SuperAdmin']} grant={['view_stock_records','see_stock_records']}><StockRecordsPage /></ProtectedRoute>} />
