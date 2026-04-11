@@ -28,67 +28,83 @@ export function canApproveManager(user) {
 }
 
 async function applyWholesaleOperation(operation, actor) {
-  const product = await Product.findOne(productQuery(operation.productId));
-  if (!product) {
-    const err = new Error('Product not found for wholesale operation');
-    err.status = 400;
-    throw err;
-  }
-  const qty = Math.max(0, Number(operation.qty || 0));
-  if (qty <= 0) {
-    const err = new Error('Quantity must be greater than zero');
-    err.status = 400;
-    throw err;
-  }
-  if (operation.operationType === 'purchase' || operation.operationType === 'refund') {
-    const target = getStockTarget(product, operation.variantId, operation.toInventoryType || operation.fromInventoryType || 'wholesale');
-    if (!target) {
-      const err = new Error('Variant not found');
+  const items = Array.isArray(operation.items) && operation.items.length > 0
+    ? operation.items
+    : [{
+        lineId: '1',
+        productId: operation.productId,
+        variantId: operation.variantId || '',
+        qty: Number(operation.qty || 0),
+        cost: Number(operation.cost || 0),
+        requestedAmount: Number(operation.requestedAmount || 0),
+        adjustmentType: operation.adjustmentType || 'increase',
+        supplier: operation.supplier || '',
+        reason: operation.reason || '',
+        remark: operation.remark || '',
+        status: 'accepted'
+      }];
+  let acceptedCount = 0;
+  for (const item of items) {
+    if (String(item.status || '').toLowerCase() === 'cancelled') continue;
+    const product = await Product.findOne(productQuery(item.productId));
+    if (!product) {
+      const err = new Error('Product not found for wholesale operation');
       err.status = 400;
       throw err;
     }
-    const current = getMapQty(target.container, operation.branchId || operation.toBranchId);
-    setMapQty(target.container, operation.branchId || operation.toBranchId, current + qty);
-    markInventoryModified(target);
-    await product.save();
-  } else if (operation.operationType === 'adjustment') {
-    const target = getStockTarget(product, operation.variantId, operation.fromInventoryType || 'wholesale');
-    if (!target) {
-      const err = new Error('Variant not found');
-      err.status = 400;
-      throw err;
+    const qty = Math.max(0, Number(item.qty || 0));
+    if (qty <= 0) continue;
+    if (operation.operationType === 'purchase' || operation.operationType === 'refund') {
+      const target = getStockTarget(product, item.variantId, operation.toInventoryType || operation.fromInventoryType || 'wholesale');
+      if (!target) {
+        const err = new Error('Variant not found');
+        err.status = 400;
+        throw err;
+      }
+      const current = getMapQty(target.container, operation.branchId || operation.toBranchId);
+      setMapQty(target.container, operation.branchId || operation.toBranchId, current + qty);
+      markInventoryModified(target);
+      await product.save();
+    } else if (operation.operationType === 'adjustment') {
+      const target = getStockTarget(product, item.variantId, operation.fromInventoryType || 'wholesale');
+      if (!target) {
+        const err = new Error('Variant not found');
+        err.status = 400;
+        throw err;
+      }
+      const branchId = operation.branchId || operation.fromBranchId;
+      const current = getMapQty(target.container, branchId);
+      const delta = String(item.adjustmentType || operation.adjustmentType || 'increase') === 'decrease' ? -qty : qty;
+      if (current + delta < 0) {
+        const err = new Error('Insufficient stock for adjustment');
+        err.status = 400;
+        throw err;
+      }
+      setMapQty(target.container, branchId, current + delta);
+      markInventoryModified(target);
+      await product.save();
+    } else if (operation.operationType === 'transfer') {
+      const fromTarget = getStockTarget(product, item.variantId, operation.fromInventoryType || 'wholesale');
+      const toTarget = getStockTarget(product, item.variantId, operation.toInventoryType || 'wholesale');
+      if (!fromTarget || !toTarget) {
+        const err = new Error('Variant not found');
+        err.status = 400;
+        throw err;
+      }
+      const fromCurrent = getMapQty(fromTarget.container, operation.fromBranchId);
+      if (fromCurrent < qty) {
+        const err = new Error('Insufficient stock for transfer');
+        err.status = 400;
+        throw err;
+      }
+      const toCurrent = getMapQty(toTarget.container, operation.toBranchId);
+      setMapQty(fromTarget.container, operation.fromBranchId, fromCurrent - qty);
+      setMapQty(toTarget.container, operation.toBranchId, toCurrent + qty);
+      markInventoryModified(fromTarget);
+      markInventoryModified(toTarget);
+      await product.save();
     }
-    const branchId = operation.branchId || operation.fromBranchId;
-    const current = getMapQty(target.container, branchId);
-    const delta = String(operation.adjustmentType || 'increase') === 'decrease' ? -qty : qty;
-    if (current + delta < 0) {
-      const err = new Error('Insufficient stock for adjustment');
-      err.status = 400;
-      throw err;
-    }
-    setMapQty(target.container, branchId, current + delta);
-    markInventoryModified(target);
-    await product.save();
-  } else if (operation.operationType === 'transfer') {
-    const fromTarget = getStockTarget(product, operation.variantId, operation.fromInventoryType || 'wholesale');
-    const toTarget = getStockTarget(product, operation.variantId, operation.toInventoryType || 'wholesale');
-    if (!fromTarget || !toTarget) {
-      const err = new Error('Variant not found');
-      err.status = 400;
-      throw err;
-    }
-    const fromCurrent = getMapQty(fromTarget.container, operation.fromBranchId);
-    if (fromCurrent < qty) {
-      const err = new Error('Insufficient stock for transfer');
-      err.status = 400;
-      throw err;
-    }
-    const toCurrent = getMapQty(toTarget.container, operation.toBranchId);
-    setMapQty(fromTarget.container, operation.fromBranchId, fromCurrent - qty);
-    setMapQty(toTarget.container, operation.toBranchId, toCurrent + qty);
-    markInventoryModified(fromTarget);
-    markInventoryModified(toTarget);
-    await product.save();
+    acceptedCount += 1;
   }
   operation.status = 'approved';
   operation.executedAt = new Date();
@@ -99,7 +115,9 @@ async function applyWholesaleOperation(operation, actor) {
     details: {
       productId: operation.productId,
       variantId: operation.variantId || '',
-      qty,
+      qty: Number(operation.qty || 0),
+      itemCount: items.length,
+      acceptedCount,
       branchId: operation.branchId || '',
       fromBranchId: operation.fromBranchId || '',
       toBranchId: operation.toBranchId || '',

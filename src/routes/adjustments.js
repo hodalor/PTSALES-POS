@@ -29,6 +29,28 @@ function setBranchQty(mapLike, branchId, qty) {
     mapLike[branchId] = qty;
   }
 }
+function normalizeItems(payload = {}) {
+  const raw = Array.isArray(payload.items) && payload.items.length > 0
+    ? payload.items
+    : [{
+        lineId: payload.clientId || '',
+        productId: payload.productId,
+        variantId: payload.variantId || '',
+        delta: payload.delta,
+        remark: payload.remark || '',
+        status: 'pending'
+      }];
+  return raw
+    .map((item, index) => ({
+      lineId: String(item.lineId || `${index + 1}`),
+      productId: String(item.productId || ''),
+      variantId: String(item.variantId || ''),
+      delta: Number(item.delta || 0),
+      remark: String(item.remark || ''),
+      status: String(item.status || 'pending').toLowerCase() === 'cancelled' ? 'cancelled' : 'accepted'
+    }))
+    .filter(item => item.productId && Number(item.delta) !== 0);
+}
 
 async function adjustBaseStock(productId, branchId, delta) {
   const p = await Product.findOne(productLookupQuery(productId));
@@ -95,13 +117,14 @@ r.post('/requests', requireRoleOrPerm(['Admin','Manager','Inventory Staff'], 'ad
     branchId: String(branchId),
     delta: Number(delta),
     remark: String(remark || ''),
+    items: normalizeItems(req.body || {}),
     initiatorName: req.user?.name || '',
     initiatorRole: req.user?.role || ''
   });
   await Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'adjustment_request_create',
-    details: { id: String(row._id), productId: row.productId, variantId: row.variantId || '', delta: row.delta, branchId: row.branchId },
+    details: { id: String(row._id), productId: row.productId, variantId: row.variantId || '', delta: row.delta, branchId: row.branchId, itemCount: Array.isArray(row.items) ? row.items.length : 0 },
     remark: row.remark || '',
     branchId: row.branchId
   });
@@ -109,16 +132,20 @@ r.post('/requests', requireRoleOrPerm(['Admin','Manager','Inventory Staff'], 'ad
 });
 
 r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_adjustments'), async (req, res) => {
-  const { id, remark } = req.body || {};
+  const { id, remark, items: reviewedItems } = req.body || {};
   const row = await AdjustmentRequest.findById(id);
   if (!row) return res.status(404).json({ error: 'Request not found' });
   if (row.status !== 'pending_approval') return res.status(400).json({ error: 'Request not pending' });
-  let p;
+  const nextItems = normalizeItems({ items: reviewedItems && reviewedItems.length ? reviewedItems : (row.items || []) });
+  let p = null;
   try {
-    if (row.variantId) {
-      p = await adjustVariantStock(row.productId, row.variantId, row.branchId, row.delta);
-    } else {
-      p = await adjustBaseStock(row.productId, row.branchId, row.delta);
+    for (const item of nextItems) {
+      if (item.status === 'cancelled') continue;
+      if (item.variantId) {
+        p = await adjustVariantStock(item.productId, item.variantId, row.branchId, item.delta);
+      } else {
+        p = await adjustBaseStock(item.productId, row.branchId, item.delta);
+      }
     }
   } catch (e) {
     return res.status(e?.status || 500).json({ error: e?.message || 'Failed to apply adjustment' });
@@ -127,13 +154,14 @@ r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_adjustments')
   row.approverName = req.user?.name || '';
   row.approverRole = req.user?.role || '';
   row.approvalRemark = String(remark || '');
+  row.items = nextItems;
   row.approved_at = new Date();
   await row.save();
   const varLabel = (Array.isArray(p?.variants) ? p.variants.find(v => v.id === row.variantId)?.label : '') || '';
   await Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'stock_adjust',
-    details: { product: p?.name || row.productId, variant: varLabel, delta: Number(row.delta), branchId: row.branchId },
+    details: { product: p?.name || row.productId, variant: varLabel, delta: Number(row.delta), branchId: row.branchId, itemCount: nextItems.length, acceptedCount: nextItems.filter(item => item.status !== 'cancelled').length },
     remark: row.remark || '',
     branchId: row.branchId
   });
@@ -162,7 +190,7 @@ r.post('/reject', requireRoleOrPerm(['Admin','Manager'], 'approve_adjustments'),
   await Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'adjustment_reject',
-    details: { id: String(row._id), productId: row.productId, variantId: row.variantId || '', delta: row.delta, branchId: row.branchId },
+    details: { id: String(row._id), productId: row.productId, variantId: row.variantId || '', delta: row.delta, branchId: row.branchId, itemCount: Array.isArray(row.items) ? row.items.length : 0 },
     remark: String(remark || ''),
     branchId: row.branchId
   });

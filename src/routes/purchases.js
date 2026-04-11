@@ -25,6 +25,38 @@ function setBranchQty(mapLike, branchId, qty) {
   if (typeof mapLike.set === 'function') mapLike.set(branchId, qty);
   else mapLike[branchId] = qty;
 }
+function normalizeItems(payload = {}) {
+  const raw = Array.isArray(payload.items) && payload.items.length > 0
+    ? payload.items
+    : [{
+        lineId: payload.clientId || '',
+        productId: payload.productId,
+        variantId: payload.variantId || '',
+        baseUnits: payload.baseUnits,
+        pack: payload.pack || '',
+        supplier: payload.supplier || '',
+        cost: payload.cost,
+        costPerUnit: payload.costPerUnit,
+        expiryDate: payload.expiryDate,
+        remark: payload.remark || '',
+        status: 'pending'
+      }];
+  return raw
+    .map((item, index) => ({
+      lineId: String(item.lineId || `${index + 1}`),
+      productId: String(item.productId || ''),
+      variantId: String(item.variantId || ''),
+      baseUnits: Number(item.baseUnits || 0),
+      pack: String(item.pack || ''),
+      supplier: String(item.supplier || ''),
+      cost: Number(item.cost || 0),
+      costPerUnit: Number(item.costPerUnit || 0),
+      expiryDate: item.expiryDate || undefined,
+      remark: String(item.remark || ''),
+      status: String(item.status || 'pending').toLowerCase() === 'cancelled' ? 'cancelled' : 'accepted'
+    }))
+    .filter(item => item.productId && item.baseUnits > 0);
+}
 
 r.get('/requests', async (req, res) => {
   const role = String(req.user?.role || '').toLowerCase();
@@ -52,12 +84,13 @@ r.post('/requests', requireRoleOrPerm(['Admin','Manager','Inventory Staff'], 'ad
   const pr = await PurchaseRequest.create({
     ...payload,
     status: 'pending_approval',
-    clientId: clientId || undefined
+    clientId: clientId || undefined,
+    items: normalizeItems(payload)
   });
   await Audit.create({
     actor: pr.initiatorName || 'unknown',
     actionType: 'purchase_initiated',
-    details: { productId: pr.productId, variantId: pr.variantId || '', baseUnits: Number(pr.baseUnits || 0), supplier: pr.supplier || '', cost: Number(pr.cost) || 0 },
+    details: { productId: pr.productId, variantId: pr.variantId || '', baseUnits: Number(pr.baseUnits || 0), supplier: pr.supplier || '', cost: Number(pr.cost) || 0, itemCount: Array.isArray(pr.items) ? pr.items.length : 0 },
     remark: pr.remark || '',
     branchId: pr.branchId
   });
@@ -65,7 +98,7 @@ r.post('/requests', requireRoleOrPerm(['Admin','Manager','Inventory Staff'], 'ad
 });
 
 r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_purchases'), async (req, res) => {
-  const { id, approverName, approverRole, remark } = req.body || {};
+  const { id, approverName, approverRole, remark, items: reviewedItems } = req.body || {};
   if (!remark || !String(remark).trim()) return res.status(400).json({ error: 'Approval remark required' });
   const key = String(id || '');
   const or = [];
@@ -83,45 +116,39 @@ r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_purchases'), 
     }
   }
 
-  const { productId, variantId, branchId, baseUnits, supplier, cost, costPerUnit, expiryDate } = pr;
-
-  let p;
-  // adjust stock similar to /api/stock/receive
+  const nextItems = normalizeItems({ items: reviewedItems && reviewedItems.length ? reviewedItems : (pr.items || []) });
+  let lastProduct = null;
   try {
-    const q = Number(baseUnits);
-    if (!Number.isFinite(q) || q <= 0) return res.status(400).json({ error: 'baseUnits must be a positive number' });
-    const doc = await Product.findOne(productLookupQuery(productId));
-    if (!doc) return res.status(404).json({ error: 'Product not found' });
-    if (variantId) {
-      const variants = Array.isArray(doc.variants) ? doc.variants : [];
-      const idx = variants.findIndex(v => v.id === variantId);
-      if (idx < 0) return res.status(400).json({ error: 'Variant not found' });
-      const v = variants[idx];
-      if (!v.stockByBranch) v.stockByBranch = new Map();
-      const cur = getBranchQty(v.stockByBranch, branchId);
-      setBranchQty(v.stockByBranch, branchId, Math.max(0, cur + q));
-      doc.variants[idx] = v;
-      doc.markModified('variants');
+    for (const item of nextItems) {
+      if (item.status === 'cancelled') continue;
+      const q = Number(item.baseUnits);
+      if (!Number.isFinite(q) || q <= 0) continue;
+      const doc = await Product.findOne(productLookupQuery(item.productId));
+      if (!doc) return res.status(404).json({ error: 'Product not found' });
+      if (item.variantId) {
+        const variants = Array.isArray(doc.variants) ? doc.variants : [];
+        const idx = variants.findIndex(v => v.id === item.variantId);
+        if (idx < 0) return res.status(400).json({ error: 'Variant not found' });
+        const v = variants[idx];
+        if (!v.stockByBranch) v.stockByBranch = new Map();
+        const cur = getBranchQty(v.stockByBranch, pr.branchId);
+        setBranchQty(v.stockByBranch, pr.branchId, Math.max(0, cur + q));
+        doc.variants[idx] = v;
+        doc.markModified('variants');
+      } else {
+        if (!doc.stockByBranch) doc.stockByBranch = new Map();
+        const cur = getBranchQty(doc.stockByBranch, pr.branchId);
+        setBranchQty(doc.stockByBranch, pr.branchId, Math.max(0, cur + Number(q)));
+        doc.markModified('stockByBranch');
+      }
+      const cpu = item.costPerUnit != null ? Number(item.costPerUnit) : null;
+      if (cpu != null && Number.isFinite(cpu) && cpu >= 0) doc.costPrice = cpu;
+      if (item.expiryDate) {
+        const dt = new Date(item.expiryDate);
+        if (!Number.isNaN(dt.getTime())) doc.expiryDate = dt;
+      }
       await doc.save();
-      p = doc;
-    } else {
-      if (!doc.stockByBranch) doc.stockByBranch = new Map();
-      const cur = getBranchQty(doc.stockByBranch, branchId);
-      setBranchQty(doc.stockByBranch, branchId, Math.max(0, cur + Number(q)));
-      doc.markModified('stockByBranch');
-      await doc.save();
-      p = doc;
-    }
-    const cpu = costPerUnit != null ? Number(costPerUnit) : null;
-    if (cpu != null && Number.isFinite(cpu) && cpu >= 0) {
-      p.costPrice = cpu;
-    }
-    if (expiryDate) {
-      const dt = new Date(expiryDate);
-      if (!Number.isNaN(dt.getTime())) p.expiryDate = dt;
-    }
-    if (cpu != null || expiryDate) {
-      await p.save();
+      lastProduct = doc;
     }
   } catch (e) {
     return res.status(500).json({ error: e?.message || 'Failed to receive stock' });
@@ -131,14 +158,14 @@ r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_purchases'), 
   pr.approverName = approverName || 'unknown';
   pr.approverRole = approverRole || '';
   pr.approvalRemark = String(remark || '').trim();
+  pr.items = nextItems;
   pr.approved_at = new Date();
   await pr.save();
 
-  const varLabel = (Array.isArray(p?.variants) ? p.variants.find(v => v.id === pr.variantId)?.label : '') || '';
   await Audit.create({
     actor: approverName || 'unknown',
     actionType: 'stock_receive',
-    details: { product: p?.name || pr.productId, variant: varLabel, baseUnits: Number(pr.baseUnits), supplier: pr.supplier || '', cost: Number(pr.cost) || 0, costPerUnit: Number(pr.costPerUnit || 0), expiryDate: pr.expiryDate || null, branchId: pr.branchId },
+    details: { product: lastProduct?.name || pr.productId, baseUnits: Number(pr.baseUnits), supplier: pr.supplier || '', cost: Number(pr.cost) || 0, costPerUnit: Number(pr.costPerUnit || 0), expiryDate: pr.expiryDate || null, branchId: pr.branchId, itemCount: nextItems.length, acceptedCount: nextItems.filter(item => item.status !== 'cancelled').length },
     remark: remark || pr.remark || '',
     branchId: pr.branchId
   });
@@ -149,7 +176,7 @@ r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_purchases'), 
       route: '/api/purchases/approve',
       method: 'POST',
       status: 200,
-      message: `Purchase approved +${Number(pr.baseUnits)} for ${p?.name || pr.productId} @ ${pr.branchId}${pr.variantId ? ` (variant ${varLabel})` : ''}`
+      message: `Purchase approved (${nextItems.filter(item => item.status !== 'cancelled').length} item(s)) @ ${pr.branchId}`
     });
   } catch {}
   res.json(pr);

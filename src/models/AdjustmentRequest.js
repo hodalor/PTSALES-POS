@@ -1,5 +1,14 @@
 import mongoose from 'mongoose';
 
+const AdjustmentRequestItemSchema = new mongoose.Schema({
+  lineId: { type: String, default: '' },
+  productId: String,
+  variantId: String,
+  delta: Number,
+  remark: String,
+  status: { type: String, enum: ['pending', 'accepted', 'cancelled'], default: 'pending' }
+}, { _id: false });
+
 const AdjustmentRequestSchema = new mongoose.Schema({
   clientId: { type: String, unique: true, sparse: true, index: true },
   productId: String,
@@ -7,6 +16,7 @@ const AdjustmentRequestSchema = new mongoose.Schema({
   branchId: String,
   delta: Number,
   remark: String,
+  items: { type: [AdjustmentRequestItemSchema], default: [] },
   initiatorName: String,
   initiatorRole: String,
   status: { type: String, default: 'pending_approval' },

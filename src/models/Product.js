@@ -9,7 +9,8 @@ const VariantSchema = new mongoose.Schema({
   wholesalePrice: { type: Number, default: 0 },
   agentPrice: { type: Number, default: 0 },
   stockByBranch: { type: Map, of: Number, default: {} },
-  wholesaleStockByBranch: { type: Map, of: Number, default: {} }
+  wholesaleStockByBranch: { type: Map, of: Number, default: {} },
+  warehouseStockByBranch: { type: Map, of: Number, default: {} }
 }, { _id: false });
 
 const PackSchema = new mongoose.Schema({
@@ -46,6 +47,7 @@ const ProductSchema = new mongoose.Schema({
   variants: { type: [VariantSchema], default: [] },
   stockByBranch: { type: Map, of: Number, default: {} },
   wholesaleStockByBranch: { type: Map, of: Number, default: {} },
+  warehouseStockByBranch: { type: Map, of: Number, default: {} },
   allowCredit: { type: Boolean, default: true },
   minimumCreditPercentage: { type: Number, default: 0 }
 }, { timestamps: true, toJSON: { flattenMaps: true }, toObject: { flattenMaps: true } });

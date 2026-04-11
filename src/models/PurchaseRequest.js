@@ -1,5 +1,19 @@
 import mongoose from 'mongoose';
 
+const PurchaseRequestItemSchema = new mongoose.Schema({
+  lineId: { type: String, default: '' },
+  productId: String,
+  variantId: String,
+  baseUnits: Number,
+  pack: String,
+  supplier: String,
+  cost: Number,
+  costPerUnit: Number,
+  expiryDate: Date,
+  remark: String,
+  status: { type: String, enum: ['pending', 'accepted', 'cancelled'], default: 'pending' }
+}, { _id: false });
+
 const PurchaseRequestSchema = new mongoose.Schema({
   clientId: { type: String, unique: true, sparse: true, index: true },
   productId: String,
@@ -12,6 +26,7 @@ const PurchaseRequestSchema = new mongoose.Schema({
   costPerUnit: Number,
   expiryDate: Date,
   remark: String,
+  items: { type: [PurchaseRequestItemSchema], default: [] },
   initiatorName: String,
   initiatorRole: String,
   status: { type: String, default: 'pending_approval' },

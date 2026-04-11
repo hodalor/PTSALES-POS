@@ -1,5 +1,14 @@
 import mongoose from 'mongoose';
 
+const TransferRequestItemSchema = new mongoose.Schema({
+  lineId: { type: String, default: '' },
+  productId: String,
+  variantId: String,
+  qty: Number,
+  remark: String,
+  status: { type: String, enum: ['pending', 'accepted', 'cancelled'], default: 'pending' }
+}, { _id: false });
+
 const TransferRequestSchema = new mongoose.Schema({
   clientId: { type: String, unique: true, sparse: true, index: true },
   productId: String,
@@ -8,6 +17,7 @@ const TransferRequestSchema = new mongoose.Schema({
   to: String,
   qty: Number,
   remark: String,
+  items: { type: [TransferRequestItemSchema], default: [] },
   initiatorName: String,
   initiatorRole: String,
   status: { type: String, default: 'pending_approval' },

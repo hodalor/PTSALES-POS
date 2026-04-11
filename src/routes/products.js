@@ -46,6 +46,7 @@ function normalizePricingPayload(body = {}) {
   out.allowCredit = out.allowCredit !== false;
   out.minimumCreditPercentage = Math.max(0, Math.min(100, Number(out.minimumCreditPercentage || 0)));
   out.wholesaleStockByBranch = normalizeStockByBranch(out.wholesaleStockByBranch);
+  out.warehouseStockByBranch = normalizeStockByBranch(out.warehouseStockByBranch);
   if (Array.isArray(out.variants)) {
     out.variants = out.variants.map(v => {
       const next = { ...(v || {}) };
@@ -58,6 +59,7 @@ function normalizePricingPayload(body = {}) {
       if (hasNumber(next.agentPrice)) next.agentPrice = toNumberOrZero(next.agentPrice);
       else next.agentPrice = next.wholesalePrice || out.agentPrice || 0;
       next.wholesaleStockByBranch = normalizeStockByBranch(next.wholesaleStockByBranch);
+      next.warehouseStockByBranch = normalizeStockByBranch(next.warehouseStockByBranch);
       return next;
     });
   }
@@ -98,6 +100,7 @@ r.get('/', async (req, res) => {
     if (!obj.id && obj._id) obj.id = String(obj._id);
     obj.stockByBranch = normalizeStockByBranch(obj.stockByBranch);
     obj.wholesaleStockByBranch = normalizeStockByBranch(obj.wholesaleStockByBranch);
+    obj.warehouseStockByBranch = normalizeStockByBranch(obj.warehouseStockByBranch);
     const basePrice = toNumberOrZero(obj.price || 0);
     obj.retailPrice = hasNumber(obj.retailPrice) ? toNumberOrZero(obj.retailPrice) : basePrice;
     obj.wholesalePrice = hasNumber(obj.wholesalePrice) ? toNumberOrZero(obj.wholesalePrice) : obj.retailPrice;
@@ -114,7 +117,8 @@ r.get('/', async (req, res) => {
         wholesalePrice: hasNumber(v.wholesalePrice) ? toNumberOrZero(v.wholesalePrice) : (hasNumber(v.retailPrice) ? toNumberOrZero(v.retailPrice) : obj.wholesalePrice),
         agentPrice: hasNumber(v.agentPrice) ? toNumberOrZero(v.agentPrice) : (hasNumber(v.wholesalePrice) ? toNumberOrZero(v.wholesalePrice) : obj.agentPrice),
         stockByBranch: normalizeStockByBranch(v.stockByBranch),
-        wholesaleStockByBranch: normalizeStockByBranch(v.wholesaleStockByBranch)
+        wholesaleStockByBranch: normalizeStockByBranch(v.wholesaleStockByBranch),
+        warehouseStockByBranch: normalizeStockByBranch(v.warehouseStockByBranch)
       }));
     }
     return obj;

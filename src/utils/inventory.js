@@ -1,5 +1,8 @@
 export function inventoryField(inventoryType = 'retail') {
-  return String(inventoryType || '').toLowerCase() === 'wholesale' ? 'wholesaleStockByBranch' : 'stockByBranch';
+  const kind = String(inventoryType || '').toLowerCase();
+  if (kind === 'warehouse') return 'warehouseStockByBranch';
+  if (kind === 'wholesale') return 'wholesaleStockByBranch';
+  return 'stockByBranch';
 }
 
 export function getMapQty(mapLike, branchId) {

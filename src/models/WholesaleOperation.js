@@ -1,7 +1,27 @@
 import mongoose from 'mongoose';
 
+const WholesaleOperationItemSchema = new mongoose.Schema({
+  lineId: { type: String, default: '' },
+  productId: { type: String, required: true },
+  variantId: { type: String, default: '' },
+  qty: { type: Number, default: 0 },
+  cost: { type: Number, default: 0 },
+  requestedAmount: { type: Number, default: 0 },
+  adjustmentType: { type: String, enum: ['increase', 'decrease'], default: 'increase' },
+  supplier: { type: String, default: '' },
+  reason: { type: String, default: '' },
+  remark: { type: String, default: '' },
+  status: { type: String, enum: ['pending', 'accepted', 'cancelled'], default: 'pending' }
+}, { _id: false });
+
 const WholesaleOperationSchema = new mongoose.Schema({
   clientId: { type: String, unique: true, sparse: true, index: true },
+  operationArea: {
+    type: String,
+    enum: ['wholesale', 'warehouse'],
+    default: 'wholesale',
+    index: true
+  },
   operationType: {
     type: String,
     enum: ['purchase', 'transfer', 'adjustment', 'refund'],
@@ -13,8 +33,8 @@ const WholesaleOperationSchema = new mongoose.Schema({
   branchId: { type: String, default: '' },
   fromBranchId: { type: String, default: '' },
   toBranchId: { type: String, default: '' },
-  fromInventoryType: { type: String, enum: ['retail', 'wholesale'], default: 'wholesale' },
-  toInventoryType: { type: String, enum: ['retail', 'wholesale'], default: 'wholesale' },
+  fromInventoryType: { type: String, enum: ['retail', 'wholesale', 'warehouse'], default: 'wholesale' },
+  toInventoryType: { type: String, enum: ['retail', 'wholesale', 'warehouse'], default: 'wholesale' },
   qty: { type: Number, required: true, min: 0 },
   cost: { type: Number, default: 0 },
   requestedAmount: { type: Number, default: 0 },
@@ -22,6 +42,7 @@ const WholesaleOperationSchema = new mongoose.Schema({
   supplier: { type: String, default: '' },
   reason: { type: String, default: '' },
   remark: { type: String, default: '' },
+  items: { type: [WholesaleOperationItemSchema], default: [] },
   status: {
     type: String,
     enum: ['pending_director', 'pending_manager', 'approved', 'rejected'],
@@ -34,6 +55,6 @@ const WholesaleOperationSchema = new mongoose.Schema({
   executedAt: { type: Date }
 }, { timestamps: true });
 
-WholesaleOperationSchema.index({ operationType: 1, status: 1, createdAt: -1 });
+WholesaleOperationSchema.index({ operationArea: 1, operationType: 1, status: 1, createdAt: -1 });
 
 export default mongoose.model('WholesaleOperation', WholesaleOperationSchema);

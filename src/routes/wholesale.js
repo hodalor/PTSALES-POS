@@ -20,6 +20,7 @@ r.get('/operations', async (req, res) => {
   const query = {};
   if (req.query.status) query.status = String(req.query.status);
   if (req.query.operationType) query.operationType = String(req.query.operationType);
+  if (req.query.operationArea) query.operationArea = String(req.query.operationArea);
   const role = String(req.user?.role || '').toLowerCase();
   const assigned = req.user?.assignedBranches ?? 'all';
   if (!(role === 'superadmin' || role === 'admin') && assigned !== 'all') {
@@ -40,6 +41,7 @@ r.get('/operations', async (req, res) => {
 
 r.post('/operations', requireRoleOrPerm(['Admin', 'Manager', 'Inventory Staff'], 'add_purchases'), async (req, res) => {
   const body = req.body || {};
+  const operationArea = String(body.operationArea || 'wholesale').toLowerCase() === 'warehouse' ? 'warehouse' : 'wholesale';
   const operationType = String(body.operationType || '').toLowerCase();
   if (!['purchase', 'transfer', 'adjustment', 'refund'].includes(operationType)) {
     return res.status(400).json({ error: 'Invalid operationType' });
@@ -51,8 +53,9 @@ r.post('/operations', requireRoleOrPerm(['Admin', 'Manager', 'Inventory Staff'],
     return res.status(403).json({ error: 'Forbidden' });
   }
   const qty = Math.max(0, Number(body.qty || 0));
-  if (qty <= 0) return res.status(400).json({ error: 'Quantity must be greater than zero' });
-  if (!body.productId) return res.status(400).json({ error: 'Missing productId' });
+  const items = Array.isArray(body.items) ? body.items : [];
+  if (items.length === 0 && qty <= 0) return res.status(400).json({ error: 'Quantity must be greater than zero' });
+  if (items.length === 0 && !body.productId) return res.status(400).json({ error: 'Missing productId' });
   if (operationType === 'transfer' && (!body.fromBranchId || !body.toBranchId)) {
     return res.status(400).json({ error: 'Transfer requires fromBranchId and toBranchId' });
   }
@@ -61,14 +64,15 @@ r.post('/operations', requireRoleOrPerm(['Admin', 'Manager', 'Inventory Staff'],
   }
   const op = await WholesaleOperation.create({
     clientId: body.clientId || undefined,
+    operationArea,
     operationType,
     productId: String(body.productId),
     variantId: String(body.variantId || ''),
     branchId: String(body.branchId || ''),
     fromBranchId: String(body.fromBranchId || ''),
     toBranchId: String(body.toBranchId || ''),
-    fromInventoryType: String(body.fromInventoryType || 'wholesale'),
-    toInventoryType: String(body.toInventoryType || (operationType === 'transfer' ? 'wholesale' : 'wholesale')),
+    fromInventoryType: String(body.fromInventoryType || operationArea),
+    toInventoryType: String(body.toInventoryType || (operationType === 'transfer' ? operationArea : operationArea)),
     qty,
     cost: Number(body.cost || 0),
     requestedAmount: Number(body.requestedAmount || 0),
@@ -76,12 +80,13 @@ r.post('/operations', requireRoleOrPerm(['Admin', 'Manager', 'Inventory Staff'],
     supplier: String(body.supplier || ''),
     reason: String(body.reason || ''),
     remark: String(body.remark || ''),
+    items,
     initiatedByName: req.user?.name || 'unknown',
     initiatedByRole: req.user?.role || '',
     status: 'pending_director'
   });
   const approval = await createApprovalForReference({
-    actionType: `wholesale_${operationType}`,
+    actionType: `${operationArea}_${operationType}`,
     referenceModel: 'WholesaleOperation',
     referenceId: String(op._id),
     initiatedByName: req.user?.name || 'unknown',
