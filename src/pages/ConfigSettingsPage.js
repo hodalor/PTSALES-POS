@@ -18,6 +18,7 @@ function ConfigSettingsPage() {
   const auth = useSelector(s => s.auth);
   const [branchName, setBranchName] = useState('');
   const [branchCode, setBranchCode] = useState('');
+  const [branchType, setBranchType] = useState('retail');
   const [newCurCode, setNewCurCode] = useState('');
   const [newCurSymbol, setNewCurSymbol] = useState('');
   const [newCurPos, setNewCurPos] = useState('prefix');
@@ -35,7 +36,7 @@ function ConfigSettingsPage() {
 
   function addNewBranch() {
     if (!branchName.trim() || !branchCode.trim()) return;
-    const action = dispatch(addBranch({ name: branchName.trim(), code: branchCode.trim() }));
+    const action = dispatch(addBranch({ name: branchName.trim(), code: branchCode.trim(), branchType }));
     const created = action?.payload;
     if (!navigator.onLine && !offlineBackupAllowed) {
       if (created) dispatch(removeBranch(created.id));
@@ -44,13 +45,13 @@ function ConfigSettingsPage() {
     }
     if (created) {
       if (!navigator.onLine) {
-        enqueueHttp({ collection: 'branches', label: 'Branch', path: '/api/branches', method: 'POST', body: { id: created.id, name: created.name, code: created.code } })
+        enqueueHttp({ collection: 'branches', label: 'Branch', path: '/api/branches', method: 'POST', body: { id: created.id, name: created.name, code: created.code, branchType: created.branchType || branchType } })
           .catch(() => {
             dispatch(removeBranch(created.id));
             toast.show('Failed to save offline', { type: 'error' });
           });
       } else {
-        branchesApi.create({ id: created.id, name: created.name, code: created.code })
+        branchesApi.create({ id: created.id, name: created.name, code: created.code, branchType: created.branchType || branchType })
           .catch(() => {
             dispatch(removeBranch(created.id));
             toast.show('Failed to create branch on server', { type: 'error' });
@@ -59,6 +60,7 @@ function ConfigSettingsPage() {
     }
     setBranchName('');
     setBranchCode('');
+    setBranchType('retail');
   }
   
   async function onEditBranch(b) {
@@ -71,7 +73,10 @@ function ConfigSettingsPage() {
     if (!newName || !newName.trim()) return;
     const newCode = await promptDialog('Enter new branch code', b.code);
     if (!newCode || !newCode.trim()) return;
-    const patch = { name: newName.trim(), code: newCode.trim() };
+    const newType = await promptDialog('Enter branch type: retail, wholesale, or warehouse', b.branchType || 'retail');
+    if (!newType || !newType.trim()) return;
+    const normalizedType = ['retail', 'wholesale', 'warehouse'].includes(String(newType).toLowerCase()) ? String(newType).toLowerCase() : 'retail';
+    const patch = { name: newName.trim(), code: newCode.trim(), branchType: normalizedType };
     if (!navigator.onLine) {
       if (!offlineBackupAllowed) {
         toast.show('Offline: connect internet and try again.', { type: 'error' });
@@ -126,6 +131,43 @@ function ConfigSettingsPage() {
     }
   }
 
+  function renderBranchGroup(groupType, title, description) {
+    const groupBranches = branches.filter(b => String(b.branchType || 'retail').toLowerCase() === groupType);
+    const badgeStyle = groupType === 'warehouse'
+      ? { background: '#ede9fe', color: '#6d28d9' }
+      : groupType === 'wholesale'
+        ? { background: '#dbeafe', color: '#1d4ed8' }
+        : { background: '#dcfce7', color: '#166534' };
+    return (
+      <div className="card" style={{ padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+          <div>
+            <h3 className="section-title" style={{ margin: 0 }}>{title}</h3>
+            <div style={{ color: '#64748b', fontSize: 12 }}>{description}</div>
+          </div>
+          <div style={{ color: '#64748b', fontSize: 12 }}>{groupBranches.length} location(s)</div>
+        </div>
+        <ul>
+          {groupBranches.map(b => (
+            <li key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span>{b.name} ({b.code})</span>
+                <span style={{ display: 'inline-flex', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 700, ...badgeStyle }}>
+                  {String(b.branchType || 'retail')}
+                </span>
+              </span>
+              <span>
+                <button className="btn" onClick={() => onEditBranch(b)} disabled={!canManageBranches}>Edit</button>
+                <button className="btn" onClick={() => onRemoveBranch(b)} disabled={!canManageBranches || b.id === 'main'} style={{ marginLeft: 8 }}>Remove</button>
+              </span>
+            </li>
+          ))}
+          {groupBranches.length === 0 && <li style={{ padding: '8px 0', color: '#64748b' }}>No {title.toLowerCase()} added yet.</li>}
+        </ul>
+      </div>
+    );
+  }
+
   return (
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -136,9 +178,10 @@ function ConfigSettingsPage() {
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <div className="card">
-          <h2 className="section-title">App Identity</h2>
-          {isSuperAdmin && (
+        <div style={{ display: 'grid', gap: 16 }}>
+          <div className="card">
+            <h2 className="section-title">App Identity</h2>
+            {isSuperAdmin && (
             <>
               <label>
                 App Name
@@ -169,9 +212,10 @@ function ConfigSettingsPage() {
                 <input className="input" value={settings.footerText} onChange={e => dispatch(setFooterText(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
               </label>
             </>
-          )}
+            )}
+          </div>
           {(roleLower === 'admin' || isSuperAdmin) && (
-            <div style={{ marginTop: 12 }}>
+            <div className="card">
               <h3 className="section-title" style={{ margin: '8px 0' }}>Client App Name</h3>
               <label>
                 Client App Name (Top bar)
@@ -238,7 +282,7 @@ function ConfigSettingsPage() {
             </div>
           )}
           {(roleLower === 'admin' || isSuperAdmin) && (
-            <div style={{ marginTop: 12 }}>
+            <div className="card">
               <h3 className="section-title" style={{ margin: '8px 0' }}>App Installation (PWA)</h3>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <button
@@ -296,10 +340,10 @@ function ConfigSettingsPage() {
               </div>
             </div>
           )}
-          <div style={{ marginTop: 12, color: '#64748b' }}>
+          <div className="card" style={{ padding: 12, color: '#64748b' }}>
             Receipt uses the Client App Logo (falls back to /clientlogo512.png or /logo512.png).
           </div>
-          <div className="card" style={{ marginTop: 12, padding: 12 }}>
+          <div className="card" style={{ padding: 12 }}>
             <h3 className="section-title" style={{ margin: '8px 0' }}>Invoice Settings</h3>
             <label style={{ display: 'block', marginTop: 8 }}>
               Company Address (Letterhead)
@@ -368,7 +412,8 @@ function ConfigSettingsPage() {
               <div style={{ color: '#64748b', marginTop: 6 }}>Top text uses Client App Name automatically.</div>
             </div>
           </div>
-          <label style={{ display: 'block', marginTop: 12 }}>
+          <div className="card">
+          <label style={{ display: 'block', marginTop: 0 }}>
             Business Phone
             <input className="input" value={settings.businessPhone || ''} onChange={e => dispatch(setBusinessPhone(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
           </label>
@@ -417,7 +462,8 @@ function ConfigSettingsPage() {
               style={{ display: 'block', width: '100%', marginTop: 6 }}
             />
           </label>
-          <div style={{ marginTop: 12 }}>
+          </div>
+          <div className="card">
             <h3 className="section-title" style={{ margin: '8px 0' }}>EasyBuy Rules</h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <label>
@@ -446,7 +492,7 @@ function ConfigSettingsPage() {
               </label>
             </div>
           </div>
-          <div style={{ marginTop: 12 }}>
+          <div className="card">
             <h3 className="section-title" style={{ margin: '8px 0' }}>Loyalty Points</h3>
             <label style={{ display: 'block', marginBottom: 8 }}>
               <input type="checkbox" checked={!!settings.loyaltyEnabled} onChange={e => dispatch(setLoyaltyEnabled(e.target.checked))} />
@@ -478,7 +524,7 @@ function ConfigSettingsPage() {
               Example: Earn Amount=100 and Points=5 means every 100 spent earns 5 points. Redeem value controls discount.
             </div>
           </div>
-          <div style={{ marginTop: 12 }}>
+          <div className="card">
             <h3 className="section-title" style={{ margin: '8px 0' }}>Currency</h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <label>
@@ -530,7 +576,7 @@ function ConfigSettingsPage() {
             </div>
           </div>
           {isSuperAdmin && (
-            <div style={{ marginTop: 12 }}>
+            <div className="card">
               <h3 className="section-title" style={{ margin: '8px 0' }}>Background Refresh</h3>
               <label>
                 Interval (seconds)
@@ -605,7 +651,7 @@ function ConfigSettingsPage() {
               </div>
             </div>
           )}
-          <div style={{ marginTop: 12 }}>
+          <div className="card" style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button
               className="btn btn-primary"
               onClick={async () => {
@@ -667,30 +713,47 @@ function ConfigSettingsPage() {
         </div>
         <div className="card">
           <h2 className="section-title">Branches</h2>
-          <div style={{ marginBottom: 8 }}>
-            <label>
-              Current Branch
-              <select className="select" value={settings.currentBranchId} onChange={e => dispatch(setCurrentBranch(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }}>
-                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-            </label>
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
+              <div className="card" style={{ padding: 16 }}>
+                <div style={{ color: '#64748b', fontSize: 12 }}>Retail Branches</div>
+                <div style={{ fontSize: 28, fontWeight: 800 }}>{branches.filter(b => String(b.branchType || 'retail').toLowerCase() === 'retail').length}</div>
+              </div>
+              <div className="card" style={{ padding: 16 }}>
+                <div style={{ color: '#64748b', fontSize: 12 }}>Wholesale Shops</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: '#1d4ed8' }}>{branches.filter(b => String(b.branchType || 'retail').toLowerCase() === 'wholesale').length}</div>
+              </div>
+              <div className="card" style={{ padding: 16 }}>
+                <div style={{ color: '#64748b', fontSize: 12 }}>Warehouses</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: '#6d28d9' }}>{branches.filter(b => String(b.branchType || 'retail').toLowerCase() === 'warehouse').length}</div>
+              </div>
+            </div>
+            <div className="card" style={{ padding: 16 }}>
+              <label>
+                Current Branch
+                <select className="select" value={settings.currentBranchId} onChange={e => dispatch(setCurrentBranch(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }}>
+                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="card" style={{ padding: 16 }}>
+              <h3 className="section-title" style={{ margin: '0 0 8px 0' }}>Create Location</h3>
+              <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>Create retail branches, wholesale shops, or warehouse locations from here.</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8 }}>
+                <input className="input" placeholder="Branch name" value={branchName} onChange={e => setBranchName(e.target.value)} disabled={!canManageBranches} />
+                <input className="input" placeholder="Code" value={branchCode} onChange={e => setBranchCode(e.target.value)} disabled={!canManageBranches} />
+                <select className="select" value={branchType} onChange={e => setBranchType(e.target.value)} disabled={!canManageBranches}>
+                  <option value="retail">Retail</option>
+                  <option value="wholesale">Wholesale</option>
+                  <option value="warehouse">Warehouse</option>
+                </select>
+                <button className="btn btn-primary" onClick={addNewBranch} disabled={!canManageBranches}>Add</button>
+              </div>
+            </div>
+            {renderBranchGroup('retail', 'Retail Branches', 'Retail sales locations and outlets.')}
+            {renderBranchGroup('wholesale', 'Wholesale Shops', 'Wholesale-only selling locations and stores.')}
+            {renderBranchGroup('warehouse', 'Warehouses', 'Storage and supply locations without POS.')}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
-            <input className="input" placeholder="Branch name" value={branchName} onChange={e => setBranchName(e.target.value)} disabled={!canManageBranches} />
-            <input className="input" placeholder="Code" value={branchCode} onChange={e => setBranchCode(e.target.value)} disabled={!canManageBranches} />
-            <button className="btn btn-primary" onClick={addNewBranch} disabled={!canManageBranches}>Add</button>
-          </div>
-          <ul>
-            {branches.map(b => (
-              <li key={b.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f1f5f9' }}>
-                <span>{b.name} ({b.code})</span>
-                <span>
-                  <button className="btn" onClick={() => onEditBranch(b)} disabled={!canManageBranches}>Edit</button>
-                  <button className="btn" onClick={() => onRemoveBranch(b)} disabled={!canManageBranches || b.id === 'main'} style={{ marginLeft: 8 }}>Remove</button>
-                </span>
-              </li>
-            ))}
-          </ul>
         </div>
       </div>
     </div>

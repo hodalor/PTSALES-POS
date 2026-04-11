@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { isFeatureEnabled } from '../utils/featureFlags';
 import { listCreditSales } from '../api/credits';
 import { listApprovals } from '../api/approvals';
+import { listOperations } from '../api/wholesale';
 
 function Sidebar({ collapsed }) {
   const appName = useSelector(s => s.settings.appName);
@@ -19,11 +20,13 @@ function Sidebar({ collapsed }) {
   const transferPending = useSelector(s => (s.transfers?.requests || []).filter(r => String(r.status || '') === 'pending_approval').length);
   const [retailOpen, setRetailOpen] = useState(false);
   const [wholesaleOpen, setWholesaleOpen] = useState(false);
+  const [warehouseOpen, setWarehouseOpen] = useState(false);
   const [easyBuyOpen, setEasyBuyOpen] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [partnersOpen, setPartnersOpen] = useState(false);
   const [easyBuyOverdue, setEasyBuyOverdue] = useState(0);
   const [easyBuyPendingApprovals, setEasyBuyPendingApprovals] = useState(0);
+  const [warehousePendingApprovals, setWarehousePendingApprovals] = useState(0);
   const can = (list, grant) => {
     if (!Array.isArray(list) || list.length === 0) return true;
     if (rl === 'superadmin') return true;
@@ -43,14 +46,26 @@ function Sidebar({ collapsed }) {
     let alive = true;
     (async () => {
       try {
-        const [overdueRows, directorRows, managerRows] = await Promise.all([
+        const [overdueRows, directorRows, managerRows, warehouseRows] = await Promise.all([
           listCreditSales({ status: 'overdue' }).catch(() => []),
           listApprovals({ actionType: 'credit_repayment', status: 'pending_director' }).catch(() => []),
-          listApprovals({ actionType: 'credit_repayment', status: 'pending_manager' }).catch(() => [])
+          listApprovals({ actionType: 'credit_repayment', status: 'pending_manager' }).catch(() => []),
+          Promise.all([
+            listOperations({ operationArea: 'warehouse', operationType: 'purchase', status: 'pending_director' }).catch(() => []),
+            listOperations({ operationArea: 'warehouse', operationType: 'transfer', status: 'pending_director' }).catch(() => []),
+            listOperations({ operationArea: 'warehouse', operationType: 'adjustment', status: 'pending_director' }).catch(() => []),
+            listOperations({ operationArea: 'warehouse', operationType: 'purchase', status: 'pending_manager' }).catch(() => []),
+            listOperations({ operationArea: 'warehouse', operationType: 'transfer', status: 'pending_manager' }).catch(() => []),
+            listOperations({ operationArea: 'warehouse', operationType: 'adjustment', status: 'pending_manager' }).catch(() => [])
+          ]).catch(() => [[], [], [], [], [], []])
         ]);
         if (!alive) return;
         setEasyBuyOverdue(Array.isArray(overdueRows) ? overdueRows.length : 0);
         setEasyBuyPendingApprovals((Array.isArray(directorRows) ? directorRows.length : 0) + (Array.isArray(managerRows) ? managerRows.length : 0));
+        const totalWarehousePending = Array.isArray(warehouseRows)
+          ? warehouseRows.reduce((sum, group) => sum + (Array.isArray(group) ? group.length : 0), 0)
+          : 0;
+        setWarehousePendingApprovals(totalWarehousePending);
       } catch {}
     })();
     return () => { alive = false; };
@@ -145,6 +160,9 @@ function Sidebar({ collapsed }) {
           </button>
           {wholesaleOpen && (
           <div className="sidebar-subgroup">
+            <NavLink to="/wholesale-goods" className="sidebar-link" title="Wholesale Goods">
+              <span className="sidebar-text">Wholesale Goods</span>
+            </NavLink>
             <NavLink to="/wholesale-pos" className="sidebar-link" title="Wholesale POS">
               <span className="sidebar-text">Wholesale POS</span>
             </NavLink>
@@ -159,6 +177,50 @@ function Sidebar({ collapsed }) {
             </NavLink>
             <NavLink to="/wholesale-refund" className="sidebar-link" title="Wholesale Refund">
               <span className="sidebar-text">Wholesale Refund</span>
+            </NavLink>
+          </div>
+          )}
+        </div>
+        )}
+        {isFeatureEnabled(settings, 'modules.wholesalePos') && can(['Admin','Manager','Inventory Staff','Cashier','SuperAdmin'],['view_wholesale_pos']) && (
+        <div>
+          <button className="sidebar-group-toggle" onClick={() => setWarehouseOpen(o => !o)}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M3 7h18v13H3V7z" stroke="currentColor" strokeWidth="2"/><path d="M8 7V4h8v3" stroke="currentColor" strokeWidth="2"/></svg>
+              <span className="sidebar-text">Warehouse</span>
+            </span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              {warehousePendingApprovals > 0 && (
+                <span style={{ minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+                  {warehousePendingApprovals}
+                </span>
+              )}
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" style={{ transform: warehouseOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+                <path d="M7 10l5 5 5-5" stroke="currentColor" strokeWidth="2" />
+              </svg>
+            </span>
+          </button>
+          {warehouseOpen && (
+          <div className="sidebar-subgroup">
+            <NavLink to="/warehouse-goods" className="sidebar-link" title="Warehouse Goods">
+              <span className="sidebar-text">Warehouse Goods</span>
+            </NavLink>
+            <NavLink to="/warehouse-purchase" className="sidebar-link" title="Warehouse Purchase">
+              <span className="sidebar-text">Warehouse Purchase</span>
+            </NavLink>
+            <NavLink to="/warehouse-transfer" className="sidebar-link" title="Warehouse Transfer">
+              <span className="sidebar-text">Warehouse Transfer</span>
+            </NavLink>
+            <NavLink to="/warehouse-adjustment" className="sidebar-link" title="Warehouse Adjustment">
+              <span className="sidebar-text">Warehouse Adjustment</span>
+            </NavLink>
+            <NavLink to="/warehouse-approvals" className="sidebar-link" title="Warehouse Approvals" style={{ display: 'flex', alignItems: 'center' }}>
+              <span className="sidebar-text">Warehouse Approvals</span>
+              {warehousePendingApprovals > 0 && (
+                <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+                  {warehousePendingApprovals}
+                </span>
+              )}
             </NavLink>
           </div>
           )}

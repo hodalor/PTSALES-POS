@@ -38,6 +38,7 @@ function PurchasesPage() {
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState('initiate'); // initiate | approvals
   const [openModal, setOpenModal] = useState(false);
+  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('pending'); // pending | approved | rejected
   const [detail, setDetail] = useState(null);
@@ -126,7 +127,8 @@ function PurchasesPage() {
         return;
       }
     }
-    if (!productId || !branchId || qty <= 0) {
+    const nextItems = items.length > 0 ? items : null;
+    if (!nextItems && (!productId || !branchId || qty <= 0)) {
       toast.show('Select product/branch and quantity', { type: 'error' });
       return;
     }
@@ -139,20 +141,21 @@ function PurchasesPage() {
     setSaving(true);
     const clientId = `purchase-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const payload = {
-      productId,
+      productId: nextItems ? nextItems[0]?.productId : productId,
       branchId,
-      baseUnits,
+      baseUnits: nextItems ? nextItems.reduce((sum, item) => sum + Number(item.baseUnits || 0), 0) : baseUnits,
       actor: auth.user?.name || 'unknown',
       supplier: supplier.trim() || '',
       cost: price,
       costPerUnit: cpu,
       expiryDate: expiryDate || undefined,
       remark: note.trim() || '',
-      variantId: variantId || undefined,
+      variantId: nextItems ? (nextItems[0]?.variantId || undefined) : (variantId || undefined),
       pack: pack ? pack.name : '',
       initiatorName: auth.user?.name || 'unknown',
       initiatorRole: auth.role || '',
-      clientId
+      clientId,
+      items: nextItems || undefined
     };
     if (!navigator.onLine) {
       try {
@@ -186,7 +189,8 @@ function PurchasesPage() {
       pack: pack ? pack.name : '',
       status: 'pending_approval',
       clientId,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      items: nextItems || undefined
     }));
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
@@ -203,8 +207,46 @@ function PurchasesPage() {
     setCost('');
     setExpiryDate('');
     setNote('');
+    setItems([]);
     toast.show(navigator.onLine ? 'Purchase request submitted for approval' : 'Saved offline. Will sync when online.', { type: 'success' });
     setSaving(false);
+  }
+
+  function addCurrentItem() {
+    if (!productId || !branchId || qty <= 0) {
+      toast.show('Select product/branch and quantity', { type: 'error' });
+      return;
+    }
+    const price = Number(cost) || 0;
+    const prod = products.find(p => p.id === productId);
+    const pack = (prod?.packs || []).find(pk => pk.name === packName);
+    const factor = pack ? Number(pack.quantity) || 1 : 1;
+    const baseUnits = Number(qty) * factor;
+    const cpu = factor > 0 ? (price / factor) : price;
+    setItems(prev => [...prev, {
+      lineId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      productId,
+      variantId: variantId || '',
+      baseUnits,
+      pack: pack ? pack.name : '',
+      supplier: supplier.trim() || '',
+      cost: price,
+      costPerUnit: cpu,
+      expiryDate: expiryDate || undefined,
+      remark: note.trim() || '',
+      status: 'accepted'
+    }]);
+    setQty(1);
+    setPackName('');
+    setVariantId('');
+    setSupplier('');
+    setCost('');
+    setExpiryDate('');
+    setNote('');
+  }
+
+  function removeItem(lineId) {
+    setItems(prev => prev.filter(item => item.lineId !== lineId));
   }
 
   const requests = useSelector(s => s.purchases?.requests || []);
@@ -302,6 +344,7 @@ function PurchasesPage() {
         <Modal title="Add Purchase" onClose={() => setOpenModal(false)} footer={
           <>
             <button className="btn" onClick={() => setOpenModal(false)}>Cancel</button>
+            <button className="btn" onClick={addCurrentItem} disabled={!canReceive || saving}>Add To List</button>
             <button className="btn btn-primary" onClick={async () => { await receive(); setOpenModal(false); }} disabled={!canReceive || saving}>
               <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12M7 10l5 5 5-5" stroke="currentColor" strokeWidth="2"/><path d="M5 19h14" stroke="currentColor" strokeWidth="2"/></svg>
               {saving ? 'Saving…' : 'Submit For Approval'}
@@ -360,6 +403,33 @@ function PurchasesPage() {
               <div style={{ marginBottom: 6, color: '#64748b' }}>Remark</div>
               <input className="input" placeholder="Optional note" value={note} onChange={e => setNote(e.target.value)} />
             </label>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <div style={{ marginBottom: 6, color: '#64748b' }}>Items In This Request</div>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th align="left">Product</th>
+                  <th align="left">Base Units</th>
+                  <th align="left">Supplier</th>
+                  <th align="left"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(item => {
+                  const product = products.find(p => p.id === item.productId);
+                  return (
+                    <tr key={item.lineId}>
+                      <td>{product?.name || item.productId}</td>
+                      <td>{item.baseUnits}</td>
+                      <td>{item.supplier || '—'}</td>
+                      <td><button className="btn" onClick={() => removeItem(item.lineId)}>Remove</button></td>
+                    </tr>
+                  );
+                })}
+                {items.length === 0 && <tr><td colSpan="4" style={{ padding: 12, color: '#64748b' }}>No items added yet. You can still submit a single item.</td></tr>}
+              </tbody>
+            </table>
           </div>
         </Modal>
       )}
@@ -433,6 +503,32 @@ function PurchasesPage() {
             <div><div style={{ color: '#64748b' }}>Created</div><div>{detail.createdAt ? new Date(detail.createdAt).toLocaleString() : '—'}</div></div>
             <div><div style={{ color: '#64748b' }}>Updated</div><div>{detail.updatedAt ? new Date(detail.updatedAt).toLocaleString() : '—'}</div></div>
           </div>
+          {Array.isArray(detail.items) && detail.items.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Request Items</div>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th align="left">Product</th>
+                    <th align="left">Base Units</th>
+                    <th align="left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.items.map((item, index) => {
+                    const product = products.find(p => p.id === item.productId);
+                    return (
+                      <tr key={item.lineId || index}>
+                        <td>{product?.name || item.productId}</td>
+                        <td>{item.baseUnits}</td>
+                        <td>{item.status || 'accepted'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Modal>
       )}
       <div className="card" style={{ marginTop: 12 }}>

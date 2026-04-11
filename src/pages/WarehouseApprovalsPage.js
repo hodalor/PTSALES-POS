@@ -1,0 +1,224 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSelector } from 'react-redux';
+import { useToast } from '../components/ToastProvider';
+import { approveOperation, listOperations, rejectOperation } from '../api/wholesale';
+import { formatCurrency } from '../utils/currency';
+import Modal from '../components/Modal';
+import { promptDialog } from '../utils/dialogs';
+
+function WarehouseApprovalsPage() {
+  const toast = useToast();
+  const products = useSelector(s => s.products.products);
+  const branches = useSelector(s => s.branches.branches);
+  const settings = useSelector(s => s.settings);
+  const auth = useSelector(s => s.auth);
+  const [status, setStatus] = useState('pending_director');
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [workingId, setWorkingId] = useState('');
+  const [selectedRow, setSelectedRow] = useState(null);
+  const [reviewItems, setReviewItems] = useState([]);
+
+  const roleLower = String(auth.role || '').toLowerCase();
+  const grants = Array.isArray(auth.grants) ? auth.grants : [];
+  const canDirectorApprove = roleLower === 'superadmin' || roleLower === 'admin' || roleLower === 'director' || grants.includes('approve_wholesale_director');
+  const canManagerApprove = roleLower === 'superadmin' || roleLower === 'admin' || roleLower === 'manager' || grants.includes('approve_wholesale_manager');
+
+  const branchNameById = useMemo(() => {
+    const map = new Map();
+    branches.forEach(branch => map.set(branch.id, branch.name || branch.code || branch.id));
+    return map;
+  }, [branches]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [purchaseRows, transferRows, adjustmentRows] = await Promise.all([
+        listOperations({ operationArea: 'warehouse', operationType: 'purchase', status }),
+        listOperations({ operationArea: 'warehouse', operationType: 'transfer', status }),
+        listOperations({ operationArea: 'warehouse', operationType: 'adjustment', status })
+      ]);
+      const merged = [...(purchaseRows || []), ...(transferRows || []), ...(adjustmentRows || [])]
+        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+      setRows(merged);
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to load warehouse approvals'), { type: 'error' });
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [status, toast]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!selectedRow) {
+      setReviewItems([]);
+      return;
+    }
+    setReviewItems(
+      Array.isArray(selectedRow.items) && selectedRow.items.length > 0
+        ? selectedRow.items.map((item, index) => ({
+            lineId: item.lineId || `${index + 1}`,
+            productId: item.productId,
+            qty: Number(item.qty || 0),
+            status: item.status || 'accepted',
+            reason: item.reason || '',
+            remark: item.remark || ''
+          }))
+        : [{
+            lineId: '1',
+            productId: selectedRow.productId,
+            qty: Number(selectedRow.qty || 0),
+            status: 'accepted',
+            reason: selectedRow.reason || '',
+            remark: selectedRow.remark || ''
+          }]
+    );
+  }, [selectedRow]);
+
+  async function act(row, action) {
+    const promptText = action === 'approve' ? 'Approval remark' : 'Rejection reason';
+    const remark = await promptDialog(promptText);
+    if (!remark || !String(remark).trim()) return;
+    setWorkingId(row._id || '');
+    try {
+      const payload = {
+        approverName: auth.user?.name || 'unknown',
+        approverRole: auth.role || '',
+        remark,
+        reason: remark
+      };
+      if (action === 'approve') await approveOperation(row, { ...payload, items: reviewItems });
+      else await rejectOperation(row, payload);
+      setRows(prev => prev.filter(item => String(item._id || item.clientId) !== String(row._id || row.clientId)));
+      setSelectedRow(null);
+      toast.show(action === 'approve' ? 'Warehouse request approved' : 'Warehouse request rejected', { type: 'success' });
+      await load();
+    } catch (e) {
+      toast.show(String(e?.message || `Failed to ${action} request`), { type: 'error' });
+    } finally {
+      setWorkingId('');
+    }
+  }
+
+  function canAct(row) {
+    return (String(row.status || '') === 'pending_director' && canDirectorApprove)
+      || (String(row.status || '') === 'pending_manager' && canManagerApprove);
+  }
+
+  return (
+    <div style={{ padding: 16, display: 'grid', gap: 12 }}>
+      <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div>
+          <h1 style={{ margin: 0 }}>Warehouse Approvals</h1>
+          <div style={{ color: '#64748b', fontSize: 13 }}>Director and manager reviews for warehouse purchase, transfer, and adjustment requests.</div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button className={status === 'pending_director' ? 'btn btn-primary' : 'btn'} onClick={() => setStatus('pending_director')}>Pending Director</button>
+          <button className={status === 'pending_manager' ? 'btn btn-primary' : 'btn'} onClick={() => setStatus('pending_manager')}>Pending Manager</button>
+          <button className={status === 'approved' ? 'btn btn-primary' : 'btn'} onClick={() => setStatus('approved')}>Approved</button>
+          <button className={status === 'rejected' ? 'btn btn-primary' : 'btn'} onClick={() => setStatus('rejected')}>Rejected</button>
+          <button className="btn" onClick={load} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
+        </div>
+      </div>
+
+      <div className="card">
+        <div style={{ overflowX: 'auto' }}>
+          <table className="table">
+            <thead>
+              <tr>
+                <th align="left">Type</th>
+                <th align="left">Product</th>
+                <th align="left">Route</th>
+                <th align="left">Qty</th>
+                <th align="left">Value</th>
+                <th align="left">Status</th>
+                <th align="left">Initiator</th>
+              </tr>
+            </thead>
+            <tbody>
+              {!loading && rows.map(row => {
+                const product = products.find(item => String(item.id) === String(row.productId));
+                const route = row.operationType === 'transfer'
+                  ? `${branchNameById.get(row.fromBranchId || row.from) || row.fromBranchId || row.from || '—'} (${row.fromInventoryType || 'warehouse'}) → ${branchNameById.get(row.toBranchId || row.to) || row.toBranchId || row.to || '—'} (${row.toInventoryType || 'warehouse'})`
+                  : `${branchNameById.get(row.branchId) || row.branchId || '—'} • ${row.operationArea || 'warehouse'}`;
+                return (
+                  <tr key={row._id || row.clientId} style={{ cursor: 'pointer' }} onClick={() => setSelectedRow(row)}>
+                    <td>{row.operationType}</td>
+                    <td>{product?.name || row.productId}</td>
+                    <td>{route}</td>
+                    <td>{Number(row.qty || 0)}</td>
+                    <td>{formatCurrency(Number(row.cost || row.requestedAmount || 0), settings)}</td>
+                    <td>{row.status}</td>
+                    <td>{row.initiatedByName || '—'} {row.initiatedByRole ? `(${row.initiatedByRole})` : ''}</td>
+                  </tr>
+                );
+              })}
+              {!loading && rows.length === 0 && <tr><td colSpan="7" style={{ padding: 12, color: '#64748b' }}>No warehouse approvals found</td></tr>}
+              {loading && <tr><td colSpan="7" style={{ padding: 12, color: '#64748b' }}>Loading approvals…</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {selectedRow && (
+        <Modal
+          title="Warehouse Approval Review"
+          onClose={() => setSelectedRow(null)}
+          footer={(
+            <>
+              <button className="btn" onClick={() => setSelectedRow(null)} disabled={!!workingId}>Close</button>
+              {canAct(selectedRow) && (
+                <>
+                  <button className="btn" onClick={() => act(selectedRow, 'reject')} disabled={workingId === (selectedRow._id || selectedRow.clientId)}>{workingId === (selectedRow._id || selectedRow.clientId) ? 'Working…' : 'Reject'}</button>
+                  <button className="btn btn-primary" onClick={() => act(selectedRow, 'approve')} disabled={workingId === (selectedRow._id || selectedRow.clientId)}>{workingId === (selectedRow._id || selectedRow.clientId) ? 'Working…' : 'Approve'}</button>
+                </>
+              )}
+            </>
+          )}
+        >
+          <div style={{ display: 'grid', gap: 10 }}>
+            <div><strong>Type:</strong> {selectedRow.operationType}</div>
+            <div><strong>Status:</strong> {selectedRow.status}</div>
+            <div><strong>Quantity:</strong> {Number(selectedRow.qty || 0)}</div>
+            <div><strong>Value:</strong> {formatCurrency(Number(selectedRow.cost || selectedRow.requestedAmount || 0), settings)}</div>
+            <div><strong>Source:</strong> {branchNameById.get(selectedRow.fromBranchId || selectedRow.from || selectedRow.branchId) || selectedRow.fromBranchId || selectedRow.from || selectedRow.branchId || '—'} ({selectedRow.fromInventoryType || 'warehouse'})</div>
+            <div><strong>Destination:</strong> {branchNameById.get(selectedRow.toBranchId || selectedRow.to) || selectedRow.toBranchId || selectedRow.to || '—'} ({selectedRow.toInventoryType || selectedRow.fromInventoryType || 'warehouse'})</div>
+            <div><strong>Remark:</strong> {selectedRow.remark || '—'}</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th align="left">Product</th>
+                    <th align="left">Qty</th>
+                    <th align="left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reviewItems.map((item, index) => {
+                    const product = products.find(row => String(row.id) === String(item.productId));
+                    return (
+                      <tr key={item.lineId || index}>
+                        <td>{product?.name || item.productId}</td>
+                        <td><input className="input" type="number" min="0" value={item.qty} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, qty: Number(e.target.value) || 0 } : row))} style={{ width: 90 }} disabled={!canAct(selectedRow) || !!workingId} /></td>
+                        <td>
+                          <select className="select" value={item.status || 'accepted'} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, status: e.target.value } : row))} disabled={!canAct(selectedRow) || !!workingId}>
+                            <option value="accepted">Accepted</option>
+                            <option value="cancelled">Cancelled</option>
+                          </select>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+export default WarehouseApprovalsPage;

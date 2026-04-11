@@ -7,6 +7,7 @@ import { Chart, BarElement, ArcElement, CategoryScale, LinearScale, Tooltip, Leg
 import { useToast } from '../components/ToastProvider';
 import * as expensesApi from '../api/expenses';
 import { formatCurrency } from '../utils/currency';
+import { listOperations } from '../api/wholesale';
 
 Chart.register(BarElement, ArcElement, CategoryScale, LinearScale, Tooltip, Legend);
 
@@ -24,6 +25,7 @@ function ReportsPage() {
   const [reportType, setReportType] = useState('all');
   const [expenses, setExpenses] = useState([]);
   const [heatMode, setHeatMode] = useState('week');
+  const [warehouseOperations, setWarehouseOperations] = useState([]);
   const toast = useToast();
 
   useEffect(() => setBranchId(settings.currentBranchId), [settings.currentBranchId]);
@@ -56,6 +58,26 @@ function ReportsPage() {
     return ts >= fromTs && ts <= toTs;
   }, [dateFrom, dateTo]);
   const matchBranch = useCallback((id) => !branchId || id === branchId, [branchId]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const groups = await Promise.all([
+          listOperations({ operationArea: 'warehouse', operationType: 'purchase', status: 'approved' }).catch(() => []),
+          listOperations({ operationArea: 'warehouse', operationType: 'transfer', status: 'approved' }).catch(() => []),
+          listOperations({ operationArea: 'warehouse', operationType: 'adjustment', status: 'approved' }).catch(() => [])
+        ]);
+        if (!alive) return;
+        const merged = groups.flat().filter(row => inRange(row.createdAt || row.updatedAt) && matchBranch(row.branchId || row.fromBranchId || row.toBranchId));
+        setWarehouseOperations(merged);
+      } catch {
+        if (!alive) return;
+        setWarehouseOperations([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [branchId, dateFrom, dateTo, inRange, matchBranch]);
 
   const filteredSales = useMemo(() => sales.filter(s => inRange(s.created_at) && matchBranch(s.branchId)), [sales, inRange, matchBranch]);
   const analytics = useMemo(() => {
@@ -287,6 +309,50 @@ function ReportsPage() {
     else exportTablePdf('Refunds', headers, list);
   }
 
+  function exportWarehouseOperations(type) {
+    const rows = warehouseOperations.map(row => ({
+      type: row.operationType,
+      status: row.status,
+      source: byId.get(row.fromBranchId || row.branchId) || row.fromBranchId || row.branchId || '',
+      sourceInventory: row.fromInventoryType || '',
+      destination: byId.get(row.toBranchId) || row.toBranchId || '',
+      destinationInventory: row.toInventoryType || '',
+      qty: Number(row.qty || 0),
+      value: Number(row.cost || row.requestedAmount || 0),
+      created: row.createdAt ? new Date(row.createdAt).toLocaleString() : ''
+    }));
+    const headers = [
+      { key: 'type', label: 'Type' },
+      { key: 'status', label: 'Status' },
+      { key: 'source', label: 'Source' },
+      { key: 'sourceInventory', label: 'Source Inventory' },
+      { key: 'destination', label: 'Destination' },
+      { key: 'destinationInventory', label: 'Destination Inventory' },
+      { key: 'qty', label: 'Qty' },
+      { key: 'value', label: 'Value' },
+      { key: 'created', label: 'Created' }
+    ];
+    if (type === 'csv') exportCsv('warehouse-operations.csv', headers, rows);
+    else exportTablePdf('Warehouse Operations', headers, rows);
+  }
+
+  function exportWarehouseStock(type) {
+    const rows = products.map(product => ({
+      product: product.name,
+      sku: product.sku || '',
+      warehouseUnits: Object.values(product.warehouseStockByBranch || {}).reduce((s, qty) => s + (Number(qty) || 0), 0),
+      lowStock: Number(product.lowStock || 0)
+    }));
+    const headers = [
+      { key: 'product', label: 'Product' },
+      { key: 'sku', label: 'SKU' },
+      { key: 'warehouseUnits', label: 'Warehouse Units' },
+      { key: 'lowStock', label: 'Low Stock Threshold' }
+    ];
+    if (type === 'csv') exportCsv('warehouse-stock.csv', headers, rows);
+    else exportTablePdf('Warehouse Stock Snapshot', headers, rows);
+  }
+
   return (
     <div style={{ padding: 16 }}>
       <h1>Reports</h1>
@@ -319,6 +385,8 @@ function ReportsPage() {
               <option value="analytics-top">Top Products</option>
               <option value="analytics-cat">Category Performance</option>
               <option value="analytics-cashier">Cashier Performance</option>
+              <option value="warehouse-ops">Warehouse Operations</option>
+              <option value="warehouse-stock">Warehouse Stock</option>
               <option value="finance">Finance</option>
             </select>
           </label>
@@ -382,6 +450,24 @@ function ReportsPage() {
           <div style={{ display: 'flex', gap: 6 }}>
             <button className="btn" onClick={() => exportRefunds('csv')}>Export CSV</button>
             <button className="btn" onClick={() => exportRefunds('pdf')}>Export PDF</button>
+          </div>
+        </div>
+        )}
+        {show('warehouse-ops') && (
+        <div>
+          <h2 className="section-title">Warehouse Operations</h2>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => exportWarehouseOperations('csv')}>Export CSV</button>
+            <button className="btn" onClick={() => exportWarehouseOperations('pdf')}>Export PDF</button>
+          </div>
+        </div>
+        )}
+        {show('warehouse-stock') && (
+        <div>
+          <h2 className="section-title">Warehouse Stock</h2>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => exportWarehouseStock('csv')}>Export CSV</button>
+            <button className="btn" onClick={() => exportWarehouseStock('pdf')}>Export PDF</button>
           </div>
         </div>
         )}

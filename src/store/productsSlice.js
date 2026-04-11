@@ -45,7 +45,8 @@ const productsSlice = createSlice({
           wholesalePrice: v.wholesalePrice != null ? Number(v.wholesalePrice) : (v.retailPrice != null ? Number(v.retailPrice) : Number(p.wholesalePrice != null ? p.wholesalePrice : p.price || 0)),
           agentPrice: v.agentPrice != null ? Number(v.agentPrice) : (v.wholesalePrice != null ? Number(v.wholesalePrice) : Number(p.agentPrice != null ? p.agentPrice : p.price || 0)),
           stockByBranch: v.stockByBranch || {},
-          wholesaleStockByBranch: v.wholesaleStockByBranch || {}
+          wholesaleStockByBranch: v.wholesaleStockByBranch || {},
+          warehouseStockByBranch: v.warehouseStockByBranch || {}
         })) : [];
         return {
           ...p,
@@ -55,6 +56,7 @@ const productsSlice = createSlice({
           agentPrice: p.agentPrice != null ? Number(p.agentPrice) : Number(p.wholesalePrice != null ? p.wholesalePrice : (p.retailPrice != null ? p.retailPrice : p.price || 0)),
           stockByBranch: p.stockByBranch || {},
           wholesaleStockByBranch: p.wholesaleStockByBranch || {},
+          warehouseStockByBranch: p.warehouseStockByBranch || {},
           variants
         };
       });
@@ -74,6 +76,7 @@ const productsSlice = createSlice({
           id,
           stockByBranch: {},
           wholesaleStockByBranch: {},
+          warehouseStockByBranch: {},
           attributes: [],
           packs: [],
           unitKind: 'none',

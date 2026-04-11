@@ -34,6 +34,7 @@ export function listOperations(params = {}) {
   const query = new URLSearchParams();
   if (params.status) query.set('status', String(params.status));
   if (params.operationType) query.set('operationType', String(params.operationType));
+  if (params.operationArea) query.set('operationArea', String(params.operationArea));
   const qs = query.toString() ? `?${query.toString()}` : '';
   return fetchJson(`/api/wholesale/operations${qs}`).then(rows => {
     return (Array.isArray(rows) ? rows : []).map(row => normalizeModernOperation(row, params.operationType));
@@ -54,6 +55,7 @@ export function listOperations(params = {}) {
       return (Array.isArray(rows) ? rows : []).map(row => normalizeLegacyOperation(row, 'adjustment'));
     }
     if (params.operationType === 'refund') {
+      if (String(params.operationArea || 'wholesale') === 'warehouse') return [];
       const rows = await refundsApi.listRequests();
       return (Array.isArray(rows) ? rows : [])
         .filter(row => !status || status === 'approved' || status === 'rejected' ? String(row.status || '').toLowerCase() === status : String(row.status || '').toLowerCase() === 'pending_approval')
@@ -70,6 +72,7 @@ export function createOperation(body) {
   }).catch(async (error) => {
     const msg = String(error?.message || '');
     if (!/404|not found/i.test(msg)) throw error;
+    if (String(body?.operationArea || 'wholesale') === 'warehouse') throw error;
     const operationType = String(body?.operationType || '').toLowerCase();
     if (operationType === 'purchase') {
       const payload = {

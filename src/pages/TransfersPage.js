@@ -34,6 +34,7 @@ function TransfersPage() {
   const [pageSize, setPageSize] = useState(25);
   const [tab, setTab] = useState('initiate');
   const [openModal, setOpenModal] = useState(false);
+  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('pending');
   const [detail, setDetail] = useState(null);
@@ -118,7 +119,8 @@ function TransfersPage() {
       toast.show('Not authorized to initiate transfer', { type: 'error' });
       return;
     }
-    if (!productId || !fromId || !toId || fromId === toId || qty <= 0) {
+    const nextItems = items.length > 0 ? items : null;
+    if (!nextItems && (!productId || !fromId || !toId || fromId === toId || qty <= 0)) {
       toast.show('Check product, branches and quantity', { type: 'error' });
       return;
     }
@@ -130,15 +132,16 @@ function TransfersPage() {
     setSaving(true);
     const clientId = `transfer-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const payload = {
-      productId,
+      productId: nextItems ? nextItems[0]?.productId : productId,
       from: fromId,
       to: toId,
-      qty: Number(qty),
+      qty: nextItems ? nextItems.reduce((sum, item) => sum + Number(item.qty || 0), 0) : Number(qty),
       remark,
-      variantId: variantId || undefined,
+      variantId: nextItems ? (nextItems[0]?.variantId || undefined) : (variantId || undefined),
       initiatorName: auth.user?.name || 'unknown',
       initiatorRole: auth.role || '',
-      clientId
+      clientId,
+      items: nextItems || undefined
     };
     if (!navigator.onLine) {
       if (!offlineBackupAllowed) {
@@ -163,22 +166,45 @@ function TransfersPage() {
       }
     }
     dispatch(createTransferRequest({
-      productId,
-      variantId: variantId || null,
+      productId: nextItems ? nextItems[0]?.productId : productId,
+      variantId: nextItems ? (nextItems[0]?.variantId || null) : (variantId || null),
       from: fromId,
       to: toId,
-      qty: Number(qty),
+      qty: nextItems ? nextItems.reduce((sum, item) => sum + Number(item.qty || 0), 0) : Number(qty),
       remark,
       initiatorName: auth.user?.name || 'unknown',
       initiatorRole: auth.role || '',
       status: 'pending_approval',
       clientId,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      items: nextItems || undefined
     }));
     setQty(1);
     setVariantId('');
+    setItems([]);
     toast.show(navigator.onLine ? 'Transfer request submitted for approval' : 'Saved offline. Will sync when online.', { type: 'success' });
     setSaving(false);
+  }
+
+  function addCurrentItem() {
+    if (!productId || !fromId || !toId || fromId === toId || qty <= 0) {
+      toast.show('Check product, branches and quantity', { type: 'error' });
+      return;
+    }
+    setItems(prev => [...prev, {
+      lineId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      productId,
+      variantId: variantId || '',
+      qty: Number(qty),
+      remark: '',
+      status: 'accepted'
+    }]);
+    setQty(1);
+    setVariantId('');
+  }
+
+  function removeItem(lineId) {
+    setItems(prev => prev.filter(item => item.lineId !== lineId));
   }
 
   const requests = useSelector(s => s.transfers?.requests || []);
@@ -312,6 +338,7 @@ function TransfersPage() {
         <Modal title="Add Transfer" onClose={() => setOpenModal(false)} footer={
           <>
             <button className="btn" onClick={() => setOpenModal(false)}>Cancel</button>
+            <button className="btn" onClick={addCurrentItem} disabled={!canTransfer || saving}>Add To List</button>
             <button className="btn btn-primary" onClick={async () => { await transfer(); setOpenModal(false); }} disabled={!canTransfer || saving}>
               <svg viewBox="0 0 24 24" fill="none"><path d="M7 7h10M7 17h10M7 7l-3 3m3-3l-3-3M17 17l3 3m-3-3l3-3" stroke="currentColor" strokeWidth="2"/></svg>
               {saving ? 'Saving…' : 'Submit For Approval'}
@@ -348,6 +375,31 @@ function TransfersPage() {
               <div style={{ marginBottom: 6, color: '#64748b' }}>Quantity</div>
               <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} />
             </label>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <div style={{ marginBottom: 6, color: '#64748b' }}>Items In This Request</div>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th align="left">Product</th>
+                  <th align="left">Qty</th>
+                  <th align="left"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(item => {
+                  const product = products.find(p => p.id === item.productId);
+                  return (
+                    <tr key={item.lineId}>
+                      <td>{product?.name || item.productId}</td>
+                      <td>{item.qty}</td>
+                      <td><button className="btn" onClick={() => removeItem(item.lineId)}>Remove</button></td>
+                    </tr>
+                  );
+                })}
+                {items.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No items added yet. You can still submit a single item.</td></tr>}
+              </tbody>
+            </table>
           </div>
         </Modal>
       )}
@@ -538,6 +590,32 @@ function TransfersPage() {
             <div><div style={{ color: '#64748b' }}>Created</div><div>{detail.createdAt ? new Date(detail.createdAt).toLocaleString() : '—'}</div></div>
             <div><div style={{ color: '#64748b' }}>Updated</div><div>{detail.updatedAt ? new Date(detail.updatedAt).toLocaleString() : '—'}</div></div>
           </div>
+          {Array.isArray(detail.items) && detail.items.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ marginBottom: 6, color: '#64748b' }}>Request Items</div>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th align="left">Product</th>
+                    <th align="left">Qty</th>
+                    <th align="left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.items.map((item, index) => {
+                    const product = products.find(p => p.id === item.productId);
+                    return (
+                      <tr key={item.lineId || index}>
+                        <td>{product?.name || item.productId}</td>
+                        <td>{item.qty}</td>
+                        <td>{item.status || 'accepted'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Modal>
       )}
       {auditDetail && (

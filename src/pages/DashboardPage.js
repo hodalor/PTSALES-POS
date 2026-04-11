@@ -4,6 +4,7 @@ import { Bar, Doughnut, Line } from 'react-chartjs-2';
 import { formatCurrency } from '../utils/currency';
 import { Chart, BarElement, LineElement, PointElement, CategoryScale, LinearScale, ArcElement, Tooltip, Legend, Filler } from 'chart.js';
 import * as expensesApi from '../api/expenses';
+import { listOperations } from '../api/wholesale';
 
 Chart.register(BarElement, LineElement, PointElement, CategoryScale, LinearScale, ArcElement, Tooltip, Legend, Filler);
 
@@ -16,6 +17,7 @@ function DashboardPage() {
   const roleLower = String(auth.role || '').toLowerCase();
   const [heatMode, setHeatMode] = useState('week'); // day, week, month
   const [expenses, setExpenses] = useState([]);
+  const [warehousePending, setWarehousePending] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -33,6 +35,28 @@ function DashboardPage() {
     })();
     return () => { alive = false; };
   }, [settings.currentBranchId, roleLower]);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const groups = await Promise.all([
+          listOperations({ operationArea: 'warehouse', operationType: 'purchase', status: 'pending_director' }).catch(() => []),
+          listOperations({ operationArea: 'warehouse', operationType: 'transfer', status: 'pending_director' }).catch(() => []),
+          listOperations({ operationArea: 'warehouse', operationType: 'adjustment', status: 'pending_director' }).catch(() => []),
+          listOperations({ operationArea: 'warehouse', operationType: 'purchase', status: 'pending_manager' }).catch(() => []),
+          listOperations({ operationArea: 'warehouse', operationType: 'transfer', status: 'pending_manager' }).catch(() => []),
+          listOperations({ operationArea: 'warehouse', operationType: 'adjustment', status: 'pending_manager' }).catch(() => [])
+        ]);
+        if (!alive) return;
+        setWarehousePending(groups.reduce((sum, rows) => sum + (Array.isArray(rows) ? rows.length : 0), 0));
+      } catch {
+        if (!alive) return;
+        setWarehousePending(0);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
 
   const metrics = useMemo(() => {
     const sourceSales = (roleLower === 'superadmin' || roleLower === 'admin') ? sales : sales.filter(s => s.branchId === settings.currentBranchId);
@@ -215,6 +239,30 @@ function DashboardPage() {
     return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 10);
   }, [sales, branches, roleLower]);
 
+  const warehouseStats = useMemo(() => {
+    const warehouseBranches = branches.filter(b => String(b.branchType || 'retail').toLowerCase() === 'warehouse');
+    const warehouseUnits = products.reduce((sum, product) => {
+      const base = Object.values(product.warehouseStockByBranch || {}).reduce((s, qty) => s + (Number(qty) || 0), 0);
+      const variants = Array.isArray(product.variants)
+        ? product.variants.reduce((s, variant) => s + Object.values(variant.warehouseStockByBranch || {}).reduce((t, qty) => t + (Number(qty) || 0), 0), 0)
+        : 0;
+      return sum + base + variants;
+    }, 0);
+    const lowStockRows = products
+      .map(product => {
+        const total = Object.values(product.warehouseStockByBranch || {}).reduce((s, qty) => s + (Number(qty) || 0), 0);
+        return { id: product.id, name: product.name, lowStock: Number(product.lowStock || 0), total };
+      })
+      .filter(row => row.lowStock > 0 && row.total <= row.lowStock)
+      .sort((a, b) => a.total - b.total)
+      .slice(0, 8);
+    return {
+      warehouseCount: warehouseBranches.length,
+      warehouseUnits,
+      lowStockRows
+    };
+  }, [branches, products]);
+
   return (
     <div style={{ padding: 16 }}>
       <h1>Dashboard</h1>
@@ -275,6 +323,39 @@ function DashboardPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Outflow</span><strong>{formatCurrency(finance.expenseTotal, settings)}</strong></div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Net</span><strong>{formatCurrency(finance.net, settings)}</strong></div>
           </div>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 16, marginTop: 16 }}>
+        <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
+          <div style={{ color: '#64748b' }}>Warehouse Locations</div>
+          <div style={{ fontSize: 28, fontWeight: 700 }}>{warehouseStats.warehouseCount}</div>
+        </div>
+        <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
+          <div style={{ color: '#64748b' }}>Warehouse Units</div>
+          <div style={{ fontSize: 28, fontWeight: 700 }}>{warehouseStats.warehouseUnits}</div>
+          <div style={{ marginTop: 6, color: '#64748b' }}>Pending approvals: {warehousePending}</div>
+        </div>
+        <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
+          <h2 style={{ marginTop: 0 }}>Warehouse Low Stock Alerts</h2>
+          <table className="table">
+            <thead>
+              <tr>
+                <th align="left">Product</th>
+                <th align="left">Warehouse Stock</th>
+                <th align="left">Threshold</th>
+              </tr>
+            </thead>
+            <tbody>
+              {warehouseStats.lowStockRows.map(row => (
+                <tr key={row.id}>
+                  <td>{row.name}</td>
+                  <td>{row.total}</td>
+                  <td>{row.lowStock}</td>
+                </tr>
+              ))}
+              {warehouseStats.lowStockRows.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No warehouse low stock alerts</td></tr>}
+            </tbody>
+          </table>
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>

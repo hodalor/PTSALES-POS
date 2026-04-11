@@ -7,14 +7,13 @@ import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import Modal from '../components/Modal';
 
-const OPERATION_OPTIONS = [
-  { key: 'purchase', label: 'Wholesale Purchase' },
-  { key: 'transfer', label: 'Wholesale Transfer' },
-  { key: 'adjustment', label: 'Wholesale Adjustment' },
-  { key: 'refund', label: 'Wholesale Refund' }
-];
+function labelForArea(area, op) {
+  const prefix = String(area || 'wholesale').toLowerCase() === 'warehouse' ? 'Warehouse' : 'Wholesale';
+  const suffix = op === 'purchase' ? 'Purchase' : op === 'transfer' ? 'Transfer' : op === 'adjustment' ? 'Adjustment' : 'Refund';
+  return `${prefix} ${suffix}`;
+}
 
-function WholesaleOperationsPage({ operationType }) {
+function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' }) {
   const toast = useToast();
   const products = useSelector(s => s.products.products);
   const branches = useSelector(s => s.branches.branches);
@@ -30,6 +29,11 @@ function WholesaleOperationsPage({ operationType }) {
     const ids = new Set(Array.isArray(assigned) ? assigned : [assigned]);
     return branches.filter(b => ids.has(b.id));
   }, [assigned, branches, roleLower]);
+  const normalizedArea = String(operationArea || 'wholesale').toLowerCase() === 'warehouse' ? 'warehouse' : 'wholesale';
+  const scopedBranchOptions = useMemo(
+    () => branchOptions.filter(branch => String(branch.branchType || 'retail').toLowerCase() === normalizedArea),
+    [branchOptions, normalizedArea]
+  );
 
   const branchNameById = useMemo(() => {
     const map = new Map();
@@ -45,14 +49,16 @@ function WholesaleOperationsPage({ operationType }) {
   const [selectedRow, setSelectedRow] = useState(null);
   const [decisionRemark, setDecisionRemark] = useState('');
   const [reviewing, setReviewing] = useState(false);
+  const [items, setItems] = useState([]);
+  const [reviewItems, setReviewItems] = useState([]);
 
   const [productId, setProductId] = useState(products[0]?.id || '');
   const [variantId, setVariantId] = useState('');
-  const [branchId, setBranchId] = useState(currentBranchId || branchOptions[0]?.id || '');
+  const [branchId, setBranchId] = useState(currentBranchId || scopedBranchOptions[0]?.id || branchOptions[0]?.id || '');
   const [fromBranchId, setFromBranchId] = useState(currentBranchId || branchOptions[0]?.id || '');
   const [toBranchId, setToBranchId] = useState(branchOptions.find(branch => branch.id !== currentBranchId)?.id || branchOptions[0]?.id || '');
-  const [fromInventoryType, setFromInventoryType] = useState('wholesale');
-  const [toInventoryType, setToInventoryType] = useState('wholesale');
+  const [fromInventoryType, setFromInventoryType] = useState(normalizedArea);
+  const [toInventoryType, setToInventoryType] = useState(normalizedArea);
   const [qty, setQty] = useState(1);
   const [cost, setCost] = useState('');
   const [requestedAmount, setRequestedAmount] = useState('');
@@ -69,17 +75,43 @@ function WholesaleOperationsPage({ operationType }) {
   const grants = Array.isArray(auth.grants) ? auth.grants : [];
   const canDirectorApprove = roleLower === 'superadmin' || roleLower === 'admin' || roleLower === 'director' || grants.includes('approve_wholesale_director') || grants.includes('approve_credit_director');
   const canManagerApprove = roleLower === 'superadmin' || roleLower === 'admin' || roleLower === 'manager' || grants.includes('approve_wholesale_manager') || grants.includes('approve_credit_manager');
-  const defaultBranchIdRef = useRef(currentBranchId || branchOptions[0]?.id || '');
+  const defaultBranchIdRef = useRef(currentBranchId || scopedBranchOptions[0]?.id || branchOptions[0]?.id || '');
   const defaultTransferToBranchIdRef = useRef(branchOptions.find(branch => branch.id !== (currentBranchId || branchOptions[0]?.id))?.id || branchOptions[0]?.id || '');
+  const transferFromBranchOptions = useMemo(
+    () => branchOptions.filter(branch => String(branch.branchType || 'retail').toLowerCase() === String(fromInventoryType || normalizedArea).toLowerCase()),
+    [branchOptions, fromInventoryType, normalizedArea]
+  );
+  const transferToBranchOptions = useMemo(
+    () => branchOptions.filter(branch => String(branch.branchType || 'retail').toLowerCase() === String(toInventoryType || normalizedArea).toLowerCase()),
+    [branchOptions, toInventoryType, normalizedArea]
+  );
 
   useEffect(() => {
     if (!productId && products[0]?.id) setProductId(products[0].id);
   }, [productId, products]);
 
   useEffect(() => {
-    defaultBranchIdRef.current = currentBranchId || branchOptions[0]?.id || '';
+    defaultBranchIdRef.current = currentBranchId || scopedBranchOptions[0]?.id || branchOptions[0]?.id || '';
     defaultTransferToBranchIdRef.current = branchOptions.find(branch => branch.id !== (currentBranchId || branchOptions[0]?.id))?.id || branchOptions[0]?.id || '';
-  }, [branchOptions, currentBranchId]);
+  }, [branchOptions, currentBranchId, scopedBranchOptions]);
+
+  useEffect(() => {
+    if (operationType !== 'transfer' && scopedBranchOptions.length > 0 && !scopedBranchOptions.some(branch => branch.id === branchId)) {
+      setBranchId(scopedBranchOptions[0].id);
+    }
+  }, [branchId, operationType, scopedBranchOptions]);
+
+  useEffect(() => {
+    if (operationType === 'transfer' && transferFromBranchOptions.length > 0 && !transferFromBranchOptions.some(branch => branch.id === fromBranchId)) {
+      setFromBranchId(transferFromBranchOptions[0].id);
+    }
+  }, [fromBranchId, operationType, transferFromBranchOptions]);
+
+  useEffect(() => {
+    if (operationType === 'transfer' && transferToBranchOptions.length > 0 && !transferToBranchOptions.some(branch => branch.id === toBranchId)) {
+      setToBranchId(transferToBranchOptions[0].id);
+    }
+  }, [operationType, toBranchId, transferToBranchOptions]);
 
   useEffect(() => {
     if (!branchId && currentBranchId) setBranchId(currentBranchId);
@@ -97,20 +129,20 @@ function WholesaleOperationsPage({ operationType }) {
     setSupplier('');
     setReason('');
     setRemark('');
-    setFromInventoryType(operationType === 'transfer' ? 'wholesale' : 'wholesale');
+    setFromInventoryType(normalizedArea);
     if (operationType === 'transfer') {
       setFromBranchId(defaultBranchIdRef.current);
       setToBranchId(defaultTransferToBranchIdRef.current);
-      setToInventoryType('wholesale');
+      setToInventoryType(normalizedArea);
     } else {
       setBranchId(defaultBranchIdRef.current);
     }
-  }, [operationType]);
+  }, [normalizedArea, operationType]);
 
   const loadOperations = useCallback(async () => {
     setLoading(true);
     try {
-      const rows = await wholesaleApi.listOperations({ operationType, status: statusFilter });
+      const rows = await wholesaleApi.listOperations({ operationType, status: statusFilter, operationArea: normalizedArea });
       setOperations(Array.isArray(rows) ? rows : []);
     } catch (e) {
       const msg = String(e?.message || '');
@@ -121,7 +153,7 @@ function WholesaleOperationsPage({ operationType }) {
     } finally {
       setLoading(false);
     }
-  }, [operationType, statusFilter, toast]);
+  }, [normalizedArea, operationType, statusFilter, toast]);
 
   useEffect(() => {
     loadOperations();
@@ -136,11 +168,41 @@ function WholesaleOperationsPage({ operationType }) {
     setSupplier('');
     setReason('');
     setRemark('');
+    setItems([]);
   }
 
   function openReview(row) {
     setSelectedRow(row);
     setDecisionRemark('');
+    setReviewItems(
+      Array.isArray(row.items) && row.items.length > 0
+        ? row.items.map((item, index) => ({
+            lineId: item.lineId || `${index + 1}`,
+            productId: item.productId,
+            variantId: item.variantId || '',
+            qty: Number(item.qty || 0),
+            cost: Number(item.cost || 0),
+            requestedAmount: Number(item.requestedAmount || 0),
+            adjustmentType: item.adjustmentType || 'increase',
+            supplier: item.supplier || '',
+            reason: item.reason || '',
+            remark: item.remark || '',
+            status: item.status || 'accepted'
+          }))
+        : [{
+            lineId: '1',
+            productId: row.productId,
+            variantId: row.variantId || '',
+            qty: Number(row.qty || 0),
+            cost: Number(row.cost || 0),
+            requestedAmount: Number(row.requestedAmount || 0),
+            adjustmentType: row.adjustmentType || 'increase',
+            supplier: row.supplier || '',
+            reason: row.reason || '',
+            remark: row.remark || '',
+            status: 'accepted'
+          }]
+    );
   }
 
   async function reviewAction(type) {
@@ -158,7 +220,7 @@ function WholesaleOperationsPage({ operationType }) {
         approverName: auth.user?.name || auth.user?.username || 'unknown',
         approverRole: auth.role || ''
       };
-      if (type === 'approve') await wholesaleApi.approveOperation(selectedRow, payload);
+      if (type === 'approve') await wholesaleApi.approveOperation(selectedRow, { ...payload, items: reviewItems });
       else await wholesaleApi.rejectOperation(selectedRow, payload);
       toast.show(type === 'approve' ? 'Request updated' : 'Request rejected', { type: 'success' });
       setSelectedRow(null);
@@ -171,8 +233,7 @@ function WholesaleOperationsPage({ operationType }) {
     }
   }
 
-  async function submit() {
-    if (saving) return;
+  function addCurrentItem() {
     if (!productId) {
       toast.show('Select a product', { type: 'error' });
       return;
@@ -181,7 +242,45 @@ function WholesaleOperationsPage({ operationType }) {
       toast.show('Quantity must be greater than zero', { type: 'error' });
       return;
     }
-    if (!reason.trim()) {
+    setItems(prev => [...prev, {
+      lineId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      productId,
+      variantId: variantId || '',
+      qty: Number(qty),
+      cost: Number(cost || 0),
+      requestedAmount: Number(requestedAmount || 0),
+      adjustmentType,
+      supplier: supplier.trim(),
+      reason: reason.trim(),
+      remark: remark.trim(),
+      status: 'accepted'
+    }]);
+    setVariantId('');
+    setQty(1);
+    setCost('');
+    setRequestedAmount('');
+    setAdjustmentType('increase');
+    setSupplier('');
+    setReason('');
+    setRemark('');
+  }
+
+  function removeItem(lineId) {
+    setItems(prev => prev.filter(item => item.lineId !== lineId));
+  }
+
+  async function submit() {
+    if (saving) return;
+    const nextItems = items.length > 0 ? items : null;
+    if (!nextItems && !productId) {
+      toast.show('Select a product', { type: 'error' });
+      return;
+    }
+    if (!nextItems && (!Number.isFinite(Number(qty)) || Number(qty) <= 0)) {
+      toast.show('Quantity must be greater than zero', { type: 'error' });
+      return;
+    }
+    if (!nextItems && !reason.trim()) {
       toast.show('Reason is required', { type: 'error' });
       return;
     }
@@ -199,13 +298,14 @@ function WholesaleOperationsPage({ operationType }) {
       return;
     }
 
-    const clientId = `wholesale-${operationType}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const clientId = `${normalizedArea}-${operationType}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const payload = {
       clientId,
+      operationArea: normalizedArea,
       operationType,
-      productId,
-      variantId: variantId || undefined,
-      qty: Number(qty),
+      productId: nextItems ? nextItems[0]?.productId : productId,
+      variantId: nextItems ? (nextItems[0]?.variantId || undefined) : (variantId || undefined),
+      qty: nextItems ? Number(nextItems.reduce((sum, item) => sum + Number(item.qty || 0), 0)) : Number(qty),
       cost: Number(cost || 0),
       requestedAmount: Number(requestedAmount || 0),
       adjustmentType,
@@ -215,8 +315,9 @@ function WholesaleOperationsPage({ operationType }) {
       branchId: operationType === 'transfer' ? undefined : branchId,
       fromBranchId: operationType === 'transfer' ? fromBranchId : undefined,
       toBranchId: operationType === 'transfer' ? toBranchId : undefined,
-      fromInventoryType: operationType === 'transfer' ? fromInventoryType : 'wholesale',
-      toInventoryType: operationType === 'transfer' ? toInventoryType : 'wholesale'
+      fromInventoryType: operationType === 'transfer' ? fromInventoryType : normalizedArea,
+      toInventoryType: operationType === 'transfer' ? toInventoryType : normalizedArea,
+      items: nextItems || undefined
     };
 
     const optimistic = {
@@ -267,11 +368,11 @@ function WholesaleOperationsPage({ operationType }) {
     <div style={{ padding: 16, display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div>
-          <h1 style={{ margin: 0 }}>Wholesale Operations</h1>
-          <div style={{ color: '#64748b', fontSize: 13 }}>Initiate wholesale purchases, transfers, adjustments, and refund restocks through the 2-step approval workflow.</div>
+          <h1 style={{ margin: 0 }}>{normalizedArea === 'warehouse' ? 'Warehouse Operations' : 'Wholesale Operations'}</h1>
+          <div style={{ color: '#64748b', fontSize: 13 }}>Initiate {normalizedArea} purchases, transfers, adjustments, and refund restocks through the 2-step approval workflow.</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <OfflineQueueIndicator collection="wholesaleoperations" label="Wholesale queued" />
+          <OfflineQueueIndicator collection="wholesaleoperations" label={`${normalizedArea === 'warehouse' ? 'Warehouse' : 'Wholesale'} queued`} />
           <button className="btn btn-primary" onClick={() => setIsCreateOpen(true)}>
             New Request
           </button>
@@ -279,9 +380,9 @@ function WholesaleOperationsPage({ operationType }) {
       </div>
 
       <div className="card" style={{ display: 'grid', gap: 12 }}>
-        <h2 className="section-title" style={{ margin: 0 }}>{OPERATION_OPTIONS.find(item => item.key === operationType)?.label}</h2>
+        <h2 className="section-title" style={{ margin: 0 }}>{labelForArea(normalizedArea, operationType)}</h2>
         <div style={{ color: '#64748b', fontSize: 13 }}>
-          Open the request modal to initiate a new {OPERATION_OPTIONS.find(item => item.key === operationType)?.label?.toLowerCase()} and then track director and manager approvals below.
+          Open the request modal to initiate a new {labelForArea(normalizedArea, operationType).toLowerCase()} and then track director and manager approvals below.
         </div>
       </div>
 
@@ -329,7 +430,7 @@ function WholesaleOperationsPage({ operationType }) {
                   </tr>
                 );
               })}
-              {!loading && operations.length === 0 && <tr><td colSpan="6" style={{ padding: 12, color: '#64748b' }}>No wholesale requests yet</td></tr>}
+              {!loading && operations.length === 0 && <tr><td colSpan="6" style={{ padding: 12, color: '#64748b' }}>No {normalizedArea} requests yet</td></tr>}
             </tbody>
           </table>
         </div>
@@ -337,11 +438,12 @@ function WholesaleOperationsPage({ operationType }) {
 
       {isCreateOpen && (
         <Modal
-          title={OPERATION_OPTIONS.find(item => item.key === operationType)?.label || 'Wholesale Request'}
+          title={labelForArea(normalizedArea, operationType) || 'Stock Request'}
           onClose={() => setIsCreateOpen(false)}
           footer={(
             <>
               <button className="btn" onClick={() => setIsCreateOpen(false)} disabled={saving}>Close</button>
+              <button className="btn" onClick={addCurrentItem} disabled={saving}>Add To List</button>
               <button className="btn btn-primary" onClick={submit} disabled={saving}>
                 {saving ? 'Saving…' : 'Submit For Approval'}
               </button>
@@ -384,7 +486,7 @@ function WholesaleOperationsPage({ operationType }) {
                 <label>
                   <div style={{ marginBottom: 6, color: '#94a3b8' }}>From Branch</div>
                   <select className="select" value={fromBranchId} onChange={e => setFromBranchId(e.target.value)} style={{ width: '100%' }}>
-                    {branchOptions.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                    {transferFromBranchOptions.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
                   </select>
                 </label>
                 <label>
@@ -392,12 +494,13 @@ function WholesaleOperationsPage({ operationType }) {
                   <select className="select" value={fromInventoryType} onChange={e => setFromInventoryType(e.target.value)} style={{ width: '100%' }}>
                     <option value="retail">Retail Inventory</option>
                     <option value="wholesale">Wholesale Inventory</option>
+                    <option value="warehouse">Warehouse Inventory</option>
                   </select>
                 </label>
                 <label>
                   <div style={{ marginBottom: 6, color: '#94a3b8' }}>To Branch</div>
                   <select className="select" value={toBranchId} onChange={e => setToBranchId(e.target.value)} style={{ width: '100%' }}>
-                    {branchOptions.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                    {transferToBranchOptions.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
                   </select>
                 </label>
                 <label>
@@ -405,6 +508,7 @@ function WholesaleOperationsPage({ operationType }) {
                   <select className="select" value={toInventoryType} onChange={e => setToInventoryType(e.target.value)} style={{ width: '100%' }}>
                     <option value="wholesale">Wholesale Inventory</option>
                     <option value="retail">Retail Inventory</option>
+                    <option value="warehouse">Warehouse Inventory</option>
                   </select>
                 </label>
               </>
@@ -412,7 +516,7 @@ function WholesaleOperationsPage({ operationType }) {
               <label>
                 <div style={{ marginBottom: 6, color: '#94a3b8' }}>Branch</div>
                 <select className="select" value={branchId} onChange={e => setBranchId(e.target.value)} style={{ width: '100%' }}>
-                  {branchOptions.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                  {scopedBranchOptions.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
                 </select>
               </label>
             )}
@@ -446,13 +550,42 @@ function WholesaleOperationsPage({ operationType }) {
 
             <label style={{ gridColumn: '1 / -1' }}>
               <div style={{ marginBottom: 6, color: '#94a3b8' }}>Reason</div>
-              <input className="input" value={reason} onChange={e => setReason(e.target.value)} placeholder="Why this wholesale operation is needed" />
+              <input className="input" value={reason} onChange={e => setReason(e.target.value)} placeholder={`Why this ${normalizedArea} operation is needed`} />
             </label>
 
             <label style={{ gridColumn: '1 / -1' }}>
               <div style={{ marginBottom: 6, color: '#94a3b8' }}>Remark</div>
               <input className="input" value={remark} onChange={e => setRemark(e.target.value)} placeholder="Additional details for approvers" />
             </label>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <div style={{ marginBottom: 6, color: '#94a3b8' }}>Items In This Request</div>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th align="left">Product</th>
+                    <th align="left">Qty</th>
+                    <th align="left">Remark</th>
+                    <th align="left"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map(item => {
+                    const product = products.find(row => String(row.id) === String(item.productId));
+                    return (
+                      <tr key={item.lineId}>
+                        <td>{product?.name || item.productId}</td>
+                        <td>{item.qty}</td>
+                        <td>{item.reason || item.remark || '—'}</td>
+                        <td><button className="btn" onClick={() => removeItem(item.lineId)}>Remove</button></td>
+                      </tr>
+                    );
+                  })}
+                  {items.length === 0 && <tr><td colSpan="4" style={{ padding: 12, color: '#64748b' }}>No items added yet. You can still submit a single item directly.</td></tr>}
+                </tbody>
+              </table>
+            </div>
           </div>
         </Modal>
       )}
@@ -485,6 +618,38 @@ function WholesaleOperationsPage({ operationType }) {
               <div><div style={{ color: '#94a3b8', fontSize: 12 }}>To Inventory</div><strong>{selectedRow.toInventoryType || selectedRow.fromInventoryType || 'wholesale'}</strong></div>
             </div>
             <div><div style={{ color: '#94a3b8', fontSize: 12 }}>Remark</div><strong>{selectedRow.remark || selectedRow.approvalRemark || selectedRow.rejectionRemark || '—'}</strong></div>
+            <div style={{ overflowX: 'auto' }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th align="left">Product</th>
+                    <th align="left">Qty</th>
+                    <th align="left">Status</th>
+                    <th align="left">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reviewItems.map((item, index) => {
+                    const product = products.find(row => String(row.id) === String(item.productId));
+                    return (
+                      <tr key={item.lineId || index}>
+                        <td>{product?.name || item.productId}</td>
+                        <td>
+                          <input className="input" type="number" min="0" value={item.qty} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, qty: Number(e.target.value) || 0 } : row))} style={{ width: 90 }} disabled={!((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing} />
+                        </td>
+                        <td>
+                          <select className="select" value={item.status || 'accepted'} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, status: e.target.value } : row))} disabled={!((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing}>
+                            <option value="accepted">Accepted</option>
+                            <option value="cancelled">Cancelled</option>
+                          </select>
+                        </td>
+                        <td>{item.reason || item.remark || '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
             <label>
               <div style={{ marginBottom: 6, color: '#94a3b8' }}>Approval / Rejection Remark</div>
               <textarea className="input" value={decisionRemark} onChange={e => setDecisionRemark(e.target.value)} rows={4} style={{ width: '100%', resize: 'vertical' }} />

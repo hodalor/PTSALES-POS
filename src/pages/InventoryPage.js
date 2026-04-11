@@ -9,6 +9,13 @@ import { useToast } from '../components/ToastProvider';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
+function branchTypeBadgeStyle(branchType = 'retail') {
+  const kind = String(branchType || 'retail').toLowerCase();
+  if (kind === 'warehouse') return { background: '#ede9fe', color: '#6d28d9' };
+  if (kind === 'wholesale') return { background: '#dbeafe', color: '#1d4ed8' };
+  return { background: '#dcfce7', color: '#166534' };
+}
+
 function InventoryPage() {
   const products = useSelector(s => s.products.products);
   const branches = useSelector(s => s.branches.branches);
@@ -82,9 +89,15 @@ function InventoryPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <label style={{ fontSize: 12, color: '#64748b' }}>Branch</label>
           <BranchSelect value={branchId} onChange={setBranchId} style={{ minWidth: 220 }} />
+          {branch && (
+            <span style={{ display: 'inline-flex', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 700, ...branchTypeBadgeStyle(branch.branchType) }}>
+              {String(branch.branchType || 'retail')}
+            </span>
+          )}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
             <button className={viewInventoryType === 'retail' ? 'btn btn-primary' : 'btn'} onClick={() => setViewInventoryType('retail')}>Retail</button>
             <button className={viewInventoryType === 'wholesale' ? 'btn btn-primary' : 'btn'} onClick={() => setViewInventoryType('wholesale')}>Wholesale</button>
+            <button className={viewInventoryType === 'warehouse' ? 'btn btn-primary' : 'btn'} onClick={() => setViewInventoryType('warehouse')}>Warehouse</button>
           </div>
         </div>
       </div>
@@ -95,14 +108,14 @@ function InventoryPage() {
               <th align="left">Product</th>
               <th align="left">Price</th>
               <th align="left">Barcode</th>
-              <th align="left">Stock ({viewInventoryType === 'wholesale' ? 'Wholesale' : 'Retail'} – {branch?.code || branch?.name})</th>
+              <th align="left">Stock ({viewInventoryType === 'wholesale' ? 'Wholesale' : viewInventoryType === 'warehouse' ? 'Warehouse' : 'Retail'} – {branch?.code || branch?.name})</th>
             </tr>
           </thead>
           <tbody>
             {rows.map(p => {
               const low = p.lowStock ?? 0;
-              const cur = (viewInventoryType === 'wholesale' ? (p.wholesaleStockByBranch || {})[branchId] : (p.stockByBranch || {})[branchId]) || 0;
-              const basePrice = viewInventoryType === 'wholesale'
+              const cur = (viewInventoryType === 'wholesale' ? (p.wholesaleStockByBranch || {})[branchId] : viewInventoryType === 'warehouse' ? (p.warehouseStockByBranch || {})[branchId] : (p.stockByBranch || {})[branchId]) || 0;
+              const basePrice = viewInventoryType === 'wholesale' || viewInventoryType === 'warehouse'
                 ? (p.wholesalePrice != null ? p.wholesalePrice : p.price)
                 : (p.retailPrice != null ? p.retailPrice : p.price);
               const hasVariants = Array.isArray(p.variants) && p.variants.length > 0;
@@ -143,7 +156,7 @@ function InventoryPage() {
                                 className="input"
                                 type="number"
                                 min="0"
-                                value={(viewInventoryType === 'wholesale' ? (v.wholesaleStockByBranch || {})[branchId] : (v.stockByBranch || {})[branchId]) || 0}
+                                value={(viewInventoryType === 'wholesale' ? (v.wholesaleStockByBranch || {})[branchId] : viewInventoryType === 'warehouse' ? (v.warehouseStockByBranch || {})[branchId] : (v.stockByBranch || {})[branchId]) || 0}
                                 onChange={e => setStockWithAudit(p, v.id, branchId, Number(e.target.value))}
                                 style={{ width: 120 }}
                                 disabled
@@ -181,12 +194,18 @@ function InventoryPage() {
                 <div><strong>Low Stock:</strong> {selected.lowStock ?? 0}</div>
                 <div><strong>Total Retail Across Branches:</strong> {Object.values(selected.stockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
                 <div><strong>Total Wholesale Across Branches:</strong> {Object.values(selected.wholesaleStockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
+                <div><strong>Total Warehouse Across Branches:</strong> {Object.values(selected.warehouseStockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
                 <div style={{ gridColumn: '1 / -1', marginTop: 8 }}>
                   <strong>Branch Breakdown</strong>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 6, marginTop: 6 }}>
                     {branches.map(b => (
                         <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <small style={{ width: 90 }}>{b.code || b.name}</small>
+                          <div style={{ width: 110, display: 'grid', gap: 4 }}>
+                            <small>{b.code || b.name}</small>
+                            <span style={{ display: 'inline-flex', width: 'fit-content', padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 700, ...branchTypeBadgeStyle(b.branchType) }}>
+                              {String(b.branchType || 'retail')}
+                            </span>
+                          </div>
                           <input
                           className="input"
                           type="number"
@@ -205,6 +224,15 @@ function InventoryPage() {
                             style={{ width: 80, marginLeft: 4 }}
                             disabled
                           />
+                          <input
+                            className="input"
+                            type="number"
+                            min="0"
+                            value={selected.warehouseStockByBranch?.[b.id] || 0}
+                            onChange={e => setStockWithAudit(selected, null, b.id, Number(e.target.value))}
+                            style={{ width: 80, marginLeft: 4 }}
+                            disabled
+                          />
                       </div>
                     ))}
                   </div>
@@ -212,9 +240,14 @@ function InventoryPage() {
                 {(Array.isArray(selected.variants) && selected.variants.length > 0) && (
                   <div style={{ gridColumn: '1 / -1', marginTop: 8 }}>
                     <strong>Variants (current branch)</strong>
+                    <div style={{ marginTop: 4, marginBottom: 6 }}>
+                      <span style={{ display: 'inline-flex', padding: '2px 8px', borderRadius: 999, fontSize: 12, fontWeight: 700, ...branchTypeBadgeStyle(branch?.branchType) }}>
+                        {String(branch?.branchType || 'retail')}
+                      </span>
+                    </div>
                     <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
                       {selected.variants.map(v => (
-                        <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, alignItems: 'center' }}>
+                        <div key={v.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, alignItems: 'center' }}>
                           <div><strong>{v.label}</strong> <span style={{ color: '#64748b' }}>{v.sku || ''}</span></div>
                           <input
                             className="input"
@@ -230,6 +263,15 @@ function InventoryPage() {
                             type="number"
                             min="0"
                             value={v.wholesaleStockByBranch?.[branchId] || 0}
+                            onChange={e => setStockWithAudit(selected, v.id, branchId, Number(e.target.value))}
+                            style={{ width: 100 }}
+                            disabled
+                          />
+                          <input
+                            className="input"
+                            type="number"
+                            min="0"
+                            value={v.warehouseStockByBranch?.[branchId] || 0}
                             onChange={e => setStockWithAudit(selected, v.id, branchId, Number(e.target.value))}
                             style={{ width: 100 }}
                             disabled

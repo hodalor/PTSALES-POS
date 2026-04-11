@@ -11,9 +11,10 @@ const branchesSlice = createSlice({
     setBranches(state, action) {
       const server = Array.isArray(action.payload) && action.payload.length > 0 ? action.payload : null;
       if (!server) return;
-      const seen = new Set(server.map(b => b?.id).filter(Boolean).map(String));
+      const normalized = server.map(b => ({ ...b, id: String(b?.id || b?._id || ''), branchType: b?.branchType || 'retail' }));
+      const seen = new Set(normalized.map(b => b?.id).filter(Boolean).map(String));
       const offline = state.branches.filter(b => b && b.offline && !seen.has(String(b.id)));
-      state.branches = server.concat(offline);
+      state.branches = normalized.concat(offline);
     },
     addBranch: {
       reducer(state, action) {
@@ -21,16 +22,17 @@ const branchesSlice = createSlice({
       },
       prepare(data) {
         const id = data?.id != null ? String(data.id) : nanoid();
-        const payload = { id, name: '', code: '', ...data };
+        const payload = { id, name: '', code: '', branchType: 'retail', ...data };
         return { payload };
       }
     },
     updateBranch(state, action) {
-      const { id, name, code, offline } = action.payload;
+      const { id, name, code, branchType, offline } = action.payload;
       const b = state.branches.find(x => x.id === id);
       if (b) {
         b.name = name;
         b.code = code;
+        if (branchType) b.branchType = branchType;
         if (typeof offline === 'boolean') b.offline = offline;
       }
     },

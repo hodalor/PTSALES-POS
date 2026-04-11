@@ -25,6 +25,7 @@ function AdjustmentsPage() {
   const [savingAdjust, setSavingAdjust] = useState(false);
   const [tab, setTab] = useState('initiate');
   const [openModal, setOpenModal] = useState(false);
+  const [items, setItems] = useState([]);
   const [statusFilter, setStatusFilter] = useState('pending');
   const [loading, setLoading] = useState(false);
   const [busyId, setBusyId] = useState(null);
@@ -127,23 +128,25 @@ function AdjustmentsPage() {
       }
       return Number((selectedProduct.stockByBranch || {})[branchId] || 0);
     })();
+    const nextItems = items.length > 0 ? items : null;
     const clientId = `adjust-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const payload = {
-      productId,
+      productId: nextItems ? nextItems[0]?.productId : productId,
       branchId,
-      delta: Number(delta),
+      delta: nextItems ? nextItems.reduce((sum, item) => sum + Number(item.delta || 0), 0) : Number(delta),
       actor: auth.user?.name || 'unknown',
-      variantId: variantId || undefined,
+      variantId: nextItems ? (nextItems[0]?.variantId || undefined) : (variantId || undefined),
       remark,
       initiatorName: auth.user?.name || 'unknown',
       initiatorRole: auth.role || '',
-      clientId
+      clientId,
+      items: nextItems || undefined
     };
-    if (!productId || !branchId || delta === 0) {
+    if (!nextItems && (!productId || !branchId || delta === 0)) {
       toast.show('Select product/branch and enter non-zero delta', { type: 'error' });
       return;
     }
-    if (Number(delta) < 0) {
+    if (!nextItems && Number(delta) < 0) {
       const toRemove = Math.abs(Number(delta));
       if (toRemove > current) {
         toast.show(`Cannot remove more than available stock (${current})`, { type: 'error' });
@@ -180,8 +183,31 @@ function AdjustmentsPage() {
     setDelta(0);
     setVariantId('');
     setRemark('');
+    setItems([]);
     toast.show(navigator.onLine ? 'Adjustment request submitted for approval' : 'Saved offline. Will sync when online.', { type: 'success' });
     setSavingAdjust(false);
+  }
+
+  function addCurrentItem() {
+    if (!productId || !branchId || delta === 0) {
+      toast.show('Select product/branch and enter non-zero delta', { type: 'error' });
+      return;
+    }
+    setItems(prev => [...prev, {
+      lineId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      productId,
+      variantId: variantId || '',
+      delta: Number(delta),
+      remark: remark.trim(),
+      status: 'accepted'
+    }]);
+    setDelta(0);
+    setVariantId('');
+    setRemark('');
+  }
+
+  function removeItem(lineId) {
+    setItems(prev => prev.filter(item => item.lineId !== lineId));
   }
 
   return (
@@ -206,6 +232,7 @@ function AdjustmentsPage() {
         <Modal title="Add Adjustment" onClose={() => setOpenModal(false)} footer={
           <>
             <button className="btn" onClick={() => setOpenModal(false)}>Cancel</button>
+            <button className="btn" onClick={addCurrentItem}>Add To List</button>
             <button className="btn btn-primary" onClick={async () => { await adjust(); setOpenModal(false); }} disabled={!canAdjust || savingAdjust}>
               <svg viewBox="0 0 24 24" fill="none"><path d="M12 6v12M6 12h12" stroke="currentColor" strokeWidth="2"/></svg>
               {savingAdjust ? 'Saving…' : 'Submit For Approval'}
@@ -242,6 +269,31 @@ function AdjustmentsPage() {
               <div style={{ marginBottom: 6, color: '#64748b' }}>Remark (required)</div>
               <input className="input" value={remark} onChange={e => setRemark(e.target.value)} placeholder="Reason or note" />
             </label>
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <div style={{ marginBottom: 6, color: '#64748b' }}>Items In This Request</div>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th align="left">Product</th>
+                  <th align="left">Delta</th>
+                  <th align="left"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map(item => {
+                  const product = products.find(p => p.id === item.productId);
+                  return (
+                    <tr key={item.lineId}>
+                      <td>{product?.name || item.productId}</td>
+                      <td>{item.delta}</td>
+                      <td><button className="btn" onClick={() => removeItem(item.lineId)}>Remove</button></td>
+                    </tr>
+                  );
+                })}
+                {items.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No items added yet. You can still submit a single item.</td></tr>}
+              </tbody>
+            </table>
           </div>
         </Modal>
       )}
@@ -462,19 +514,47 @@ function RequestDetail({ detail, products, byId }) {
   const p = products.find(x => x.id === detail.productId);
   const vLabel = detail.variantId ? ((p?.variants || []).find(v => v.id === detail.variantId)?.label || detail.variantId) : '';
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-      <div><div style={{ color: '#64748b' }}>Status</div><div>{detail.status}</div></div>
-      <div><div style={{ color: '#64748b' }}>Product</div><div>{p?.name || detail.productId}{vLabel ? ` • ${vLabel}` : ''}</div></div>
-      <div><div style={{ color: '#64748b' }}>Branch</div><div>{byId.get(detail.branchId) || detail.branchId}</div></div>
-      <div><div style={{ color: '#64748b' }}>Delta</div><div>{detail.delta}</div></div>
-      <div><div style={{ color: '#64748b' }}>Initiator</div><div>{detail.initiatorName} {detail.initiatorRole ? `(${detail.initiatorRole})` : ''}</div></div>
-      <div><div style={{ color: '#64748b' }}>Initiation Remark</div><div>{detail.remark || '—'}</div></div>
-      <div><div style={{ color: '#64748b' }}>Approver</div><div>{detail.approverName ? `${detail.approverName}${detail.approverRole ? ` (${detail.approverRole})` : ''}` : '—'}</div></div>
-      {detail.status === 'approved' && <div><div style={{ color: '#64748b' }}>Approval Remark</div><div>{detail.approvalRemark || '—'}</div></div>}
-      {detail.status === 'rejected' && <div><div style={{ color: '#64748b' }}>Rejection Remark</div><div>{detail.rejectionRemark || '—'}</div></div>}
-      <div><div style={{ color: '#64748b' }}>Created</div><div>{detail.createdAt ? new Date(detail.createdAt).toLocaleString() : '—'}</div></div>
-      <div><div style={{ color: '#64748b' }}>Updated</div><div>{detail.updatedAt ? new Date(detail.updatedAt).toLocaleString() : '—'}</div></div>
-    </div>
+    <>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <div><div style={{ color: '#64748b' }}>Status</div><div>{detail.status}</div></div>
+        <div><div style={{ color: '#64748b' }}>Product</div><div>{p?.name || detail.productId}{vLabel ? ` • ${vLabel}` : ''}</div></div>
+        <div><div style={{ color: '#64748b' }}>Branch</div><div>{byId.get(detail.branchId) || detail.branchId}</div></div>
+        <div><div style={{ color: '#64748b' }}>Delta</div><div>{detail.delta}</div></div>
+        <div><div style={{ color: '#64748b' }}>Initiator</div><div>{detail.initiatorName} {detail.initiatorRole ? `(${detail.initiatorRole})` : ''}</div></div>
+        <div><div style={{ color: '#64748b' }}>Initiation Remark</div><div>{detail.remark || '—'}</div></div>
+        <div><div style={{ color: '#64748b' }}>Approver</div><div>{detail.approverName ? `${detail.approverName}${detail.approverRole ? ` (${detail.approverRole})` : ''}` : '—'}</div></div>
+        {detail.status === 'approved' && <div><div style={{ color: '#64748b' }}>Approval Remark</div><div>{detail.approvalRemark || '—'}</div></div>}
+        {detail.status === 'rejected' && <div><div style={{ color: '#64748b' }}>Rejection Remark</div><div>{detail.rejectionRemark || '—'}</div></div>}
+        <div><div style={{ color: '#64748b' }}>Created</div><div>{detail.createdAt ? new Date(detail.createdAt).toLocaleString() : '—'}</div></div>
+        <div><div style={{ color: '#64748b' }}>Updated</div><div>{detail.updatedAt ? new Date(detail.updatedAt).toLocaleString() : '—'}</div></div>
+      </div>
+      {Array.isArray(detail.items) && detail.items.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ marginBottom: 6, color: '#64748b' }}>Request Items</div>
+          <table className="table">
+            <thead>
+              <tr>
+                <th align="left">Product</th>
+                <th align="left">Delta</th>
+                <th align="left">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.items.map((item, index) => {
+                const product = products.find(row => row.id === item.productId);
+                return (
+                  <tr key={item.lineId || index}>
+                    <td>{product?.name || item.productId}</td>
+                    <td>{item.delta}</td>
+                    <td>{item.status || 'accepted'}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }
 
