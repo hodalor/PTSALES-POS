@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 import { useToast } from '../components/ToastProvider';
 import { formatCurrency } from '../utils/currency';
 import * as wholesaleApi from '../api/wholesale';
+import * as productUnitsApi from '../api/productUnits';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import Modal from '../components/Modal';
@@ -51,6 +52,9 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
   const [reviewing, setReviewing] = useState(false);
   const [items, setItems] = useState([]);
   const [reviewItems, setReviewItems] = useState([]);
+  const [serializedUnits, setSerializedUnits] = useState([]);
+  const [serializedUnitsQuery, setSerializedUnitsQuery] = useState('');
+  const [serializedLoading, setSerializedLoading] = useState(false);
 
   const [productId, setProductId] = useState(products[0]?.id || '');
   const [variantId, setVariantId] = useState('');
@@ -72,6 +76,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
     if (!selectedProduct || !variantId) return null;
     return (selectedProduct.variants || []).find(v => String(v.id) === String(variantId)) || null;
   }, [selectedProduct, variantId]);
+  const selectedTrackType = String(selectedVariant?.trackType || selectedProduct?.trackType || 'quantity');
   const grants = Array.isArray(auth.grants) ? auth.grants : [];
   const canDirectorApprove = roleLower === 'superadmin' || roleLower === 'admin' || roleLower === 'director' || grants.includes('approve_wholesale_director') || grants.includes('approve_credit_director');
   const canManagerApprove = roleLower === 'superadmin' || roleLower === 'admin' || roleLower === 'manager' || grants.includes('approve_wholesale_manager') || grants.includes('approve_credit_manager');
@@ -139,6 +144,37 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
     }
   }, [normalizedArea, operationType]);
 
+  useEffect(() => {
+    async function run() {
+      if (operationType !== 'transfer' || selectedTrackType !== 'serialized' || !productId || !fromBranchId) {
+        setSerializedUnits([]);
+        return;
+      }
+      setSerializedLoading(true);
+      try {
+        const result = await productUnitsApi.listProductUnits({
+          productId,
+          variantId,
+          branchId: fromBranchId,
+          inventoryType: fromInventoryType,
+          status: 'in_stock',
+          query: serializedUnitsQuery,
+          pageSize: 50
+        });
+        setSerializedUnits(prev => {
+          const selectedIds = new Set(prev.filter(unit => unit.selected).map(unit => unit._id));
+          return (Array.isArray(result?.rows) ? result.rows : []).map(unit => ({ ...unit, selected: selectedIds.has(unit._id) }));
+        });
+      } catch (e) {
+        toast.show(String(e?.message || 'Failed to load serialized units'), { type: 'error' });
+        setSerializedUnits([]);
+      } finally {
+        setSerializedLoading(false);
+      }
+    }
+    run();
+  }, [fromBranchId, fromInventoryType, operationType, productId, selectedTrackType, serializedUnitsQuery, toast, variantId]);
+
   const loadOperations = useCallback(async () => {
     setLoading(true);
     try {
@@ -169,6 +205,8 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
     setReason('');
     setRemark('');
     setItems([]);
+    setSerializedUnits([]);
+    setSerializedUnitsQuery('');
   }
 
   function openReview(row) {
@@ -181,6 +219,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
             productId: item.productId,
             variantId: item.variantId || '',
             qty: Number(item.qty || 0),
+            unitIds: Array.isArray(item.unitIds) ? item.unitIds.map(String) : [],
             cost: Number(item.cost || 0),
             requestedAmount: Number(item.requestedAmount || 0),
             adjustmentType: item.adjustmentType || 'increase',
@@ -194,6 +233,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
             productId: row.productId,
             variantId: row.variantId || '',
             qty: Number(row.qty || 0),
+            unitIds: Array.isArray(row.unitIds) ? row.unitIds.map(String) : [],
             cost: Number(row.cost || 0),
             requestedAmount: Number(row.requestedAmount || 0),
             adjustmentType: row.adjustmentType || 'increase',
@@ -242,11 +282,16 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
       toast.show('Quantity must be greater than zero', { type: 'error' });
       return;
     }
+    if (operationType === 'transfer' && selectedTrackType === 'serialized' && serializedUnits.filter(unit => unit.selected).length !== Number(qty)) {
+      toast.show('Select the exact serialized units to transfer', { type: 'error' });
+      return;
+    }
     setItems(prev => [...prev, {
       lineId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       productId,
       variantId: variantId || '',
       qty: Number(qty),
+      unitIds: operationType === 'transfer' && selectedTrackType === 'serialized' ? serializedUnits.filter(unit => unit.selected).map(unit => unit._id) : [],
       cost: Number(cost || 0),
       requestedAmount: Number(requestedAmount || 0),
       adjustmentType,
@@ -293,6 +338,10 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
         toast.show('Source and destination branches must be different', { type: 'error' });
         return;
       }
+      if (!nextItems && selectedTrackType === 'serialized' && serializedUnits.filter(unit => unit.selected).length !== Number(qty)) {
+        toast.show('Select the exact serialized units to transfer', { type: 'error' });
+        return;
+      }
     } else if (!branchId) {
       toast.show('Select a branch', { type: 'error' });
       return;
@@ -317,7 +366,18 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
       toBranchId: operationType === 'transfer' ? toBranchId : undefined,
       fromInventoryType: operationType === 'transfer' ? fromInventoryType : normalizedArea,
       toInventoryType: operationType === 'transfer' ? toInventoryType : normalizedArea,
-      items: nextItems || undefined
+      items: nextItems || (operationType === 'transfer' && selectedTrackType === 'serialized'
+        ? [{
+            lineId: '1',
+            productId,
+            variantId: variantId || '',
+            qty: Number(qty),
+            unitIds: serializedUnits.filter(unit => unit.selected).map(unit => unit._id),
+            remark: remark.trim(),
+            reason: reason.trim(),
+            status: 'accepted'
+          }]
+        : undefined)
     };
 
     const optimistic = {
@@ -523,8 +583,51 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
 
             <label>
               <div style={{ marginBottom: 6, color: '#94a3b8' }}>Quantity</div>
-              <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} />
+              <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} disabled={operationType === 'transfer' && selectedTrackType === 'serialized'} />
             </label>
+
+            {operationType === 'transfer' && selectedTrackType === 'serialized' && (
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gap: 8 }}>
+                <div style={{ color: '#94a3b8' }}>Serialized Units</div>
+                <input className="input" placeholder="Search IMEI or serial number" value={serializedUnitsQuery} onChange={e => setSerializedUnitsQuery(e.target.value)} />
+                <div style={{ color: '#64748b', fontSize: 12 }}>
+                  Selected: {serializedUnits.filter(unit => unit.selected).length}
+                </div>
+                <div style={{ overflowX: 'auto', maxHeight: 220 }}>
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th align="left"></th>
+                        <th align="left">IMEI</th>
+                        <th align="left">Serial</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {serializedUnits.map(unit => (
+                        <tr key={unit._id}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={!!unit.selected}
+                              onChange={e => setSerializedUnits(prev => {
+                                const next = prev.map(row => row._id === unit._id ? { ...row, selected: e.target.checked } : row);
+                                const selectedCount = next.filter(row => row.selected).length;
+                                setQty(selectedCount || 1);
+                                return next;
+                              })}
+                            />
+                          </td>
+                          <td>{unit.imei || '—'}</td>
+                          <td>{unit.serialNumber || '—'}</td>
+                        </tr>
+                      ))}
+                      {!serializedLoading && serializedUnits.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No available serialized units</td></tr>}
+                      {serializedLoading && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>Loading serialized units…</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {operationType === 'adjustment' ? (
               <label>
@@ -566,6 +669,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
                   <tr>
                     <th align="left">Product</th>
                     <th align="left">Qty</th>
+                    <th align="left">Units</th>
                     <th align="left">Remark</th>
                     <th align="left"></th>
                   </tr>
@@ -577,12 +681,13 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
                       <tr key={item.lineId}>
                         <td>{product?.name || item.productId}</td>
                         <td>{item.qty}</td>
+                        <td>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : '—'}</td>
                         <td>{item.reason || item.remark || '—'}</td>
                         <td><button className="btn" onClick={() => removeItem(item.lineId)}>Remove</button></td>
                       </tr>
                     );
                   })}
-                  {items.length === 0 && <tr><td colSpan="4" style={{ padding: 12, color: '#64748b' }}>No items added yet. You can still submit a single item directly.</td></tr>}
+                  {items.length === 0 && <tr><td colSpan="5" style={{ padding: 12, color: '#64748b' }}>No items added yet. You can still submit a single item directly.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -624,6 +729,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
                   <tr>
                     <th align="left">Product</th>
                     <th align="left">Qty</th>
+                    <th align="left">Units</th>
                     <th align="left">Status</th>
                     <th align="left">Reason</th>
                   </tr>
@@ -635,8 +741,9 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
                       <tr key={item.lineId || index}>
                         <td>{product?.name || item.productId}</td>
                         <td>
-                          <input className="input" type="number" min="0" value={item.qty} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, qty: Number(e.target.value) || 0 } : row))} style={{ width: 90 }} disabled={!((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing} />
+                          <input className="input" type="number" min="0" value={item.qty} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, qty: Number(e.target.value) || 0 } : row))} style={{ width: 90 }} disabled={(Array.isArray(item.unitIds) && item.unitIds.length > 0) || !((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing} />
                         </td>
+                        <td>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : '—'}</td>
                         <td>
                           <select className="select" value={item.status || 'accepted'} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, status: e.target.value } : row))} disabled={!((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing}>
                             <option value="accepted">Accepted</option>

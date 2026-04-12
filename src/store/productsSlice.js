@@ -51,6 +51,7 @@ const productsSlice = createSlice({
         return {
           ...p,
           id,
+          trackType: p.trackType || 'quantity',
           retailPrice: p.retailPrice != null ? Number(p.retailPrice) : Number(p.price || 0),
           wholesalePrice: p.wholesalePrice != null ? Number(p.wholesalePrice) : Number(p.retailPrice != null ? p.retailPrice : p.price || 0),
           agentPrice: p.agentPrice != null ? Number(p.agentPrice) : Number(p.wholesalePrice != null ? p.wholesalePrice : (p.retailPrice != null ? p.retailPrice : p.price || 0)),
@@ -74,6 +75,7 @@ const productsSlice = createSlice({
         const id = product?.id != null ? String(product.id) : nanoid();
         const payload = {
           id,
+          trackType: 'quantity',
           stockByBranch: {},
           wholesaleStockByBranch: {},
           warehouseStockByBranch: {},

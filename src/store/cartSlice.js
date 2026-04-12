@@ -13,7 +13,11 @@ const cartSlice = createSlice({
   reducers: {
     addItem: {
       reducer(state, action) {
-        const existing = state.items.find(i => i.sku === action.payload.sku && String(i.priceTier || 'retail') === String(action.payload.priceTier || 'retail'));
+        const existing = state.items.find(i =>
+          i.sku === action.payload.sku
+          && String(i.priceTier || 'retail') === String(action.payload.priceTier || 'retail')
+          && String(i.unitId || '') === String(action.payload.unitId || '')
+        );
         if (existing) {
           existing.quantity += action.payload.quantity || 1;
         } else {

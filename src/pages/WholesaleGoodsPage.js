@@ -24,6 +24,12 @@ function WholesaleGoodsPage() {
       .filter(product => !q || [product.name, product.sku, product.barcode].some(value => String(value || '').toLowerCase().includes(q)))
       .sort((a, b) => b.wholesaleStock - a.wholesaleStock || String(a.name || '').localeCompare(String(b.name || '')));
   }, [products, query]);
+  const summary = useMemo(() => ({
+    totalProducts: rows.length,
+    availableProducts: rows.filter(product => product.wholesaleStock > Number(product.lowStock || 0)).length,
+    lowStockProducts: rows.filter(product => product.wholesaleStock <= Number(product.lowStock || 0)).length,
+    totalUnits: rows.reduce((sum, product) => sum + Number(product.wholesaleStock || 0), 0)
+  }), [rows]);
 
   return (
     <div style={{ padding: 16, display: 'grid', gap: 12 }}>
@@ -43,6 +49,25 @@ function WholesaleGoodsPage() {
         <div style={{ color: '#64748b', fontSize: 13 }}>Wholesale shops: {wholesaleBranches.map(branch => branch.name).join(', ') || 'None configured'}</div>
       </div>
 
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ color: '#64748b', fontSize: 12 }}>Products</div>
+          <div style={{ fontSize: 28, fontWeight: 800 }}>{summary.totalProducts}</div>
+        </div>
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ color: '#64748b', fontSize: 12 }}>Available</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: '#166534' }}>{summary.availableProducts}</div>
+        </div>
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ color: '#64748b', fontSize: 12 }}>Low Stock</div>
+          <div style={{ fontSize: 28, fontWeight: 800, color: '#b91c1c' }}>{summary.lowStockProducts}</div>
+        </div>
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ color: '#64748b', fontSize: 12 }}>Units</div>
+          <div style={{ fontSize: 28, fontWeight: 800 }}>{summary.totalUnits}</div>
+        </div>
+      </div>
+
       {viewMode === 'card' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
           {rows.map(product => (
@@ -60,7 +85,7 @@ function WholesaleGoodsPage() {
               <div><strong>Wholesale Price:</strong> {formatCurrency(Number(product.wholesalePrice != null ? product.wholesalePrice : product.price || 0), settings)}</div>
               <div><strong>Agent Price:</strong> {formatCurrency(Number(product.agentPrice != null ? product.agentPrice : (product.wholesalePrice != null ? product.wholesalePrice : (product.price || 0))), settings)}</div>
               <div><strong>Retail Price:</strong> {formatCurrency(Number(product.retailPrice != null ? product.retailPrice : product.price || 0), settings)}</div>
-              <div style={{ color: product.wholesaleStock <= Number(product.lowStock || 0) ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
+              <div style={{ display: 'inline-flex', width: 'fit-content', padding: '4px 10px', borderRadius: 999, background: product.wholesaleStock <= Number(product.lowStock || 0) ? '#fee2e2' : '#dcfce7', color: product.wholesaleStock <= Number(product.lowStock || 0) ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
                 {product.wholesaleStock <= Number(product.lowStock || 0) ? 'Low stock' : 'Available'}
               </div>
             </div>
@@ -92,7 +117,11 @@ function WholesaleGoodsPage() {
                   <td>{formatCurrency(Number(product.retailPrice != null ? product.retailPrice : product.price || 0), settings)}</td>
                   <td>{formatCurrency(Number(product.wholesalePrice != null ? product.wholesalePrice : product.price || 0), settings)}</td>
                   <td>{formatCurrency(Number(product.agentPrice != null ? product.agentPrice : (product.wholesalePrice != null ? product.wholesalePrice : (product.price || 0))), settings)}</td>
-                  <td>{product.wholesaleStock <= Number(product.lowStock || 0) ? 'Low stock' : 'Available'}</td>
+                  <td>
+                    <span style={{ display: 'inline-flex', padding: '4px 10px', borderRadius: 999, background: product.wholesaleStock <= Number(product.lowStock || 0) ? '#fee2e2' : '#dcfce7', color: product.wholesaleStock <= Number(product.lowStock || 0) ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
+                      {product.wholesaleStock <= Number(product.lowStock || 0) ? 'Low stock' : 'Available'}
+                    </span>
+                  </td>
                 </tr>
               ))}
               {rows.length === 0 && <tr><td colSpan="8" style={{ padding: 12, color: '#64748b' }}>No wholesale goods found</td></tr>}

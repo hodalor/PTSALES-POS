@@ -7,6 +7,7 @@ import { promptDialog } from '../utils/dialogs';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
 import * as transfersApi from '../api/transfers';
 import * as wholesaleApi from '../api/wholesale';
+import * as productUnitsApi from '../api/productUnits';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import Modal from '../components/Modal';
@@ -35,6 +36,9 @@ function TransfersPage() {
   const [tab, setTab] = useState('initiate');
   const [openModal, setOpenModal] = useState(false);
   const [items, setItems] = useState([]);
+  const [serializedUnits, setSerializedUnits] = useState([]);
+  const [serializedUnitsQuery, setSerializedUnitsQuery] = useState('');
+  const [serializedLoading, setSerializedLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState('pending');
   const [detail, setDetail] = useState(null);
@@ -71,6 +75,8 @@ function TransfersPage() {
     branches.forEach(b => map.set(b.id, b.name));
     return map;
   }, [branches]);
+  const selectedProduct = useMemo(() => products.find(p => p.id === productId) || null, [productId, products]);
+  const selectedTrackType = String(selectedProduct?.trackType || 'quantity');
   const baseTransfers = useMemo(() => audit.filter(e => e.actionType === 'stock_transfer'), [audit]);
   const actors = useMemo(() => Array.from(new Set(baseTransfers.map(e => e.actor).filter(Boolean))).sort(), [baseTransfers]);
   const transfers = useMemo(() => {
@@ -124,6 +130,10 @@ function TransfersPage() {
       toast.show('Check product, branches and quantity', { type: 'error' });
       return;
     }
+    if (!nextItems && selectedTrackType === 'serialized' && serializedUnits.filter(unit => unit.selected).length !== Number(qty)) {
+      toast.show('Select the exact serialized units to transfer', { type: 'error' });
+      return;
+    }
     const remark = await promptDialog('Enter reason/remark for this transfer');
     if (!remark || !remark.trim()) {
       toast.show('Remark is required for transfers', { type: 'error' });
@@ -141,7 +151,17 @@ function TransfersPage() {
       initiatorName: auth.user?.name || 'unknown',
       initiatorRole: auth.role || '',
       clientId,
-      items: nextItems || undefined
+      items: nextItems || (selectedTrackType === 'serialized'
+        ? [{
+            lineId: '1',
+            productId,
+            variantId: variantId || '',
+            qty: Number(qty),
+            unitIds: serializedUnits.filter(unit => unit.selected).map(unit => unit._id),
+            remark,
+            status: 'accepted'
+          }]
+        : undefined)
     };
     if (!navigator.onLine) {
       if (!offlineBackupAllowed) {
@@ -177,11 +197,23 @@ function TransfersPage() {
       status: 'pending_approval',
       clientId,
       created_at: new Date().toISOString(),
-      items: nextItems || undefined
+      items: nextItems || (selectedTrackType === 'serialized'
+        ? [{
+            lineId: '1',
+            productId,
+            variantId: variantId || '',
+            qty: Number(qty),
+            unitIds: serializedUnits.filter(unit => unit.selected).map(unit => unit._id),
+            remark,
+            status: 'accepted'
+          }]
+        : undefined)
     }));
     setQty(1);
     setVariantId('');
     setItems([]);
+    setSerializedUnits([]);
+    setSerializedUnitsQuery('');
     toast.show(navigator.onLine ? 'Transfer request submitted for approval' : 'Saved offline. Will sync when online.', { type: 'success' });
     setSaving(false);
   }
@@ -191,16 +223,23 @@ function TransfersPage() {
       toast.show('Check product, branches and quantity', { type: 'error' });
       return;
     }
+    if (selectedTrackType === 'serialized' && serializedUnits.filter(unit => unit.selected).length !== Number(qty)) {
+      toast.show('Select the exact serialized units to transfer', { type: 'error' });
+      return;
+    }
     setItems(prev => [...prev, {
       lineId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       productId,
       variantId: variantId || '',
       qty: Number(qty),
+      unitIds: selectedTrackType === 'serialized' ? serializedUnits.filter(unit => unit.selected).map(unit => unit._id) : [],
       remark: '',
       status: 'accepted'
     }]);
     setQty(1);
     setVariantId('');
+    setSerializedUnits([]);
+    setSerializedUnitsQuery('');
   }
 
   function removeItem(lineId) {
@@ -229,6 +268,37 @@ function TransfersPage() {
     });
     return [...workflow, ...legacy];
   }, [requests, wholesaleInbound, statusFilter, allowedBranches]);
+
+  useEffect(() => {
+    async function run() {
+      if (selectedTrackType !== 'serialized' || !productId || !fromId) {
+        setSerializedUnits([]);
+        return;
+      }
+      setSerializedLoading(true);
+      try {
+        const result = await productUnitsApi.listProductUnits({
+          productId,
+          variantId,
+          branchId: fromId,
+          inventoryType: 'retail',
+          status: 'in_stock',
+          query: serializedUnitsQuery,
+          pageSize: 50
+        });
+        setSerializedUnits(prev => {
+          const selectedIds = new Set(prev.filter(unit => unit.selected).map(unit => unit._id));
+          return (Array.isArray(result?.rows) ? result.rows : []).map(unit => ({ ...unit, selected: selectedIds.has(unit._id) }));
+        });
+      } catch (e) {
+        toast.show(String(e?.message || 'Failed to load serialized units'), { type: 'error' });
+        setSerializedUnits([]);
+      } finally {
+        setSerializedLoading(false);
+      }
+    }
+    run();
+  }, [fromId, productId, selectedTrackType, serializedUnitsQuery, toast, variantId]);
 
   useEffect(() => {
     let alive = true;
@@ -373,9 +443,49 @@ function TransfersPage() {
             </label>
             <label>
               <div style={{ marginBottom: 6, color: '#64748b' }}>Quantity</div>
-              <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} />
+              <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} disabled={selectedTrackType === 'serialized'} />
             </label>
           </div>
+          {selectedTrackType === 'serialized' && (
+            <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
+              <div style={{ color: '#64748b' }}>Serialized Units</div>
+              <input className="input" placeholder="Search IMEI or serial number" value={serializedUnitsQuery} onChange={e => setSerializedUnitsQuery(e.target.value)} />
+              <div style={{ color: '#64748b', fontSize: 12 }}>Selected: {serializedUnits.filter(unit => unit.selected).length}</div>
+              <div style={{ overflowX: 'auto', maxHeight: 220 }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th align="left"></th>
+                      <th align="left">IMEI</th>
+                      <th align="left">Serial</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {serializedUnits.map(unit => (
+                      <tr key={unit._id}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={!!unit.selected}
+                            onChange={e => setSerializedUnits(prev => {
+                              const next = prev.map(row => row._id === unit._id ? { ...row, selected: e.target.checked } : row);
+                              const selectedCount = next.filter(row => row.selected).length;
+                              setQty(selectedCount || 1);
+                              return next;
+                            })}
+                          />
+                        </td>
+                        <td>{unit.imei || '—'}</td>
+                        <td>{unit.serialNumber || '—'}</td>
+                      </tr>
+                    ))}
+                    {!serializedLoading && serializedUnits.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No available serialized units</td></tr>}
+                    {serializedLoading && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>Loading serialized units…</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
           <div style={{ marginTop: 12 }}>
             <div style={{ marginBottom: 6, color: '#64748b' }}>Items In This Request</div>
             <table className="table">
@@ -383,6 +493,7 @@ function TransfersPage() {
                 <tr>
                   <th align="left">Product</th>
                   <th align="left">Qty</th>
+                  <th align="left">Units</th>
                   <th align="left"></th>
                 </tr>
               </thead>
@@ -393,11 +504,12 @@ function TransfersPage() {
                     <tr key={item.lineId}>
                       <td>{product?.name || item.productId}</td>
                       <td>{item.qty}</td>
+                      <td>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : '—'}</td>
                       <td><button className="btn" onClick={() => removeItem(item.lineId)}>Remove</button></td>
                     </tr>
                   );
                 })}
-                {items.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No items added yet. You can still submit a single item.</td></tr>}
+                {items.length === 0 && <tr><td colSpan="4" style={{ padding: 12, color: '#64748b' }}>No items added yet. You can still submit a single item.</td></tr>}
               </tbody>
             </table>
           </div>

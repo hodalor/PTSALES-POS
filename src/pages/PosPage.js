@@ -16,6 +16,8 @@ import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import { confirmDialog, promptDialog } from '../utils/dialogs';
 import { isFeatureEnabled } from '../utils/featureFlags';
+import * as productUnitsApi from '../api/productUnits';
+import Modal from '../components/Modal';
 
 function PosPage({ mode = 'retail' }) {
   const cart = useSelector(state => state.cart);
@@ -38,6 +40,11 @@ function PosPage({ mode = 'retail' }) {
   const [easyBuyDueDate, setEasyBuyDueDate] = useState('');
   const [taxOverridePct, setTaxOverridePct] = useState('');
   const [taxOverrideRemark, setTaxOverrideRemark] = useState('');
+  const [reservationToken] = useState(() => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `RES-${Date.now()}`));
+  const [serializedPickerProduct, setSerializedPickerProduct] = useState(null);
+  const [serializedUnits, setSerializedUnits] = useState([]);
+  const [serializedUnitsQuery, setSerializedUnitsQuery] = useState('');
+  const [serializedLoading, setSerializedLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [customerQuery, setCustomerQuery] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -194,11 +201,79 @@ function PosPage({ mode = 'retail' }) {
   const customerMaxCreditLimit = Number(selectedCustomer?.maxCreditLimit || settings.maxCreditLimitPerCustomer || 0);
   const customerCreditScore = Number(selectedCustomer?.creditScore || 0);
 
-  function addToCart(p) {
+  async function loadSerializedUnits(product, search = '') {
+    if (!product) return;
+    setSerializedLoading(true);
+    try {
+      const result = await productUnitsApi.listProductUnits({
+        productId: product.productId || product.id,
+        variantId: product.variantId || '',
+        branchId,
+        inventoryType: isWholesale ? 'wholesale' : 'retail',
+        status: 'in_stock',
+        query: search,
+        pageSize: 40
+      });
+      setSerializedUnits(Array.isArray(result?.rows) ? result.rows : []);
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to load serialized units'), { type: 'error' });
+      setSerializedUnits([]);
+    } finally {
+      setSerializedLoading(false);
+    }
+  }
+
+  async function releaseSerializedCartItems(itemsToRelease) {
+    const unitIds = (Array.isArray(itemsToRelease) ? itemsToRelease : []).map(item => item.unitId).filter(Boolean);
+    if (unitIds.length === 0) return;
+    try {
+      await productUnitsApi.releaseProductUnits({ unitIds, reservationToken });
+    } catch {}
+  }
+
+  async function addSerializedUnitToCart(product, unit) {
+    try {
+      const reserved = await productUnitsApi.reserveProductUnit({
+        productId: product.productId || product.id,
+        variantId: product.variantId || '',
+        branchId,
+        inventoryType: isWholesale ? 'wholesale' : 'retail',
+        reservationToken,
+        code: unit?.imei || unit?.serialNumber || ''
+      });
+      dispatch(addItem({
+        name: product.name,
+        sku: product.sku,
+        price: product.price,
+        priceTier: selectedPriceTier,
+        prices: product.prices || { retail: product.price, wholesale: product.price, agent: product.price },
+        allowCredit: product.allowCredit !== false,
+        minimumCreditPercentage: Number(product.minimumCreditPercentage || 0),
+        spec: productSpec(product),
+        productId: product.productId || product.id,
+        variantId: product.variantId || null,
+        unitId: reserved._id,
+        imei: reserved.imei || '',
+        serialNumber: reserved.serialNumber || ''
+      }));
+      setSerializedPickerProduct(null);
+      toast.show(`Added unit ${reserved.imei || reserved.serialNumber}`, { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to reserve serialized unit'), { type: 'error' });
+    }
+  }
+
+  async function addToCart(p) {
     const available = p.stockByBranch?.[branchId] || 0;
     const inCart = cart.items.filter(i => i.sku === p.sku).reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
     if (available - inCart <= 0) {
       toast.show('Out of stock for current branch', { type: 'error' });
+      return;
+    }
+    if (String(p.trackType || 'quantity') === 'serialized') {
+      setSerializedPickerProduct(p);
+      setSerializedUnitsQuery('');
+      await loadSerializedUnits(p, '');
       return;
     }
     const spec = productSpec(p);
@@ -278,6 +353,7 @@ function PosPage({ mode = 'retail' }) {
       const ok = await confirmDialog('Clear current cart and start a new sale?');
       if (!ok) return;
     }
+    await releaseSerializedCartItems(cart.items);
     dispatch(clearCart());
     setSelectedCustomerId('');
     setCustomerQuery('');
@@ -296,6 +372,7 @@ function PosPage({ mode = 'retail' }) {
       const ok = await confirmDialog('Replace current cart with held sale?');
       if (!ok) return;
     }
+    await releaseSerializedCartItems(cart.items);
     dispatch(replaceCart({ items: Array.isArray(h.items) ? h.items : [], discount: h.discount || 0, notes: h.notes || '' }));
     setSelectedCustomerId(h.selectedCustomerId || '');
     setRedeemPoints(h.redeemPoints || '');
@@ -316,6 +393,7 @@ function PosPage({ mode = 'retail' }) {
     if (!h) return;
     const ok = await confirmDialog('Delete this held sale?');
     if (!ok) return;
+    await releaseSerializedCartItems(h.items || []);
     dispatch(removeHeld(h.id));
     toast.show('Held sale removed', { type: 'success' });
   }
@@ -334,6 +412,10 @@ function PosPage({ mode = 'retail' }) {
 
   async function completeSale(escpos = false) {
     if (saving) return;
+    if (!navigator.onLine && cart.items.some(item => item.unitId)) {
+      toast.show('Serialized sales require an internet connection', { type: 'error' });
+      return;
+    }
     if (!easyBuyEnabled && due > 0) {
       toast.show('Payment incomplete', { type: 'error' });
       return;
@@ -394,7 +476,8 @@ function PosPage({ mode = 'retail' }) {
         price: i.price,
         priceTier: i.priceTier || selectedPriceTier,
         productId: i.productId,
-        variantId: i.variantId || null
+        variantId: i.variantId || null,
+        soldUnitIds: i.unitId ? [i.unitId] : []
       })),
       subtotal,
       discount,
@@ -410,7 +493,8 @@ function PosPage({ mode = 'retail' }) {
         dueDate: easyBuyDueDate
       } : undefined,
       status: 'completed',
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      reservationToken
     };
     setSaving(true);
     let saleForUi = null;
@@ -543,9 +627,11 @@ function PosPage({ mode = 'retail' }) {
         toast.show('Sale recorded', { type: 'success' });
       } catch (e) {
         try {
+          if (sale.items.some(item => Array.isArray(item.soldUnitIds) && item.soldUnitIds.length > 0)) throw e;
           await enqueueHttp({ collection: 'sales', label: 'Sale', path: '/api/sales', method: 'POST', body: { ...sale, clientId: sale.clientId } });
           toast.show('Network issue: saved offline and will sync later', { type: 'warning' });
         } catch (err) {
+          await releaseSerializedCartItems(cart.items);
           toast.show(String(e?.message || 'Failed to record sale'), { type: 'error' });
         }
       } finally {
@@ -557,7 +643,7 @@ function PosPage({ mode = 'retail' }) {
     }
   }
 
-  function onSearchKeyDown(e) {
+  async function onSearchKeyDown(e) {
     if (e.key === 'Enter') {
       const q = query.trim();
       if (!q) return;
@@ -566,8 +652,22 @@ function PosPage({ mode = 'retail' }) {
         p.sku.toLowerCase() === q.toLowerCase()
       );
       if (exact) {
-        addToCart(exact);
+        await addToCart(exact);
         setQuery('');
+        return;
+      }
+      try {
+        const unit = await productUnitsApi.lookupProductUnit(q);
+        const product = sellables.find(p =>
+          String(p.productId || p.id) === String(unit.productId)
+          && String(p.variantId || '') === String(unit.variantId || '')
+        );
+        if (product) {
+          await addSerializedUnitToCart(product, unit);
+          setQuery('');
+        }
+      } catch {
+        return;
       }
     }
   }
@@ -754,8 +854,12 @@ function PosPage({ mode = 'retail' }) {
                 type="number"
                 min="1"
                 value={item.quantity}
-                onChange={e => dispatch(setQuantity({ id: item.id, quantity: Number(e.target.value) }))}
+                onChange={e => {
+                  if (item.unitId) return;
+                  dispatch(setQuantity({ id: item.id, quantity: Number(e.target.value) }));
+                }}
                 style={{ width: 70 }}
+                disabled={!!item.unitId}
               />
               <div style={{ display: 'grid', gap: 6 }}>
                 {isWholesale ? (
@@ -790,7 +894,10 @@ function PosPage({ mode = 'retail' }) {
                 <span style={{ fontWeight: 700 }}>{formatCurrency(item.price, settings)}</span>
                 )}
               </div>
-              <button className="btn" onClick={() => dispatch(removeItem(item.id))}>
+              <button className="btn" onClick={async () => {
+                await releaseSerializedCartItems([item]);
+                dispatch(removeItem(item.id));
+              }}>
                 <svg viewBox="0 0 24 24" fill="none"><path d="M6 7h12M10 11v6M14 11v6M9 7l1-2h4l1 2M7 7l1 12h8l1-12" stroke="currentColor" strokeWidth="2"/></svg>
                 Remove
               </button>
@@ -896,11 +1003,58 @@ function PosPage({ mode = 'retail' }) {
             <svg viewBox="0 0 24 24" fill="none"><path d="M6 9V3h12v6" stroke="currentColor" strokeWidth="2"/><path d="M6 17h12v4H6z" stroke="currentColor" strokeWidth="2"/><path d="M4 9h16a2 2 0 012 2v2H2v-2a2 2 0 012-2z" stroke="currentColor" strokeWidth="2"/></svg>
             {saving ? 'Processing…' : 'Complete (ESC/POS)'}
           </button>
-          <button className="btn" onClick={() => dispatch(clearCart())} style={{ marginLeft: 8 }} disabled={cart.items.length === 0}>
+          <button className="btn" onClick={async () => { await releaseSerializedCartItems(cart.items); dispatch(clearCart()); }} style={{ marginLeft: 8 }} disabled={cart.items.length === 0}>
             <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M6 7l1 12h10l1-12M9 7l1-2h4l1 2" stroke="currentColor" strokeWidth="2"/></svg>
             Clear
           </button>
         </div>
+        {serializedPickerProduct && (
+          <Modal
+            title={`Select Serialized Unit • ${serializedPickerProduct.name}`}
+            onClose={() => setSerializedPickerProduct(null)}
+            footer={<button className="btn" onClick={() => setSerializedPickerProduct(null)}>Close</button>}
+          >
+            <div style={{ display: 'grid', gap: 12 }}>
+              <input
+                className="input"
+                placeholder="Search or scan IMEI / serial number"
+                value={serializedUnitsQuery}
+                onChange={async e => {
+                  const value = e.target.value;
+                  setSerializedUnitsQuery(value);
+                  await loadSerializedUnits(serializedPickerProduct, value);
+                }}
+                onKeyDown={async e => {
+                  if (e.key === 'Enter' && serializedUnitsQuery.trim()) {
+                    e.preventDefault();
+                    await addSerializedUnitToCart(serializedPickerProduct, { imei: serializedUnitsQuery.trim(), serialNumber: serializedUnitsQuery.trim() });
+                  }
+                }}
+              />
+              <div style={{ overflowX: 'auto', maxHeight: 420 }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th align="left">IMEI</th>
+                      <th align="left">Serial</th>
+                      <th align="left"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {serializedUnits.map(unit => (
+                      <tr key={unit._id}>
+                        <td>{unit.imei || '—'}</td>
+                        <td>{unit.serialNumber || '—'}</td>
+                        <td><button className="btn btn-primary" onClick={() => addSerializedUnitToCart(serializedPickerProduct, unit)}>Select</button></td>
+                      </tr>
+                    ))}
+                    {!serializedLoading && serializedUnits.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No serialized units available</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </Modal>
+        )}
       </div>
     </div>
   );

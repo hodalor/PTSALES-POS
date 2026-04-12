@@ -8,6 +8,7 @@ import { promptDialog } from '../utils/dialogs';
 import { productSpec } from '../utils/productSpec';
 import * as productsApi from '../api/products';
 import * as stockApi from '../api/stock';
+import * as productUnitsApi from '../api/productUnits';
 import Modal from '../components/Modal';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
@@ -71,6 +72,12 @@ function ProductsPage() {
   const [variantsOpen, setVariantsOpen] = useState(false);
   const [allowCredit, setAllowCredit] = useState(true);
   const [minimumCreditPercentage, setMinimumCreditPercentage] = useState('');
+  const [trackType, setTrackType] = useState('quantity');
+  const [serializedModalProduct, setSerializedModalProduct] = useState(null);
+  const [serializedEntriesText, setSerializedEntriesText] = useState('');
+  const [serializedUnits, setSerializedUnits] = useState([]);
+  const [serializedQuery, setSerializedQuery] = useState('');
+  const [loadingSerialized, setLoadingSerialized] = useState(false);
   
   const [openStockFor, setOpenStockFor] = useState(null);
   const toast = useToast();
@@ -95,6 +102,7 @@ function ProductsPage() {
     setVariantsOpen(false);
     setAllowCredit(true);
     setMinimumCreditPercentage('');
+    setTrackType('quantity');
   }
 
   function populateForm(p) {
@@ -117,6 +125,7 @@ function ProductsPage() {
     setShoeSize(p.shoeSize || '');
     setAllowCredit(p.allowCredit !== false);
     setMinimumCreditPercentage(p.minimumCreditPercentage != null ? String(p.minimumCreditPercentage) : '');
+    setTrackType(p.trackType || 'quantity');
     const hasPricing = (p.costPrice != null && String(p.costPrice) !== '' && Number(p.costPrice) > 0) || !!p.expiryDate || Number(p.wholesalePrice || 0) > 0 || Number(p.agentPrice || 0) > 0;
     const hasCredit = p.allowCredit === false || Number(p.minimumCreditPercentage || 0) > 0;
     const hasUnits = (p.unitKind && p.unitKind !== 'none') || p.unitValue != null || !!p.unitSymbol || !!p.sizeLabel || !!p.shoeSize;
@@ -151,6 +160,73 @@ function ProductsPage() {
   function closeModal() {
     setModalMode('none');
     setEditingId(null);
+  }
+
+  async function openSerializedManager(product) {
+    setSerializedModalProduct(product);
+    setSerializedEntriesText('');
+    setSerializedQuery('');
+    setLoadingSerialized(true);
+    try {
+      const inventoryType = String(currentBranch?.branchType || 'retail').toLowerCase() === 'warehouse'
+        ? 'warehouse'
+        : String(currentBranch?.branchType || 'retail').toLowerCase() === 'wholesale'
+          ? 'wholesale'
+          : 'retail';
+      const result = await productUnitsApi.listProductUnits({
+        productId: product.id || product._id || '',
+        branchId: currentBranchId,
+        inventoryType,
+        pageSize: 50
+      });
+      setSerializedUnits(Array.isArray(result?.rows) ? result.rows : []);
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to load serialized units'), { type: 'error' });
+      setSerializedUnits([]);
+    } finally {
+      setLoadingSerialized(false);
+    }
+  }
+
+  async function saveSerializedEntries() {
+    if (!serializedModalProduct) return;
+    const lines = String(serializedEntriesText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      toast.show('Enter IMEI or serial numbers', { type: 'error' });
+      return;
+    }
+    setLoadingSerialized(true);
+    try {
+      const inventoryType = String(currentBranch?.branchType || 'retail').toLowerCase() === 'warehouse'
+        ? 'warehouse'
+        : String(currentBranch?.branchType || 'retail').toLowerCase() === 'wholesale'
+          ? 'wholesale'
+          : 'retail';
+      const entries = lines.map(line => {
+        const parts = line.split(/[,\t|]/).map(part => part.trim()).filter(Boolean);
+        return { imei: parts[0] || '', serialNumber: parts[1] || parts[0] || '' };
+      });
+      await productUnitsApi.bulkCreateProductUnits({
+        productId: serializedModalProduct.id || serializedModalProduct._id,
+        branchId: currentBranchId,
+        inventoryType,
+        entries
+      });
+      const refreshed = await productUnitsApi.listProductUnits({
+        productId: serializedModalProduct.id || serializedModalProduct._id,
+        branchId: currentBranchId,
+        inventoryType,
+        query: serializedQuery,
+        pageSize: 50
+      });
+      setSerializedUnits(Array.isArray(refreshed?.rows) ? refreshed.rows : []);
+      setSerializedEntriesText('');
+      toast.show('Serialized units added', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to add serialized units'), { type: 'error' });
+    } finally {
+      setLoadingSerialized(false);
+    }
   }
 
   function copy(text) {
@@ -203,6 +279,10 @@ function ProductsPage() {
         toast.show(errors[0], { type: 'error' });
         return;
     }
+    if (trackType === 'serialized' && Number(initialStock || 0) > 0) {
+        toast.show('Serialized products must be stocked with IMEI/serial units after saving', { type: 'error' });
+        return;
+    }
     setSaving(true);
 
     if (modalMode === 'add') {
@@ -212,6 +292,7 @@ function ProductsPage() {
         const payload = {
             name: name.trim(),
             sku: sku.trim(),
+            trackType,
             price: Number(price),
             retailPrice: Number(price),
             wholesalePrice: Number(wholesalePrice || price || 0),
@@ -319,6 +400,7 @@ function ProductsPage() {
         const updatedBaseLocal = {
             name: name.trim(),
             sku: sku.trim(),
+            trackType,
             price: Number(price),
             retailPrice: Number(price),
             wholesalePrice: Number(wholesalePrice || price || 0),
@@ -732,6 +814,11 @@ function ProductsPage() {
                     Edit
                   </button>
                   )}
+                  {String(p.trackType || 'quantity') === 'serialized' && (
+                  <button className="btn" onClick={() => openSerializedManager(p)} style={{ marginLeft: 6 }}>
+                    Units
+                  </button>
+                  )}
                   {(roleLower === 'admin' || roleLower === 'superadmin') && (
                   <button
                     className="btn"
@@ -886,13 +973,20 @@ function ProductsPage() {
                 <input className="input" placeholder="Agent selling price" type="number" value={agentPrice} onChange={e => setAgentPrice(e.target.value)} style={{ display: 'block', width: '100%' }} />
               </div>
               <div>
-                <label className="label">Credit Rules</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 42 }}>
-                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                    <input type="checkbox" checked={allowCredit} onChange={e => setAllowCredit(e.target.checked)} />
-                    Allow EasyBuy
-                  </label>
-                </div>
+                <label className="label">Track Type</label>
+                <select className="select" value={trackType} onChange={e => setTrackType(e.target.value)} style={{ display: 'block', width: '100%' }}>
+                  <option value="quantity">Quantity</option>
+                  <option value="serialized">Serialized</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="label">Credit Rules</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 42 }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <input type="checkbox" checked={allowCredit} onChange={e => setAllowCredit(e.target.checked)} />
+                  Allow EasyBuy
+                </label>
               </div>
             </div>
             <div style={{ color: '#94a3b8', fontSize: 12 }}>
@@ -1161,6 +1255,68 @@ function ProductsPage() {
                 {imagePreview && <div style={{ marginTop: 8 }}><img src={imagePreview} alt="preview" className="thumb" /></div>}
             </div>
 
+          </div>
+        </Modal>
+      )}
+      {serializedModalProduct && (
+        <Modal
+          title={`Serialized Units • ${serializedModalProduct.name}`}
+          onClose={() => { if (!loadingSerialized) setSerializedModalProduct(null); }}
+          footer={(
+            <>
+              <button className="btn" onClick={() => setSerializedModalProduct(null)} disabled={loadingSerialized}>Close</button>
+              <button className="btn btn-primary" onClick={saveSerializedEntries} disabled={loadingSerialized}>
+                {loadingSerialized ? 'Saving…' : 'Add Units'}
+              </button>
+            </>
+          )}
+        >
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div style={{ color: '#64748b', fontSize: 12 }}>
+              Enter one IMEI or serial per line. You can also use IMEI,SerialNumber on the same line.
+            </div>
+            <textarea className="input" rows={8} value={serializedEntriesText} onChange={e => setSerializedEntriesText(e.target.value)} placeholder={'IMEI123456789\nSN-0001\nIMEI987654321,SN-0002'} />
+            <input className="input" placeholder="Search existing units" value={serializedQuery} onChange={async e => {
+              const value = e.target.value;
+              setSerializedQuery(value);
+              if (!serializedModalProduct) return;
+              try {
+                const inventoryType = String(currentBranch?.branchType || 'retail').toLowerCase() === 'warehouse'
+                  ? 'warehouse'
+                  : String(currentBranch?.branchType || 'retail').toLowerCase() === 'wholesale'
+                    ? 'wholesale'
+                    : 'retail';
+                const result = await productUnitsApi.listProductUnits({
+                  productId: serializedModalProduct.id || serializedModalProduct._id,
+                  branchId: currentBranchId,
+                  inventoryType,
+                  query: value,
+                  pageSize: 50
+                });
+                setSerializedUnits(Array.isArray(result?.rows) ? result.rows : []);
+              } catch {}
+            }} />
+            <div style={{ overflowX: 'auto' }}>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th align="left">IMEI</th>
+                    <th align="left">Serial</th>
+                    <th align="left">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {serializedUnits.map(unit => (
+                    <tr key={unit._id}>
+                      <td>{unit.imei || '—'}</td>
+                      <td>{unit.serialNumber || '—'}</td>
+                      <td>{unit.status}</td>
+                    </tr>
+                  ))}
+                  {!loadingSerialized && serializedUnits.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No serialized units found for this branch</td></tr>}
+                </tbody>
+              </table>
+            </div>
           </div>
         </Modal>
       )}
