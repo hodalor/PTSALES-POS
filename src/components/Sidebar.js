@@ -245,10 +245,16 @@ function Sidebar({ collapsed }) {
         </NavLink>
         )}
         {isFeatureEnabled(settings, 'modules.inventory') && can(['Admin','Manager','Inventory Staff','SuperAdmin'],['view_inventory','see_inventory']) && (
-        <NavLink to="/inventory" className="sidebar-link" title="Inventory">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M3 7h18v13H3V7z" stroke="currentColor" strokeWidth="2"/><path d="M8 7V4h8v3" stroke="currentColor" strokeWidth="2"/></svg>
-          <span className="sidebar-text">Inventory</span>
-        </NavLink>
+        <>
+          <NavLink to="/inventory" className="sidebar-link" title="Inventory">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M3 7h18v13H3V7z" stroke="currentColor" strokeWidth="2"/><path d="M8 7V4h8v3" stroke="currentColor" strokeWidth="2"/></svg>
+            <span className="sidebar-text">Inventory</span>
+          </NavLink>
+          <NavLink to="/serialized-inventory" className="sidebar-link" title="Serialized Inventory">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5 6h14v12H5z" stroke="currentColor" strokeWidth="2"/><path d="M8 10h8M8 14h5" stroke="currentColor" strokeWidth="2"/></svg>
+            <span className="sidebar-text">Serialized Inventory</span>
+          </NavLink>
+        </>
         )}
         {isFeatureEnabled(settings, 'modules.labels') && can(['Admin','Manager','Inventory Staff','SuperAdmin'],['view_labels','see_labels']) && (
         <NavLink to="/labels" className="sidebar-link" title="Labels">

@@ -51,7 +51,7 @@ const refundsSlice = createSlice({
           r.restockMode = r.usedRestock ? 'full' : 'none';
         }
         if (Array.isArray(restockItems)) {
-          r.restockItems = restockItems.map(x => ({ sku: x.sku, qty: Number(x.qty) || 0 }));
+          r.restockItems = restockItems.map(x => ({ sku: x.sku, productId: x.productId || '', variantId: x.variantId || '', qty: Number(x.qty) || 0, unitIds: Array.isArray(x.unitIds) ? x.unitIds.map(String) : [] }));
         }
         if (typeof approvalRemark === 'string') r.approvalRemark = approvalRemark;
       }

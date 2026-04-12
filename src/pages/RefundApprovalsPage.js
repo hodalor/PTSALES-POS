@@ -26,6 +26,7 @@ function RefundApprovalsPage() {
   const [selectedId, setSelectedId] = useState(null);
   const [restockMode, setRestockMode] = useState('none'); // 'none' | 'full' | 'partial'
   const [partialMap, setPartialMap] = useState({}); // sku -> qty
+  const [partialUnitMap, setPartialUnitMap] = useState({});
   const [approvalRemark, setApprovalRemark] = useState('');
   const [onlyBranch, setOnlyBranch] = useState(false);
   const [page, setPage] = useState(1);
@@ -148,11 +149,21 @@ function RefundApprovalsPage() {
     const saleRef = sales.find(s => s.id === r.saleId);
     let restockItems = [];
     if (restockMode === 'full' && saleRef) {
-      restockItems = (saleRef.items || []).map(it => ({ sku: it.sku, qty: Number(it.qty) || 0 }));
+      restockItems = Array.isArray(r.restockItems) && r.restockItems.length > 0
+        ? r.restockItems.map(item => ({ sku: item.sku, productId: item.productId || '', variantId: item.variantId || '', qty: Number(item.qty) || 0, unitIds: Array.isArray(item.unitIds) ? item.unitIds.map(String) : [] }))
+        : (saleRef.items || []).map(it => ({ sku: it.sku, productId: it.productId || '', variantId: it.variantId || '', qty: Number(it.qty) || 0, unitIds: Array.isArray(it.soldUnitIds) ? it.soldUnitIds.map(String) : [] }));
     } else if (restockMode === 'partial') {
-      restockItems = Object.entries(partialMap)
-        .map(([sku, qty]) => ({ sku, qty: Number(qty) || 0 }))
-        .filter(x => x.qty > 0);
+      restockItems = (saleRef?.items || []).map(it => {
+        const key = `${it.sku}:${it.productId || ''}:${it.variantId || ''}`;
+        const unitIds = Array.isArray(partialUnitMap[key]) ? partialUnitMap[key] : [];
+        return {
+          sku: it.sku,
+          productId: it.productId || '',
+          variantId: it.variantId || '',
+          qty: Array.isArray(it.soldUnits) && it.soldUnits.length > 0 ? unitIds.length : Number(partialMap[it.sku] || 0),
+          unitIds
+        };
+      }).filter(x => x.qty > 0);
     }
     const payload = {
       id: refundId(r),
@@ -214,7 +225,7 @@ function RefundApprovalsPage() {
           }
         });
         const itemsToRestock = restockMode === 'full'
-          ? (saleRef.items || []).map(it => ({ sku: it.sku, qty: Number(it.qty) || 0 }))
+          ? restockItems
           : restockItems;
         itemsToRestock.forEach(x => {
           const ref = skuToRef.get(x.sku);
@@ -244,6 +255,7 @@ function RefundApprovalsPage() {
     setSelectedId(null);
     setRestockMode('none');
     setPartialMap({});
+    setPartialUnitMap({});
     setApprovalRemark('');
   }
 
@@ -255,6 +267,7 @@ function RefundApprovalsPage() {
     setSelectedId(String(id || ''));
     setRestockMode('none');
     setPartialMap({});
+    setPartialUnitMap({});
     setApprovalRemark('');
   }
 
@@ -391,15 +404,39 @@ function RefundApprovalsPage() {
                         <td>{it.qty}</td>
                         {restockMode === 'partial' && (
                           <td>
-                            <input
-                              className="input"
-                              type="number"
-                              min="0"
-                              max={Number(it.qty) || 0}
-                              value={partialMap[it.sku] ?? 0}
-                              onChange={e => setPartialMap(m => ({ ...m, [it.sku]: Math.max(0, Math.min(Number(e.target.value) || 0, Number(it.qty) || 0)) }))}
-                              style={{ width: 100 }}
-                            />
+                            {Array.isArray(it.soldUnits) && it.soldUnits.length > 0 ? (
+                              <div style={{ display: 'grid', gap: 4 }}>
+                                {it.soldUnits.map(unit => {
+                                  const key = `${it.sku}:${it.productId || ''}:${it.variantId || ''}`;
+                                  const checked = (partialUnitMap[key] || []).includes(unit.unitId);
+                                  return (
+                                    <label key={unit.unitId} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={e => setPartialUnitMap(prev => {
+                                          const current = new Set(prev[key] || []);
+                                          if (e.target.checked) current.add(unit.unitId);
+                                          else current.delete(unit.unitId);
+                                          return { ...prev, [key]: Array.from(current) };
+                                        })}
+                                      />
+                                      <span>{unit.imei || unit.serialNumber || unit.unitId}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <input
+                                className="input"
+                                type="number"
+                                min="0"
+                                max={Number(it.qty) || 0}
+                                value={partialMap[it.sku] ?? 0}
+                                onChange={e => setPartialMap(m => ({ ...m, [it.sku]: Math.max(0, Math.min(Number(e.target.value) || 0, Number(it.qty) || 0)) }))}
+                                style={{ width: 100 }}
+                              />
+                            )}
                           </td>
                         )}
                       </tr>

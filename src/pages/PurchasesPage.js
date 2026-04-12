@@ -29,6 +29,7 @@ function PurchasesPage() {
   const [cost, setCost] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [note, setNote] = useState('');
+  const [serializedEntriesText, setSerializedEntriesText] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [fActor, setFActor] = useState('');
@@ -55,6 +56,8 @@ function PurchasesPage() {
     branches.forEach(b => map.set(b.id, b.name));
     return map;
   }, [branches]);
+  const selectedProduct = useMemo(() => products.find(p => p.id === productId) || null, [productId, products]);
+  const selectedTrackType = String(selectedProduct?.trackType || 'quantity');
   const roleLower = String(auth.role || '').toLowerCase();
   const grants = Array.isArray(auth.grants) ? auth.grants : [];
   function has(g) {
@@ -137,6 +140,15 @@ function PurchasesPage() {
     const pack = (prod?.packs || []).find(pk => pk.name === packName);
     const factor = pack ? Number(pack.quantity) || 1 : 1;
     const baseUnits = Number(qty) * factor;
+    const serializedEntries = String(serializedEntriesText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
+      const parts = line.split(/[,\t|]/).map(part => part.trim()).filter(Boolean);
+      return { imei: parts[0] || '', serialNumber: parts[1] || parts[0] || '' };
+    });
+    if (!nextItems && selectedTrackType === 'serialized' && serializedEntries.length !== baseUnits) {
+      toast.show(`Enter exactly ${baseUnits} IMEI/serial entries`, { type: 'error' });
+      setSaving(false);
+      return;
+    }
     const cpu = factor > 0 ? (price / factor) : price;
     setSaving(true);
     const clientId = `purchase-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -155,7 +167,20 @@ function PurchasesPage() {
       initiatorName: auth.user?.name || 'unknown',
       initiatorRole: auth.role || '',
       clientId,
-      items: nextItems || undefined
+      items: nextItems || (selectedTrackType === 'serialized' ? [{
+        lineId: '1',
+        productId,
+        variantId: variantId || '',
+        baseUnits,
+        serializedEntries,
+        pack: pack ? pack.name : '',
+        supplier: supplier.trim() || '',
+        cost: price,
+        costPerUnit: cpu,
+        expiryDate: expiryDate || undefined,
+        remark: note.trim() || '',
+        status: 'accepted'
+      }] : undefined)
     };
     if (!navigator.onLine) {
       try {
@@ -190,7 +215,20 @@ function PurchasesPage() {
       status: 'pending_approval',
       clientId,
       created_at: new Date().toISOString(),
-      items: nextItems || undefined
+      items: nextItems || (selectedTrackType === 'serialized' ? [{
+        lineId: '1',
+        productId,
+        variantId: variantId || '',
+        baseUnits,
+        serializedEntries,
+        pack: pack ? pack.name : '',
+        supplier: supplier.trim() || '',
+        cost: price,
+        costPerUnit: cpu,
+        expiryDate: expiryDate || undefined,
+        remark: note.trim() || '',
+        status: 'accepted'
+      }] : undefined)
     }));
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
@@ -207,6 +245,7 @@ function PurchasesPage() {
     setCost('');
     setExpiryDate('');
     setNote('');
+    setSerializedEntriesText('');
     setItems([]);
     toast.show(navigator.onLine ? 'Purchase request submitted for approval' : 'Saved offline. Will sync when online.', { type: 'success' });
     setSaving(false);
@@ -222,12 +261,21 @@ function PurchasesPage() {
     const pack = (prod?.packs || []).find(pk => pk.name === packName);
     const factor = pack ? Number(pack.quantity) || 1 : 1;
     const baseUnits = Number(qty) * factor;
+    const serializedEntries = String(serializedEntriesText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
+      const parts = line.split(/[,\t|]/).map(part => part.trim()).filter(Boolean);
+      return { imei: parts[0] || '', serialNumber: parts[1] || parts[0] || '' };
+    });
+    if (selectedTrackType === 'serialized' && serializedEntries.length !== baseUnits) {
+      toast.show(`Enter exactly ${baseUnits} IMEI/serial entries`, { type: 'error' });
+      return;
+    }
     const cpu = factor > 0 ? (price / factor) : price;
     setItems(prev => [...prev, {
       lineId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       productId,
       variantId: variantId || '',
       baseUnits,
+      serializedEntries,
       pack: pack ? pack.name : '',
       supplier: supplier.trim() || '',
       cost: price,
@@ -243,6 +291,7 @@ function PurchasesPage() {
     setCost('');
     setExpiryDate('');
     setNote('');
+    setSerializedEntriesText('');
   }
 
   function removeItem(lineId) {
@@ -386,6 +435,19 @@ function PurchasesPage() {
               <div style={{ marginBottom: 6, color: '#64748b' }}>Quantity</div>
               <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} />
             </label>
+            {selectedTrackType === 'serialized' && (
+              <label style={{ gridColumn: '1 / -1' }}>
+                <div style={{ marginBottom: 6, color: '#64748b' }}>IMEI / Serial Numbers</div>
+                <textarea className="input" rows={6} value={serializedEntriesText} onChange={e => setSerializedEntriesText(e.target.value)} placeholder={'One per line\nIMEI123456789\nIMEI987654321,SN-0002'} />
+                <div style={{ marginTop: 4, color: '#94a3b8', fontSize: 12 }}>
+                  Enter one unit per line. Selected pack/quantity currently requires {(() => {
+                    const pack = (selectedProduct?.packs || []).find(pk => pk.name === packName);
+                    const factor = pack ? Number(pack.quantity) || 1 : 1;
+                    return Number(qty || 0) * factor;
+                  })()} entry(s).
+                </div>
+              </label>
+            )}
             <label>
               <div style={{ marginBottom: 6, color: '#64748b' }}>Supplier</div>
               <input className="input" placeholder="e.g., FreshCo" value={supplier} onChange={e => setSupplier(e.target.value)} list="suppliers-list" />
@@ -411,6 +473,7 @@ function PurchasesPage() {
                 <tr>
                   <th align="left">Product</th>
                   <th align="left">Base Units</th>
+                  <th align="left">Serialized</th>
                   <th align="left">Supplier</th>
                   <th align="left"></th>
                 </tr>
@@ -422,12 +485,13 @@ function PurchasesPage() {
                     <tr key={item.lineId}>
                       <td>{product?.name || item.productId}</td>
                       <td>{item.baseUnits}</td>
+                      <td>{Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—'}</td>
                       <td>{item.supplier || '—'}</td>
                       <td><button className="btn" onClick={() => removeItem(item.lineId)}>Remove</button></td>
                     </tr>
                   );
                 })}
-                {items.length === 0 && <tr><td colSpan="4" style={{ padding: 12, color: '#64748b' }}>No items added yet. You can still submit a single item.</td></tr>}
+                {items.length === 0 && <tr><td colSpan="5" style={{ padding: 12, color: '#64748b' }}>No items added yet. You can still submit a single item.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -511,6 +575,7 @@ function PurchasesPage() {
                   <tr>
                     <th align="left">Product</th>
                     <th align="left">Base Units</th>
+                    <th align="left">Serialized</th>
                     <th align="left">Status</th>
                   </tr>
                 </thead>
@@ -521,6 +586,7 @@ function PurchasesPage() {
                       <tr key={item.lineId || index}>
                         <td>{product?.name || item.productId}</td>
                         <td>{item.baseUnits}</td>
+                        <td>{Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—'}</td>
                         <td>{item.status || 'accepted'}</td>
                       </tr>
                     );

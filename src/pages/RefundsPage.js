@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createRefundRequest } from '../store/refundsSlice';
 import { addAudit } from '../store/auditSlice';
 import { formatCurrency } from '../utils/currency';
@@ -33,6 +33,7 @@ function RefundsPage() {
   const [remark, setRemark] = useState('');
   const [images, setImages] = useState([]);
   const [restock, setRestock] = useState(true);
+  const [serializedSelections, setSerializedSelections] = useState({});
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const sale = useMemo(() => {
@@ -50,6 +51,19 @@ function RefundsPage() {
     return Math.round(v * 100) / 100;
   }, [sale]);
   const roleLower = String(auth.role || '').toLowerCase();
+
+  useEffect(() => {
+    if (!sale) {
+      setSerializedSelections({});
+      return;
+    }
+    const next = {};
+    (sale.items || []).forEach((item, index) => {
+      const key = `${index}:${item.sku || ''}`;
+      next[key] = Array.isArray(item.soldUnits) ? item.soldUnits.map(unit => unit.unitId).filter(Boolean) : [];
+    });
+    setSerializedSelections(next);
+  }, [sale]);
 
   async function onPickFiles(e) {
     const files = Array.from(e.target.files || []);
@@ -101,6 +115,21 @@ function RefundsPage() {
       }
       requestedAmount = Math.round(v * 100) / 100;
     }
+    const restockItems = restock || refundType === 'partial'
+      ? (sale.items || []).map((item, index) => {
+          const key = `${index}:${item.sku || ''}`;
+          const unitIds = Array.isArray(serializedSelections[key]) ? serializedSelections[key] : [];
+          const soldUnits = Array.isArray(item.soldUnits) ? item.soldUnits : [];
+          const qty = soldUnits.length > 0 ? unitIds.length : Number(item.qty || 0);
+          return {
+            sku: item.sku,
+            productId: item.productId || '',
+            variantId: item.variantId || '',
+            qty,
+            unitIds
+          };
+        }).filter(item => item.qty > 0)
+      : [];
     const payload = {
       saleId: sale.id,
       invoiceSerial: sale.invoiceSerial || '',
@@ -112,7 +141,8 @@ function RefundsPage() {
       requestedAmount,
       remark,
       images,
-      restock: refundType === 'full' ? !!restock : false
+      restock: refundType === 'full' ? !!restock : false,
+      restockItems
     };
     if (!navigator.onLine) {
       if (!offlineBackupAllowed) {
@@ -213,9 +243,37 @@ function RefundsPage() {
                 <div style={{ color: '#64748b' }}>{new Date(sale.created_at).toLocaleString()} • {branchLabel(sale.branchId)}</div>
                 <div style={{ marginTop: 4 }}>
                   {sale.items.map((it, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <div>{it.name}{it.spec ? ` [${it.spec}]` : ''}{it.qty ? ` x${it.qty}` : ''}</div>
-                      <div>{formatCurrency((Number(it.price)||0)*(Number(it.qty)||1), settings)}</div>
+                    <div key={i} style={{ marginBottom: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <div>{it.name}{it.spec ? ` [${it.spec}]` : ''}{it.qty ? ` x${it.qty}` : ''}</div>
+                        <div>{formatCurrency((Number(it.price)||0)*(Number(it.qty)||1), settings)}</div>
+                      </div>
+                      {Array.isArray(it.soldUnits) && it.soldUnits.length > 0 && (
+                        <div style={{ marginTop: 6, padding: 8, borderRadius: 8, background: '#f8fafc' }}>
+                          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 6 }}>Serialized Units</div>
+                          <div style={{ display: 'grid', gap: 4 }}>
+                            {it.soldUnits.map(unit => {
+                              const key = `${i}:${it.sku || ''}`;
+                              const checked = (serializedSelections[key] || []).includes(unit.unitId);
+                              return (
+                                <label key={unit.unitId} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={e => setSerializedSelections(prev => {
+                                      const current = new Set(prev[key] || []);
+                                      if (e.target.checked) current.add(unit.unitId);
+                                      else current.delete(unit.unitId);
+                                      return { ...prev, [key]: Array.from(current) };
+                                    })}
+                                  />
+                                  <span>{unit.imei || unit.serialNumber || unit.unitId}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

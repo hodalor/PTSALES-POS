@@ -59,6 +59,11 @@ export function printReceiptHtml(html) {
 }
 
 export function buildBrandedReceiptHtml({ settings, sale }) {
+  const formatSerializedLine = (item) => {
+    const units = Array.isArray(item?.soldUnits) ? item.soldUnits : [];
+    if (units.length === 0) return '';
+    return `<div class="small muted">${units.map(unit => unit.imei || unit.serialNumber || unit.unitId).filter(Boolean).join(', ')}</div>`;
+  };
   const logoSrc = settings?.clientLogoUrl || settings?.receiptLogoUrl || '/clientlogo512.png';
   const branch = sale.branchName || sale.branchId || '-';
   const phone = settings?.businessPhone || '';
@@ -143,7 +148,7 @@ export function buildBrandedReceiptHtml({ settings, sale }) {
       <tbody>
         ${sale.items.map(it => `
           <tr>
-            <td>${it.name}${it.spec ? ` [${it.spec}]` : ''} ${it.qty ? `x${it.qty}` : ''}</td>
+            <td>${it.name}${it.spec ? ` [${it.spec}]` : ''} ${it.qty ? `x${it.qty}` : ''}${formatSerializedLine(it)}</td>
             <td class="right">${formatCurrency((Number(it.price)||0) * (Number(it.qty)||1), settings)}</td>
           </tr>`).join('')}
         <tr><td class="muted">Subtotal</td><td class="right">${formatCurrency(sale.subtotal || 0, settings)}</td></tr>

@@ -52,7 +52,7 @@ export function buildInvoiceA4Html({ settings, invoice }) {
   const rows = items.map((it, idx) => `
     <tr>
       <td>${idx + 1}</td>
-      <td>${it.name}${it.spec ? ` (${it.spec})` : ''}</td>
+      <td>${it.name}${it.spec ? ` (${it.spec})` : ''}${Array.isArray(it.soldUnits) && it.soldUnits.length > 0 ? `<div style="font-size:11px;color:#555;margin-top:4px">${it.soldUnits.map(unit => unit.imei || unit.serialNumber || unit.unitId).filter(Boolean).join(', ')}</div>` : ''}</td>
       <td class="right">${Number(it.qty || 0)}</td>
       <td class="right">${formatCurrency(it.rate || 0, settings)}</td>
       <td>${it.per || 'pcs'}</td>

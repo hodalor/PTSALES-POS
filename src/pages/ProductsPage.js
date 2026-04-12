@@ -78,6 +78,10 @@ function ProductsPage() {
   const [serializedUnits, setSerializedUnits] = useState([]);
   const [serializedQuery, setSerializedQuery] = useState('');
   const [loadingSerialized, setLoadingSerialized] = useState(false);
+  const [serializedPage, setSerializedPage] = useState(1);
+  const [serializedPageSize, setSerializedPageSize] = useState(25);
+  const [serializedTotal, setSerializedTotal] = useState(0);
+  const [serializedScanInput, setSerializedScanInput] = useState('');
   
   const [openStockFor, setOpenStockFor] = useState(null);
   const toast = useToast();
@@ -166,6 +170,13 @@ function ProductsPage() {
     setSerializedModalProduct(product);
     setSerializedEntriesText('');
     setSerializedQuery('');
+    setSerializedScanInput('');
+    setSerializedPage(1);
+    setSerializedPageSize(25);
+    await loadSerializedUnitsPage(product, '', 1, 25);
+  }
+
+  async function loadSerializedUnitsPage(product, queryValue = serializedQuery, pageValue = serializedPage, pageSizeValue = serializedPageSize) {
     setLoadingSerialized(true);
     try {
       const inventoryType = String(currentBranch?.branchType || 'retail').toLowerCase() === 'warehouse'
@@ -174,15 +185,19 @@ function ProductsPage() {
           ? 'wholesale'
           : 'retail';
       const result = await productUnitsApi.listProductUnits({
-        productId: product.id || product._id || '',
+        productId: product?.id || product?._id || '',
         branchId: currentBranchId,
         inventoryType,
-        pageSize: 50
+        query: queryValue,
+        page: pageValue,
+        pageSize: pageSizeValue
       });
       setSerializedUnits(Array.isArray(result?.rows) ? result.rows : []);
+      setSerializedTotal(Number(result?.total || 0));
     } catch (e) {
       toast.show(String(e?.message || 'Failed to load serialized units'), { type: 'error' });
       setSerializedUnits([]);
+      setSerializedTotal(0);
     } finally {
       setLoadingSerialized(false);
     }
@@ -212,21 +227,22 @@ function ProductsPage() {
         inventoryType,
         entries
       });
-      const refreshed = await productUnitsApi.listProductUnits({
-        productId: serializedModalProduct.id || serializedModalProduct._id,
-        branchId: currentBranchId,
-        inventoryType,
-        query: serializedQuery,
-        pageSize: 50
-      });
-      setSerializedUnits(Array.isArray(refreshed?.rows) ? refreshed.rows : []);
+      await loadSerializedUnitsPage(serializedModalProduct, serializedQuery, serializedPage, serializedPageSize);
       setSerializedEntriesText('');
+      setSerializedScanInput('');
       toast.show('Serialized units added', { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to add serialized units'), { type: 'error' });
     } finally {
       setLoadingSerialized(false);
     }
+  }
+
+  function appendSerializedEntry(value) {
+    const text = String(value || '').trim();
+    if (!text) return;
+    setSerializedEntriesText(prev => prev ? `${prev}\n${text}` : text);
+    setSerializedScanInput('');
   }
 
   function copy(text) {
@@ -1275,28 +1291,29 @@ function ProductsPage() {
             <div style={{ color: '#64748b', fontSize: 12 }}>
               Enter one IMEI or serial per line. You can also use IMEI,SerialNumber on the same line.
             </div>
-            <textarea className="input" rows={8} value={serializedEntriesText} onChange={e => setSerializedEntriesText(e.target.value)} placeholder={'IMEI123456789\nSN-0001\nIMEI987654321,SN-0002'} />
+            <input
+              className="input"
+              autoFocus
+              placeholder="Scan IMEI barcode or type and press Enter"
+              value={serializedScanInput}
+              onChange={e => setSerializedScanInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  appendSerializedEntry(serializedScanInput);
+                }
+              }}
+              style={{ color: '#111827', background: '#ffffff' }}
+            />
+            <textarea className="input" rows={8} value={serializedEntriesText} onChange={e => setSerializedEntriesText(e.target.value)} placeholder={'IMEI123456789\nSN-0001\nIMEI987654321,SN-0002'} style={{ color: '#111827', background: '#ffffff' }} />
             <input className="input" placeholder="Search existing units" value={serializedQuery} onChange={async e => {
               const value = e.target.value;
               setSerializedQuery(value);
               if (!serializedModalProduct) return;
-              try {
-                const inventoryType = String(currentBranch?.branchType || 'retail').toLowerCase() === 'warehouse'
-                  ? 'warehouse'
-                  : String(currentBranch?.branchType || 'retail').toLowerCase() === 'wholesale'
-                    ? 'wholesale'
-                    : 'retail';
-                const result = await productUnitsApi.listProductUnits({
-                  productId: serializedModalProduct.id || serializedModalProduct._id,
-                  branchId: currentBranchId,
-                  inventoryType,
-                  query: value,
-                  pageSize: 50
-                });
-                setSerializedUnits(Array.isArray(result?.rows) ? result.rows : []);
-              } catch {}
-            }} />
-            <div style={{ overflowX: 'auto' }}>
+              setSerializedPage(1);
+              try { await loadSerializedUnitsPage(serializedModalProduct, value, 1, serializedPageSize); } catch {}
+            }} style={{ color: '#111827', background: '#ffffff' }} />
+            <div style={{ overflowX: 'auto', maxHeight: 360 }}>
               <table className="table">
                 <thead>
                   <tr>
@@ -1308,14 +1325,30 @@ function ProductsPage() {
                 <tbody>
                   {serializedUnits.map(unit => (
                     <tr key={unit._id}>
-                      <td>{unit.imei || '—'}</td>
-                      <td>{unit.serialNumber || '—'}</td>
-                      <td>{unit.status}</td>
+                      <td style={{ color: '#111827' }}>{unit.imei || '—'}</td>
+                      <td style={{ color: '#111827' }}>{unit.serialNumber || '—'}</td>
+                      <td style={{ color: '#111827' }}>{unit.status}</td>
                     </tr>
                   ))}
                   {!loadingSerialized && serializedUnits.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No serialized units found for this branch</td></tr>}
                 </tbody>
               </table>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <button className="btn" onClick={() => { const next = Math.max(1, serializedPage - 1); setSerializedPage(next); loadSerializedUnitsPage(serializedModalProduct, serializedQuery, next, serializedPageSize); }} disabled={serializedPage <= 1 || loadingSerialized}>Prev</button>
+                <span style={{ color: '#111827' }}>Page {serializedPage} of {Math.max(1, Math.ceil(serializedTotal / serializedPageSize))}</span>
+                <button className="btn" onClick={() => { const next = Math.min(Math.max(1, Math.ceil(serializedTotal / serializedPageSize)), serializedPage + 1); setSerializedPage(next); loadSerializedUnitsPage(serializedModalProduct, serializedQuery, next, serializedPageSize); }} disabled={serializedPage >= Math.max(1, Math.ceil(serializedTotal / serializedPageSize)) || loadingSerialized}>Next</button>
+              </div>
+              <label style={{ color: '#111827' }}>
+                <span style={{ marginRight: 6 }}>Rows</span>
+                <select className="select" value={serializedPageSize} onChange={e => { const nextSize = Number(e.target.value); setSerializedPageSize(nextSize); setSerializedPage(1); loadSerializedUnitsPage(serializedModalProduct, serializedQuery, 1, nextSize); }} style={{ color: '#111827', background: '#ffffff' }}>
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </label>
             </div>
           </div>
         </Modal>

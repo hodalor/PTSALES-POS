@@ -45,6 +45,10 @@ function PosPage({ mode = 'retail' }) {
   const [serializedUnits, setSerializedUnits] = useState([]);
   const [serializedUnitsQuery, setSerializedUnitsQuery] = useState('');
   const [serializedLoading, setSerializedLoading] = useState(false);
+  const [serializedUnitsPage, setSerializedUnitsPage] = useState(1);
+  const [serializedUnitsPageSize, setSerializedUnitsPageSize] = useState(25);
+  const [serializedUnitsTotal, setSerializedUnitsTotal] = useState(0);
+  const [serializedScanInput, setSerializedScanInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [customerQuery, setCustomerQuery] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -201,7 +205,7 @@ function PosPage({ mode = 'retail' }) {
   const customerMaxCreditLimit = Number(selectedCustomer?.maxCreditLimit || settings.maxCreditLimitPerCustomer || 0);
   const customerCreditScore = Number(selectedCustomer?.creditScore || 0);
 
-  async function loadSerializedUnits(product, search = '') {
+  async function loadSerializedUnits(product, search = '', pageValue = 1, pageSizeValue = serializedUnitsPageSize) {
     if (!product) return;
     setSerializedLoading(true);
     try {
@@ -212,12 +216,15 @@ function PosPage({ mode = 'retail' }) {
         inventoryType: isWholesale ? 'wholesale' : 'retail',
         status: 'in_stock',
         query: search,
-        pageSize: 40
+        page: pageValue,
+        pageSize: pageSizeValue
       });
       setSerializedUnits(Array.isArray(result?.rows) ? result.rows : []);
+      setSerializedUnitsTotal(Number(result?.total || 0));
     } catch (e) {
       toast.show(String(e?.message || 'Failed to load serialized units'), { type: 'error' });
       setSerializedUnits([]);
+      setSerializedUnitsTotal(0);
     } finally {
       setSerializedLoading(false);
     }
@@ -233,13 +240,13 @@ function PosPage({ mode = 'retail' }) {
 
   async function addSerializedUnitToCart(product, unit) {
     try {
-      const reserved = await productUnitsApi.reserveProductUnit({
+      const reserved = await productUnitsApi.scanProductUnit({
         productId: product.productId || product.id,
         variantId: product.variantId || '',
         branchId,
         inventoryType: isWholesale ? 'wholesale' : 'retail',
         reservationToken,
-        code: unit?.imei || unit?.serialNumber || ''
+        imei: unit?.imei || unit?.serialNumber || ''
       });
       dispatch(addItem({
         name: product.name,
@@ -257,6 +264,7 @@ function PosPage({ mode = 'retail' }) {
         serialNumber: reserved.serialNumber || ''
       }));
       setSerializedPickerProduct(null);
+      setSerializedScanInput('');
       toast.show(`Added unit ${reserved.imei || reserved.serialNumber}`, { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to reserve serialized unit'), { type: 'error' });
@@ -273,7 +281,10 @@ function PosPage({ mode = 'retail' }) {
     if (String(p.trackType || 'quantity') === 'serialized') {
       setSerializedPickerProduct(p);
       setSerializedUnitsQuery('');
-      await loadSerializedUnits(p, '');
+      setSerializedScanInput('');
+      setSerializedUnitsPage(1);
+      setSerializedUnitsPageSize(25);
+      await loadSerializedUnits(p, '', 1, 25);
       return;
     }
     const spec = productSpec(p);
@@ -412,10 +423,6 @@ function PosPage({ mode = 'retail' }) {
 
   async function completeSale(escpos = false) {
     if (saving) return;
-    if (!navigator.onLine && cart.items.some(item => item.unitId)) {
-      toast.show('Serialized sales require an internet connection', { type: 'error' });
-      return;
-    }
     if (!easyBuyEnabled && due > 0) {
       toast.show('Payment incomplete', { type: 'error' });
       return;
@@ -477,7 +484,8 @@ function PosPage({ mode = 'retail' }) {
         priceTier: i.priceTier || selectedPriceTier,
         productId: i.productId,
         variantId: i.variantId || null,
-        soldUnitIds: i.unitId ? [i.unitId] : []
+        soldUnitIds: i.unitId ? [i.unitId] : [],
+        soldUnits: i.unitId ? [{ unitId: i.unitId, imei: i.imei || '', serialNumber: i.serialNumber || '' }] : []
       })),
       subtotal,
       discount,
@@ -555,7 +563,7 @@ function PosPage({ mode = 'retail' }) {
           name: saleForUi.customerName,
           phone: saleForUi.customerPhone || ''
         } : { name: '—' }),
-        items: (saleForUi.items || []).map(i => ({ name: i.name, spec: i.spec, qty: i.qty, rate: i.price, per: 'pcs' })),
+        items: (saleForUi.items || []).map(i => ({ name: i.name, spec: i.spec, qty: i.qty, rate: i.price, per: 'pcs', soldUnits: Array.isArray(i.soldUnits) ? i.soldUnits : [] })),
         subtotal: saleForUi.subtotal || 0,
         tax: saleForUi.tax || 0,
         total: saleForUi.total || 0,
@@ -624,12 +632,13 @@ function PosPage({ mode = 'retail' }) {
         if (saved && (saved.invoiceSerial || saved.receiptNumber)) {
           // no-op: printed already; server holds the official refs
         }
+        productUnitsApi.markSoldProductUnits(cart.items.map(item => item.unitId).filter(Boolean));
         toast.show('Sale recorded', { type: 'success' });
       } catch (e) {
         try {
-          if (sale.items.some(item => Array.isArray(item.soldUnitIds) && item.soldUnitIds.length > 0)) throw e;
           await enqueueHttp({ collection: 'sales', label: 'Sale', path: '/api/sales', method: 'POST', body: { ...sale, clientId: sale.clientId } });
-          toast.show('Network issue: saved offline and will sync later', { type: 'warning' });
+          productUnitsApi.markSoldProductUnits(cart.items.map(item => item.unitId).filter(Boolean));
+          toast.show(sale.items.some(item => Array.isArray(item.soldUnitIds) && item.soldUnitIds.length > 0) ? 'Saved offline. Serialized IMEI sale will sync later and conflicts will be flagged if found.' : 'Network issue: saved offline and will sync later', { type: 'warning' });
         } catch (err) {
           await releaseSerializedCartItems(cart.items);
           toast.show(String(e?.message || 'Failed to record sale'), { type: 'error' });
@@ -638,6 +647,7 @@ function PosPage({ mode = 'retail' }) {
         setSaving(false);
       }
     } else {
+      productUnitsApi.markSoldProductUnits(cart.items.map(item => item.unitId).filter(Boolean));
       toast.show('Saved offline. Will backup when online.', { type: 'success' });
       setSaving(false);
     }
@@ -657,13 +667,33 @@ function PosPage({ mode = 'retail' }) {
         return;
       }
       try {
-        const unit = await productUnitsApi.lookupProductUnit(q);
+        const unit = await productUnitsApi.scanProductUnit({
+          imei: q,
+          branchId,
+          inventoryType: isWholesale ? 'wholesale' : 'retail',
+          reservationToken
+        });
         const product = sellables.find(p =>
           String(p.productId || p.id) === String(unit.productId)
           && String(p.variantId || '') === String(unit.variantId || '')
         );
         if (product) {
-          await addSerializedUnitToCart(product, unit);
+          dispatch(addItem({
+            name: product.name,
+            sku: product.sku,
+            price: product.price,
+            priceTier: selectedPriceTier,
+            prices: product.prices || { retail: product.price, wholesale: product.price, agent: product.price },
+            allowCredit: product.allowCredit !== false,
+            minimumCreditPercentage: Number(product.minimumCreditPercentage || 0),
+            spec: productSpec(product),
+            productId: product.productId || product.id,
+            variantId: product.variantId || null,
+            unitId: unit._id,
+            imei: unit.imei || '',
+            serialNumber: unit.serialNumber || ''
+          }));
+          toast.show(`Added unit ${unit.imei || unit.serialNumber}`, { type: 'success' });
           setQuery('');
         }
       } catch {
@@ -1017,19 +1047,29 @@ function PosPage({ mode = 'retail' }) {
             <div style={{ display: 'grid', gap: 12 }}>
               <input
                 className="input"
-                placeholder="Search or scan IMEI / serial number"
+                autoFocus
+                placeholder="Scan IMEI barcode or type and press Enter"
+                value={serializedScanInput}
+                onChange={e => setSerializedScanInput(e.target.value)}
+                onKeyDown={async e => {
+                  if (e.key === 'Enter' && serializedScanInput.trim()) {
+                    e.preventDefault();
+                    await addSerializedUnitToCart(serializedPickerProduct, { imei: serializedScanInput.trim(), serialNumber: serializedScanInput.trim() });
+                  }
+                }}
+                style={{ color: '#111827', background: '#ffffff' }}
+              />
+              <input
+                className="input"
+                placeholder="Search existing units"
                 value={serializedUnitsQuery}
                 onChange={async e => {
                   const value = e.target.value;
                   setSerializedUnitsQuery(value);
-                  await loadSerializedUnits(serializedPickerProduct, value);
+                  setSerializedUnitsPage(1);
+                  await loadSerializedUnits(serializedPickerProduct, value, 1, serializedUnitsPageSize);
                 }}
-                onKeyDown={async e => {
-                  if (e.key === 'Enter' && serializedUnitsQuery.trim()) {
-                    e.preventDefault();
-                    await addSerializedUnitToCart(serializedPickerProduct, { imei: serializedUnitsQuery.trim(), serialNumber: serializedUnitsQuery.trim() });
-                  }
-                }}
+                style={{ color: '#111827', background: '#ffffff' }}
               />
               <div style={{ overflowX: 'auto', maxHeight: 420 }}>
                 <table className="table">
@@ -1043,14 +1083,30 @@ function PosPage({ mode = 'retail' }) {
                   <tbody>
                     {serializedUnits.map(unit => (
                       <tr key={unit._id}>
-                        <td>{unit.imei || '—'}</td>
-                        <td>{unit.serialNumber || '—'}</td>
+                        <td style={{ color: '#111827' }}>{unit.imei || '—'}</td>
+                        <td style={{ color: '#111827' }}>{unit.serialNumber || '—'}</td>
                         <td><button className="btn btn-primary" onClick={() => addSerializedUnitToCart(serializedPickerProduct, unit)}>Select</button></td>
                       </tr>
                     ))}
                     {!serializedLoading && serializedUnits.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No serialized units available</td></tr>}
                   </tbody>
                 </table>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <button className="btn" onClick={() => { const next = Math.max(1, serializedUnitsPage - 1); setSerializedUnitsPage(next); loadSerializedUnits(serializedPickerProduct, serializedUnitsQuery, next, serializedUnitsPageSize); }} disabled={serializedUnitsPage <= 1 || serializedLoading}>Prev</button>
+                  <span style={{ color: '#111827' }}>Page {serializedUnitsPage} of {Math.max(1, Math.ceil(serializedUnitsTotal / serializedUnitsPageSize))}</span>
+                  <button className="btn" onClick={() => { const next = Math.min(Math.max(1, Math.ceil(serializedUnitsTotal / serializedUnitsPageSize)), serializedUnitsPage + 1); setSerializedUnitsPage(next); loadSerializedUnits(serializedPickerProduct, serializedUnitsQuery, next, serializedUnitsPageSize); }} disabled={serializedUnitsPage >= Math.max(1, Math.ceil(serializedUnitsTotal / serializedUnitsPageSize)) || serializedLoading}>Next</button>
+                </div>
+                <label style={{ color: '#111827' }}>
+                  <span style={{ marginRight: 6 }}>Rows</span>
+                  <select className="select" value={serializedUnitsPageSize} onChange={e => { const nextSize = Number(e.target.value); setSerializedUnitsPageSize(nextSize); setSerializedUnitsPage(1); loadSerializedUnits(serializedPickerProduct, serializedUnitsQuery, 1, nextSize); }} style={{ color: '#111827', background: '#ffffff' }}>
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </label>
               </div>
             </div>
           </Modal>
