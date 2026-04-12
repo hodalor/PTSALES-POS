@@ -49,7 +49,7 @@ r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_refunds'), as
   rfd.approverRole = approverRole || '';
   rfd.approvalRemark = approvalRemark || '';
   rfd.restockMode = restockMode || 'none';
-  if (Array.isArray(restockItems)) rfd.restockItems = restockItems.map(x => ({ sku: x.sku, qty: Number(x.qty) || 0 }));
+  if (Array.isArray(restockItems)) rfd.restockItems = restockItems.map(x => ({ sku: x.sku, productId: x.productId || '', variantId: x.variantId || '', qty: Number(x.qty) || 0, unitIds: Array.isArray(x.unitIds) ? x.unitIds.map(String).filter(Boolean) : [] }));
   rfd.approved_at = new Date();
   await rfd.save();
 
@@ -89,7 +89,7 @@ r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_refunds'), as
   // 3. Restock inventory if needed
   if ((restockMode === 'full' || restockMode === 'partial') && Array.isArray(rfd.restockItems) && rfd.restockItems.length > 0) {
     for (const item of rfd.restockItems) {
-      if (!item.sku || item.qty <= 0) continue;
+      if ((!item.sku && !item.productId) || item.qty <= 0) continue;
       
       // Try finding by SKU (main product)
       let p = await Product.findOne({ sku: item.sku });
@@ -139,11 +139,14 @@ r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_refunds'), as
         await p.save();
       }
       const saleItem = Array.isArray(saleRef?.items)
-        ? saleRef.items.find(saleRow => String(saleRow.productId || '') === String(item.productId || '') && String(saleRow.variantId || '') === String(variantId || ''))
+        ? saleRef.items.find(saleRow => String(saleRow.productId || '') === String(item.productId || '') && String(saleRow.variantId || '') === String(item.variantId || variantId || ''))
         : null;
-      if (Array.isArray(saleItem?.soldUnitIds) && saleItem.soldUnitIds.length > 0) {
+      const unitIds = Array.isArray(item.unitIds) && item.unitIds.length > 0
+        ? item.unitIds
+        : (Array.isArray(saleItem?.soldUnitIds) ? saleItem.soldUnitIds.slice(0, Math.max(0, Number(item.qty || 0))) : []);
+      if (unitIds.length > 0) {
         await returnSerializedUnits({
-          unitIds: saleItem.soldUnitIds.slice(0, Math.max(0, Number(item.qty || 0))),
+          unitIds,
           branchId: rfd.branchId,
           inventoryType: saleRef.inventoryType || 'retail',
           saleId: String(saleRef._id || '')

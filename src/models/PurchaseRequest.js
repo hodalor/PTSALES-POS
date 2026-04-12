@@ -5,6 +5,7 @@ const PurchaseRequestItemSchema = new mongoose.Schema({
   productId: String,
   variantId: String,
   baseUnits: Number,
+  serializedEntries: { type: [{ imei: String, serialNumber: String }], default: [] },
   pack: String,
   supplier: String,
   cost: Number,

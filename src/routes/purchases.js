@@ -5,6 +5,7 @@ import Product from '../models/Product.js';
 import Audit from '../models/Audit.js';
 import ServerLog from '../models/ServerLog.js';
 import { requireAuth, requireRoleOrPerm } from '../middleware/auth.js';
+import { createSerializedUnits, normalizeTrackType, resolveInventoryTypeFromBranch } from '../utils/productUnits.js';
 
 const r = Router();
 r.use(requireAuth);
@@ -47,6 +48,7 @@ function normalizeItems(payload = {}) {
       productId: String(item.productId || ''),
       variantId: String(item.variantId || ''),
       baseUnits: Number(item.baseUnits || 0),
+      serializedEntries: Array.isArray(item.serializedEntries) ? item.serializedEntries.map(entry => ({ imei: String(entry?.imei || '').trim(), serialNumber: String(entry?.serialNumber || '').trim() })) : [],
       pack: String(item.pack || ''),
       supplier: String(item.supplier || ''),
       cost: Number(item.cost || 0),
@@ -119,12 +121,34 @@ r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_purchases'), 
   const nextItems = normalizeItems({ items: reviewedItems && reviewedItems.length ? reviewedItems : (pr.items || []) });
   let lastProduct = null;
   try {
+    const inventoryType = await resolveInventoryTypeFromBranch(pr.branchId, 'retail');
     for (const item of nextItems) {
       if (item.status === 'cancelled') continue;
       const q = Number(item.baseUnits);
       if (!Number.isFinite(q) || q <= 0) continue;
       const doc = await Product.findOne(productLookupQuery(item.productId));
       if (!doc) return res.status(404).json({ error: 'Product not found' });
+      if (normalizeTrackType(doc.trackType) === 'serialized') {
+        if (!Array.isArray(item.serializedEntries) || item.serializedEntries.length !== q) {
+          return res.status(400).json({ error: `Serialized purchase for ${doc.name} requires exactly ${q} IMEI/serial entries` });
+        }
+        await createSerializedUnits({
+          productId: item.productId,
+          variantId: item.variantId || '',
+          branchId: pr.branchId,
+          inventoryType,
+          entries: item.serializedEntries
+        });
+        const cpu = item.costPerUnit != null ? Number(item.costPerUnit) : null;
+        if (cpu != null && Number.isFinite(cpu) && cpu >= 0) doc.costPrice = cpu;
+        if (item.expiryDate) {
+          const dt = new Date(item.expiryDate);
+          if (!Number.isNaN(dt.getTime())) doc.expiryDate = dt;
+        }
+        if (cpu != null || item.expiryDate) await doc.save();
+        lastProduct = doc;
+        continue;
+      }
       if (item.variantId) {
         const variants = Array.isArray(doc.variants) ? doc.variants : [];
         const idx = variants.findIndex(v => v.id === item.variantId);

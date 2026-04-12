@@ -65,6 +65,26 @@ r.post('/reserve', requireRoleOrPerm(['Admin', 'Manager', 'Cashier', 'Inventory 
   }
 });
 
+r.post('/scan-imei', requireRoleOrPerm(['Admin', 'Manager', 'Cashier', 'Inventory Staff'], 'add_sales'), async (req, res) => {
+  const payload = req.body || {};
+  const code = String(payload.imei || payload.code || '').trim();
+  if (!code) return res.status(400).json({ error: 'Missing IMEI or serial number' });
+  try {
+    const inventoryType = payload.inventoryType ? String(payload.inventoryType) : await resolveInventoryTypeFromBranch(payload.branchId, 'retail');
+    const row = await reserveSerializedUnit({
+      code,
+      productId: payload.productId || '',
+      variantId: payload.variantId || '',
+      branchId: payload.branchId,
+      inventoryType,
+      reservationToken: payload.reservationToken
+    });
+    res.json(row);
+  } catch (e) {
+    res.status(e?.status || 500).json({ error: e?.message || 'Failed to scan IMEI' });
+  }
+});
+
 r.post('/release', requireRoleOrPerm(['Admin', 'Manager', 'Cashier', 'Inventory Staff'], 'add_sales'), async (req, res) => {
   try {
     const rows = await releaseSerializedUnits({

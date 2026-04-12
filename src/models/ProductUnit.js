@@ -17,5 +17,8 @@ const ProductUnitSchema = new mongoose.Schema({
 
 ProductUnitSchema.index({ productId: 1, variantId: 1, branchId: 1, inventoryType: 1, status: 1 });
 ProductUnitSchema.index({ reservationToken: 1, status: 1 });
+ProductUnitSchema.index({ imei: 1, status: 1 });
+ProductUnitSchema.index({ serialNumber: 1, status: 1 });
+ProductUnitSchema.index({ branchId: 1, status: 1 });
 
 export default mongoose.model('ProductUnit', ProductUnitSchema);

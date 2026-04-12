@@ -19,7 +19,7 @@ const RefundRequestSchema = new mongoose.Schema({
   rejectionRemark: String,
   usedRestock: Boolean,
   restockMode: String,
-  restockItems: [{ sku: String, qty: Number }],
+  restockItems: [{ sku: String, productId: String, variantId: String, qty: Number, unitIds: [String] }],
   created_at: { type: Date, default: Date.now },
   approved_at: Date,
   rejected_at: Date
