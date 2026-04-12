@@ -366,7 +366,7 @@ function ProductsPage() {
             }
         }
         
-        if (newId && (Number(initialStock) || 0) > 0) {
+        if (String(trackType || 'quantity') !== 'serialized' && newId && (Number(initialStock) || 0) > 0) {
             const qty = Number(initialStock) || 0;
             dispatch(addAudit({
                 actor: auth.user?.name || 'unknown',
@@ -482,7 +482,7 @@ function ProductsPage() {
         } else {
             dispatch(updateProduct({ ...updated, offline: !navigator.onLine }));
         }
-        if (canEditStock && original) {
+        if (canEditStock && original && String(original.trackType || 'quantity') !== 'serialized') {
             const pid = original.id || original._id || editingId;
             const prev = Number(original.stockByBranch?.[currentBranchId] || 0);
             const next = Number(editStockQty) || 0;
@@ -796,6 +796,10 @@ function ProductsPage() {
                     min="0"
                     value={p.stockByBranch?.[currentBranchId] || 0}
                     onChange={e => {
+                      if (String(p.trackType || 'quantity') === 'serialized') {
+                        toast.show('Serialized stock changes only through IMEI or serial unit actions', { type: 'warning' });
+                        return;
+                      }
                       if (!canEditStock) {
                         toast.show('Not authorized to edit stock', { type: 'error' });
                         return;
@@ -828,7 +832,7 @@ function ProductsPage() {
                       });
                     }}
                     style={{ width: 100 }}
-                    disabled={!canEditStock}
+                    disabled={!canEditStock || String(p.trackType || 'quantity') === 'serialized'}
                   />
                   )}
                 </td>
@@ -896,6 +900,10 @@ function ProductsPage() {
                             min="0"
                             value={v.stockByBranch?.[currentBranchId] || 0}
                             onChange={e => {
+                              if (String(v.trackType || p.trackType || 'quantity') === 'serialized') {
+                                toast.show('Serialized stock changes only through IMEI or serial unit actions', { type: 'warning' });
+                                return;
+                              }
                               if (!canEditStock) {
                                 toast.show('Not authorized to edit stock', { type: 'error' });
                                 return;
@@ -929,7 +937,7 @@ function ProductsPage() {
                               });
                             }}
                             style={{ width: 120 }}
-                            disabled={!canEditStock}
+                            disabled={!canEditStock || String(v.trackType || p.trackType || 'quantity') === 'serialized'}
                           />
                         </div>
                       ))}
@@ -961,12 +969,14 @@ function ProductsPage() {
               {modalMode === 'add' ? (
                 <div>
                   <label className="label">Initial Stock ({currentBranchLabel})</label>
-                  <input className="input" type="number" min="0" value={initialStock} onChange={e => setInitialStock(Number(e.target.value))} style={{ display: 'block', width: '100%' }} />
+                  <input className="input" type="number" min="0" value={initialStock} onChange={e => setInitialStock(Number(e.target.value))} style={{ display: 'block', width: '100%' }} disabled={trackType === 'serialized'} />
+                  {trackType === 'serialized' && <div style={{ marginTop: 4, color: '#64748b', fontSize: 12 }}>Serialized products are stocked only through IMEI or serial unit entry.</div>}
                 </div>
               ) : (
                 <div>
                   <label className="label">Stock ({currentBranchLabel})</label>
-                  <input className="input" type="number" min="0" value={editStockQty} onChange={e => setEditStockQty(Number(e.target.value))} style={{ display: 'block', width: '100%' }} disabled={!canEditStock} />
+                  <input className="input" type="number" min="0" value={editStockQty} onChange={e => setEditStockQty(Number(e.target.value))} style={{ display: 'block', width: '100%' }} disabled={!canEditStock || trackType === 'serialized'} />
+                  {trackType === 'serialized' && <div style={{ marginTop: 4, color: '#64748b', fontSize: 12 }}>Serialized stock changes only through IMEI or serial unit actions.</div>}
                 </div>
               )}
               <div>

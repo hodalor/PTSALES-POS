@@ -93,6 +93,7 @@ function SerializedInventoryPage() {
             <option value="reserved">Reserved</option>
             <option value="sold">Sold</option>
             <option value="returned">Returned</option>
+            <option value="adjusted_out">Adjusted Out</option>
           </select>
         </label>
       </div>

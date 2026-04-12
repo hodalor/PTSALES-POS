@@ -37,6 +37,10 @@ function InventoryPage() {
   const selected = useMemo(() => rows.find(p => p.id === modalId) || null, [rows, modalId]);
 
   function setStockWithAudit(p, variantId, bId, quantity) {
+    if (String(p.trackType || 'quantity') === 'serialized') {
+      toast.show('Serialized stock changes only through IMEI or serial unit actions', { type: 'warning' });
+      return;
+    }
     if (!allowManualStockEdit) {
       toast.show('Manual stock editing is disabled', { type: 'warning' });
       return;
@@ -140,19 +144,22 @@ function InventoryPage() {
                       {hasVariants ? (
                         <button className="btn" onClick={() => setOpenVariantsFor(o => o === p.id ? null : p.id)}>Variants</button>
                       ) : (
-                        <input
-                          className="input"
-                          type="number"
-                          min="0"
-                          value={cur}
-                          onChange={e => setStockWithAudit(p, null, branchId, Number(e.target.value))}
-                          style={{
-                            width: 100,
-                            borderColor: low > 0 && cur <= low ? '#ef4444' : undefined,
-                            color: low > 0 && cur <= low ? '#b91c1c' : undefined
-                          }}
-                          disabled
-                        />
+                        <div style={{ display: 'grid', gap: 4 }}>
+                          <input
+                            className="input"
+                            type="number"
+                            min="0"
+                            value={cur}
+                            onChange={e => setStockWithAudit(p, null, branchId, Number(e.target.value))}
+                            style={{
+                              width: 100,
+                              borderColor: low > 0 && cur <= low ? '#ef4444' : undefined,
+                              color: low > 0 && cur <= low ? '#b91c1c' : undefined
+                            }}
+                            disabled
+                          />
+                          {String(p.trackType || 'quantity') === 'serialized' && <small style={{ color: '#64748b' }}>Serialized units only</small>}
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -199,13 +206,15 @@ function InventoryPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
                 <div><strong>SKU:</strong> {selected.sku}</div>
                 <div><strong>Category:</strong> {selected.category || '—'}</div>
+                <div><strong>Track Type:</strong> {String(selected.trackType || 'quantity') === 'serialized' ? 'Serialized' : 'Quantity'}</div>
+                <div><strong>Manual Stock Edit:</strong> {String(selected.trackType || 'quantity') === 'serialized' ? 'Disabled for serialized items' : 'Disabled'}</div>
                 <div><strong>Retail Price:</strong> {formatCurrency(Number(selected.retailPrice != null ? selected.retailPrice : selected.price || 0), settings)}</div>
                 <div><strong>Wholesale Price:</strong> {formatCurrency(Number(selected.wholesalePrice != null ? selected.wholesalePrice : selected.price || 0), settings)}</div>
                 <div><strong>Barcode:</strong> <code style={{ fontSize: 12 }}>{selected.barcode || '—'}</code></div>
                 <div><strong>Low Stock:</strong> {selected.lowStock ?? 0}</div>
-                <div><strong>Total Retail Across Branches:</strong> {Object.values(selected.stockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
-                <div><strong>Total Wholesale Across Branches:</strong> {Object.values(selected.wholesaleStockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
-                <div><strong>Total Warehouse Across Branches:</strong> {Object.values(selected.warehouseStockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
+                <div><strong>{String(selected.trackType || 'quantity') === 'serialized' ? 'Serialized Retail Units' : 'Total Retail Across Branches'}:</strong> {Object.values(selected.stockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
+                <div><strong>{String(selected.trackType || 'quantity') === 'serialized' ? 'Serialized Wholesale Units' : 'Total Wholesale Across Branches'}:</strong> {Object.values(selected.wholesaleStockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
+                <div><strong>{String(selected.trackType || 'quantity') === 'serialized' ? 'Serialized Warehouse Units' : 'Total Warehouse Across Branches'}:</strong> {Object.values(selected.warehouseStockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
                 <div style={{ gridColumn: '1 / -1', marginTop: 8 }}>
                   <strong>Branch Breakdown</strong>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 6, marginTop: 6 }}>

@@ -24,7 +24,8 @@ function AdminManualPage() {
           <li>Invoices: Create A4 invoices (manual) and view invoice records.</li>
           <li>Sales: View historical sales, invoice and receipt numbers; reprint.</li>
           <li>Products: Create/edit products with units, attributes, packs and variants.</li>
-          <li>Inventory: Set stock per branch; manage per‑variant stock.</li>
+          <li>Inventory: View stock per branch; serialized items use unit actions instead of free quantity editing.</li>
+          <li>Serialized Inventory: Search unit‑level IMEI/serial records by branch, status and inventory type.</li>
           <li>Purchases: Receive stock (supports packs and variants).</li>
           <li>Transfers: Move stock between branches (supports variants).</li>
           <li>Adjustments: Correct stock up/down with remarks (supports variants).</li>
@@ -36,6 +37,7 @@ function AdminManualPage() {
           <li>Refund Approvals: Manager/Admin approve refund requests and restock if needed.</li>
           <li>Reports: Export sales CSV, totals by time/seller/branch.</li>
           <li>Backup & Sync: View queued offline items, run Backup Now / Sync Now.</li>
+          <li>IMEI Conflicts: Review serialized offline sales that failed during sync.</li>
           <li>Docs: Technical documentation and architecture notes (SuperAdmin‑only).</li>
           <li>Users: Manage user accounts and roles.</li>
           <li>Cash Drawer: Open drawer logs and operations.</li>
@@ -62,6 +64,12 @@ function AdminManualPage() {
           <li>Attributes: Free‑form key/value like Model, RAM, Storage, Color. Use for devices (e.g., Laptop with Model=ThinkPad, RAM=16GB, SSD=512GB) or any extra descriptors.</li>
           <li>Packs: Unit conversions for receiving stock in bulk (e.g., Case (24) for bottled drinks). Purchases multiply pack quantity to base units automatically.</li>
           <li>Variants: Per‑option SKUs like T‑Shirt (Small/Medium/Large) or Shoe (42/43). Each variant has its own price (optional) and branch stock.</li>
+          <li>Track Type:
+            <ul>
+              <li>Quantity: Regular products whose stock changes by numeric quantity.</li>
+              <li>Serialized: Device‑style products where each unit must exist as its own IMEI or serial record.</li>
+            </ul>
+          </li>
         </ul>
         <p><strong>Spec display</strong></p>
         <ul>
@@ -73,6 +81,32 @@ function AdminManualPage() {
           <li>Pick a single base unit per product (e.g., bottles). Use Packs to define cases/crates.</li>
           <li>Use Attributes for descriptive fields; don’t overload product name.</li>
           <li>Create Variants when each option needs its own stock count or barcode/SKU.</li>
+          <li>Use Serialized for phones, tablets, routers, laptops, TVs and other products that must be traced unit by unit across purchase, transfer, sale, refund and adjustment.</li>
+        </ul>
+      </Section>
+
+      <Section title="Serialization Overview – Retail, Wholesale and Warehouse">
+        <ul>
+          <li>Serialized products do not use free manual stock quantity editing. Stock only changes through real unit actions using IMEI or serial values.</li>
+          <li>Supported inventory areas:
+            <ul>
+              <li>Retail branch inventory.</li>
+              <li>Wholesale branch inventory.</li>
+              <li>Warehouse branch inventory.</li>
+            </ul>
+          </li>
+          <li>Supported unit actions:
+            <ul>
+              <li>Receive units in retail, wholesale and warehouse purchases.</li>
+              <li>Transfer exact units between branches and inventory types.</li>
+              <li>Sell exact units in POS and wholesale POS.</li>
+              <li>Refund and restock exact sold units.</li>
+              <li>Adjust stock by adding scanned units or removing selected units.</li>
+              <li>Inspect unit history from Serialized Inventory.</li>
+            </ul>
+          </li>
+          <li>Unit statuses include In Stock, Reserved, Sold, Returned and Adjusted Out.</li>
+          <li>Receipts and invoices now show IMEI or serial values for serialized sales.</li>
         </ul>
       </Section>
 
@@ -90,13 +124,21 @@ function AdminManualPage() {
         <ul>
           <li>Search by name, SKU or scan barcode. Variants appear as separate items.</li>
           <li>Stock checks use the current branch and the specific variant’s stock.</li>
+          <li>Serialized POS flow:
+            <ul>
+              <li>Scan IMEI directly into the POS search box to reserve and add the exact unit instantly.</li>
+              <li>If selling manually, open the serialized picker, scan an IMEI barcode, use camera scan, or choose a unit from the paginated unit list.</li>
+              <li>Removing a serialized cart line releases its reservation automatically.</li>
+              <li>Held sale, clear cart and replace-cart actions also release serialized reservations safely.</li>
+            </ul>
+          </li>
           <li>Discount: Apply a cart‑level discount amount.</li>
           <li>Tax override (if role allows): Enter override % and required remark; recorded in Audit Log.</li>
           <li>Payments: Add multiple methods with amounts (cash/card/mobile/wallet). System prevents completion until fully paid.</li>
           <li>Invoice Number: Auto‑generated as Prefix‑Branch‑NNNNNN (configured in Settings).</li>
           <li>Receipt Number: Auto‑generated as Prefix‑Branch‑NNNNNN; printed alongside Invoice on receipts.</li>
           <li>Receipts: Prints branded HTML receipt; offline QR embeds a local SVG; also supports ESC/POS text download.</li>
-          <li>Offline: If offline, the sale is queued and syncs later. Receipt still prints.</li>
+          <li>Offline: If offline, the sale is queued and syncs later. Receipt still prints, cached serialized units can still be used locally, and sync failures are logged into IMEI Conflicts for review.</li>
           <li>Held Sales: Put aside an in‑progress sale and serve the next customer.
             <ul>
               <li>States: Active (current), Held (paused), Completed (paid).</li>
@@ -113,6 +155,14 @@ function AdminManualPage() {
         <ul>
           <li>Queue: Shows pending refund requests with evidence and requested amounts.</li>
           <li>Decision: Approve or Reject with an optional remark; choose restock option and quantities.</li>
+          <li>Serialized refund flow:
+            <ul>
+              <li>Refund requests show sold IMEI or serial units for serialized sale lines.</li>
+              <li>Requester can select the exact units being returned.</li>
+              <li>Approver can complete full or partial restock using exact unit selections.</li>
+              <li>Approved restock returns those same units to stock instead of adding anonymous quantity.</li>
+            </ul>
+          </li>
           <li>Audit: All approvals are recorded. Restocking increases inventory accordingly.</li>
         </ul>
       </Section>
@@ -174,6 +224,13 @@ function AdminManualPage() {
           <li>Choose branch to view/edit stock levels.</li>
           <li>If a product has variants, click “Variants” to edit per‑variant stock for the branch.</li>
           <li>Modal shows branch breakdown and a dedicated “Variants (current branch)” editor.</li>
+          <li>Serialized protection:
+            <ul>
+              <li>Manual stock quantity editing is blocked for serialized products.</li>
+              <li>Inventory detail panels label serialized totals separately for retail, wholesale and warehouse.</li>
+              <li>Use Purchases, Transfers, POS, Refunds, Adjustments, or Serialized Inventory workflows to change serialized stock.</li>
+            </ul>
+          </li>
         </ul>
       </Section>
 
@@ -182,6 +239,15 @@ function AdminManualPage() {
           <li>Select Product → Variant (if any) → Pack (e.g., Case (24)) → Quantity to receive.</li>
           <li>System converts Pack × Qty to base units and increments that branch/variant stock.</li>
           <li>Audit Log records supplier, cost, chosen pack and conversion factor.</li>
+          <li>Serialized purchase flow:
+            <ul>
+              <li>Retail Purchases, Wholesale Purchase, and Warehouse Purchase all support IMEI or serial receiving.</li>
+              <li>Quantity is not typed manually for serialized products; it is derived from scanned or entered IMEI lines.</li>
+              <li>Use hardware barcode scanners, camera scan, manual typing, or pasted multiline lists.</li>
+              <li>Batch Mode keeps focus on the scan field so many manufacturer-labeled boxes can be scanned quickly.</li>
+              <li>Approval creates real unit records in the correct retail, wholesale or warehouse inventory area.</li>
+            </ul>
+          </li>
         </ul>
       </Section>
 
@@ -189,6 +255,14 @@ function AdminManualPage() {
         <ul>
           <li>Select Product → Variant (if any) → From/To Branch → Quantity → Transfer.</li>
           <li>Audit Log records who transferred, from/to branches, variant and quantity.</li>
+          <li>Serialized transfer flow:
+            <ul>
+              <li>Source branch unit lists show available IMEI or serial records for the chosen product.</li>
+              <li>User selects the exact units to move; selected units determine the effective quantity.</li>
+              <li>This works for retail, wholesale, and warehouse transfer requests.</li>
+              <li>Approval moves the selected unit IDs and updates stock correctly at both ends.</li>
+            </ul>
+          </li>
         </ul>
       </Section>
 
@@ -197,7 +271,49 @@ function AdminManualPage() {
           <li>Select Product → Variant (if any) → Branch → Delta (+/‑) → Apply with a required remark.</li>
           <li>Use for corrections, write‑offs or cycle count differences. All actions are audited.</li>
           <li>Damaged/Expired Removal: Use the dedicated removal tool to subtract a quantity with a reason; this records an audit entry and updates branch stock.</li>
+          <li>Serialized adjustment flow:
+            <ul>
+              <li>Add Units: scan or enter IMEI or serial numbers; quantity is derived from the unit count.</li>
+              <li>Remove Units: search the current branch list and select the exact units to remove.</li>
+              <li>Removed units are marked Adjusted Out so they remain traceable in Serialized Inventory.</li>
+              <li>The same serialized rules apply in retail, wholesale and warehouse adjustment flows.</li>
+            </ul>
+          </li>
           <li>Approvals: Staff submit Adjustment Requests; Managers/Admins with the approve_adjustments grant review in the Approvals tab and Approve/Reject with a remark.</li>
+        </ul>
+      </Section>
+
+      <Section title="Serialized Inventory – Unit Lookup and Audit">
+        <ul>
+          <li>Use Serialized Inventory to search unit‑level stock by IMEI, serial number, product, branch, inventory type and status.</li>
+          <li>Status filters include In Stock, Reserved, Sold, Returned and Adjusted Out.</li>
+          <li>Use the page to confirm where a unit currently lives before transfer, sale, refund or adjustment.</li>
+          <li>Pagination is available for large result sets.</li>
+        </ul>
+      </Section>
+
+      <Section title="Wholesale and Warehouse Serialization">
+        <ul>
+          <li>Wholesale and warehouse flows follow the same serialized rule as retail: stock changes only from actual IMEI or serial unit actions.</li>
+          <li>Wholesale Purchase and Warehouse Purchase:
+            <ul>
+              <li>Receive serialized units by scan, camera scan, manual entry or batch paste.</li>
+              <li>Approval creates unit records under the selected wholesale or warehouse branch.</li>
+            </ul>
+          </li>
+          <li>Wholesale Transfer and Warehouse Transfer:
+            <ul>
+              <li>Load available unit records from the source area.</li>
+              <li>Select exact IMEIs or serials to move.</li>
+            </ul>
+          </li>
+          <li>Wholesale and Warehouse Adjustments:
+            <ul>
+              <li>Positive adjustments add stock only by entering new units.</li>
+              <li>Negative adjustments remove stock only by selecting existing units.</li>
+            </ul>
+          </li>
+          <li>Manual quantity edits remain blocked for serialized products in both areas.</li>
         </ul>
       </Section>
 
@@ -260,6 +376,7 @@ function AdminManualPage() {
           <li>Sync Now: Refreshes the local data from the server when online.</li>
           <li>Indicators: “Queued” badges appear on pages (e.g., POS) and link to the Backup page.</li>
           <li>Auto‑sync: When online and Backup is enabled, background sync uploads queued items automatically.</li>
+          <li>IMEI Conflicts page shows serialized offline sales that later failed on sync, so staff can review the affected units.</li>
         </ul>
       </Section>
 
@@ -278,6 +395,7 @@ function AdminManualPage() {
           <li>Columns: Timestamp, Actor, Branch, Source, Action, Product, Variant, Delta, Remark.</li>
           <li>Exports: CSV and print‑to‑PDF for filtered results; use page header buttons.</li>
           <li>Pagination: Change rows per page (10/25/50/100) and page through results.</li>
+          <li>For serialized products, combine Stock Records with Serialized Inventory for both quantity summary and exact unit traceability.</li>
         </ul>
       </Section>
 
@@ -341,6 +459,9 @@ function AdminManualPage() {
           <li>Packs: Define the most common bulk receive units to save time.</li>
           <li>Receipts: Keep phone and footer updated in Config for customer clarity.</li>
           <li>Offline: Sales queue automatically and sync when back online or via Backup; offline login allows continued operation without internet.</li>
+          <li>IMEI Conflicts: If a serialized offline sale fails during sync, review IMEI Conflicts before trying to sell the same device again.</li>
+          <li>Barcode Scanning: Hardware scanners should be configured to act like keyboard input and send Enter after each scan.</li>
+          <li>Serialized Stock: Never correct serialized stock by typing a quantity; add or remove the real units instead.</li>
           <li>Install: If the Install button isn’t available, use the browser’s “Install App” menu; once installed, the Config button will open the installed app and apply updates.</li>
         </ul>
       </Section>
