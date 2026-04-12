@@ -6,6 +6,7 @@ const WholesaleOperationItemSchema = new mongoose.Schema({
   variantId: { type: String, default: '' },
   qty: { type: Number, default: 0 },
   unitIds: { type: [String], default: [] },
+  serializedEntries: { type: [{ imei: String, serialNumber: String }], default: [] },
   cost: { type: Number, default: 0 },
   requestedAmount: { type: Number, default: 0 },
   adjustmentType: { type: String, enum: ['increase', 'decrease'], default: 'increase' },

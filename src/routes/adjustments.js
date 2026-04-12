@@ -5,6 +5,7 @@ import ServerLog from '../models/ServerLog.js';
 import { requireAuth, requireRoleOrPerm } from '../middleware/auth.js';
 import AdjustmentRequest from '../models/AdjustmentRequest.js';
 import mongoose from 'mongoose';
+import { adjustSerializedUnits, normalizeTrackType, resolveInventoryTypeFromBranch } from '../utils/productUnits.js';
 
 const r = Router();
 r.use(requireAuth);
@@ -46,6 +47,8 @@ function normalizeItems(payload = {}) {
       productId: String(item.productId || ''),
       variantId: String(item.variantId || ''),
       delta: Number(item.delta || 0),
+      unitIds: Array.isArray(item.unitIds) ? item.unitIds.map(String).filter(Boolean) : [],
+      serializedEntries: Array.isArray(item.serializedEntries) ? item.serializedEntries.map(entry => ({ imei: String(entry?.imei || '').trim(), serialNumber: String(entry?.serialNumber || '').trim() })) : [],
       remark: String(item.remark || ''),
       status: String(item.status || 'pending').toLowerCase() === 'cancelled' ? 'cancelled' : 'accepted'
     }))
@@ -110,6 +113,19 @@ r.post('/requests', requireRoleOrPerm(['Admin','Manager','Inventory Staff'], 'ad
     const existing = await AdjustmentRequest.findOne({ clientId: cid });
     if (existing) return res.json(existing);
   }
+  const draftItems = normalizeItems(req.body || {});
+  for (const item of draftItems) {
+    const product = await Product.findOne(productLookupQuery(item.productId));
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+    if (normalizeTrackType(product.trackType) === 'serialized') {
+      if (Number(item.delta || 0) > 0 && (!Array.isArray(item.serializedEntries) || item.serializedEntries.length !== Math.abs(Number(item.delta || 0)))) {
+        return res.status(400).json({ error: `Serialized adjustment increase for ${product.name} requires exactly ${Math.abs(Number(item.delta || 0))} IMEI/serial entries` });
+      }
+      if (Number(item.delta || 0) < 0 && (!Array.isArray(item.unitIds) || item.unitIds.length !== Math.abs(Number(item.delta || 0)))) {
+        return res.status(400).json({ error: `Serialized adjustment decrease for ${product.name} requires exactly ${Math.abs(Number(item.delta || 0))} selected unit(s)` });
+      }
+    }
+  }
   const row = await AdjustmentRequest.create({
     clientId: cid || undefined,
     productId: String(productId),
@@ -117,7 +133,7 @@ r.post('/requests', requireRoleOrPerm(['Admin','Manager','Inventory Staff'], 'ad
     branchId: String(branchId),
     delta: Number(delta),
     remark: String(remark || ''),
-    items: normalizeItems(req.body || {}),
+    items: draftItems,
     initiatorName: req.user?.name || '',
     initiatorRole: req.user?.role || ''
   });
@@ -139,8 +155,34 @@ r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_adjustments')
   const nextItems = normalizeItems({ items: reviewedItems && reviewedItems.length ? reviewedItems : (row.items || []) });
   let p = null;
   try {
+    const inventoryType = await resolveInventoryTypeFromBranch(row.branchId, 'retail');
     for (const item of nextItems) {
       if (item.status === 'cancelled') continue;
+      const product = await Product.findOne(productLookupQuery(item.productId));
+      if (!product) return res.status(404).json({ error: 'Product not found' });
+      if (normalizeTrackType(product.trackType) === 'serialized') {
+        if (Number(item.delta || 0) > 0) {
+          await adjustSerializedUnits({
+            productId: item.productId,
+            variantId: item.variantId || '',
+            branchId: row.branchId,
+            inventoryType,
+            entries: item.serializedEntries || [],
+            mode: 'increase'
+          });
+        } else {
+          await adjustSerializedUnits({
+            productId: item.productId,
+            variantId: item.variantId || '',
+            branchId: row.branchId,
+            inventoryType,
+            unitIds: item.unitIds || [],
+            mode: 'decrease'
+          });
+        }
+        p = product;
+        continue;
+      }
       if (item.variantId) {
         p = await adjustVariantStock(item.productId, item.variantId, row.branchId, item.delta);
       } else {

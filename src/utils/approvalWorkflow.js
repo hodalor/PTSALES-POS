@@ -7,7 +7,7 @@ import WholesaleOperation from '../models/WholesaleOperation.js';
 import mongoose from 'mongoose';
 import { getMapQty, getStockTarget, markInventoryModified, setMapQty } from './inventory.js';
 import { refreshCreditSaleStatus, updateCustomerCreditMetrics } from './credit.js';
-import { normalizeTrackType, transferSerializedUnits } from './productUnits.js';
+import { adjustSerializedUnits, normalizeTrackType, transferSerializedUnits } from './productUnits.js';
 
 function productQuery(productId) {
   const pid = String(productId || '');
@@ -57,6 +57,23 @@ async function applyWholesaleOperation(operation, actor) {
     const qty = Math.max(0, Number(item.qty || 0));
     if (qty <= 0) continue;
     if (operation.operationType === 'purchase' || operation.operationType === 'refund') {
+      if (normalizeTrackType(product.trackType) === 'serialized') {
+        if (!Array.isArray(item.serializedEntries) || item.serializedEntries.length !== qty) {
+          const err = new Error(`Serialized ${operation.operationType} for ${product.name} requires exactly ${qty} IMEI/serial entries`);
+          err.status = 400;
+          throw err;
+        }
+        await adjustSerializedUnits({
+          productId: item.productId,
+          variantId: item.variantId || '',
+          branchId: operation.branchId || operation.toBranchId,
+          inventoryType: operation.toInventoryType || operation.fromInventoryType || 'wholesale',
+          entries: item.serializedEntries,
+          mode: 'increase'
+        });
+        acceptedCount += 1;
+        continue;
+      }
       const target = getStockTarget(product, item.variantId, operation.toInventoryType || operation.fromInventoryType || 'wholesale');
       if (!target) {
         const err = new Error('Variant not found');
@@ -68,6 +85,39 @@ async function applyWholesaleOperation(operation, actor) {
       markInventoryModified(target);
       await product.save();
     } else if (operation.operationType === 'adjustment') {
+      if (normalizeTrackType(product.trackType) === 'serialized') {
+        if (String(item.adjustmentType || operation.adjustmentType || 'increase') === 'decrease') {
+          if (!Array.isArray(item.unitIds) || item.unitIds.length !== qty) {
+            const err = new Error(`Serialized adjustment decrease for ${product.name} requires exactly ${qty} selected unit(s)`);
+            err.status = 400;
+            throw err;
+          }
+          await adjustSerializedUnits({
+            productId: item.productId,
+            variantId: item.variantId || '',
+            branchId: operation.branchId || operation.fromBranchId,
+            inventoryType: operation.fromInventoryType || 'wholesale',
+            unitIds: item.unitIds,
+            mode: 'decrease'
+          });
+        } else {
+          if (!Array.isArray(item.serializedEntries) || item.serializedEntries.length !== qty) {
+            const err = new Error(`Serialized adjustment increase for ${product.name} requires exactly ${qty} IMEI/serial entries`);
+            err.status = 400;
+            throw err;
+          }
+          await adjustSerializedUnits({
+            productId: item.productId,
+            variantId: item.variantId || '',
+            branchId: operation.branchId || operation.fromBranchId,
+            inventoryType: operation.fromInventoryType || 'wholesale',
+            entries: item.serializedEntries,
+            mode: 'increase'
+          });
+        }
+        acceptedCount += 1;
+        continue;
+      }
       const target = getStockTarget(product, item.variantId, operation.fromInventoryType || 'wholesale');
       if (!target) {
         const err = new Error('Variant not found');

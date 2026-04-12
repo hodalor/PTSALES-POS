@@ -7,7 +7,7 @@ const ProductUnitSchema = new mongoose.Schema({
   serialNumber: { type: String, default: undefined, index: true, sparse: true, unique: true },
   inventoryType: { type: String, enum: ['retail', 'wholesale', 'warehouse'], default: 'retail', index: true },
   branchId: { type: String, required: true, index: true },
-  status: { type: String, enum: ['in_stock', 'reserved', 'sold', 'returned'], default: 'in_stock', index: true },
+  status: { type: String, enum: ['in_stock', 'reserved', 'sold', 'returned', 'adjusted_out'], default: 'in_stock', index: true },
   reservationToken: { type: String, default: '', index: true },
   reservedAt: { type: Date, default: null },
   soldAt: { type: Date, default: null },

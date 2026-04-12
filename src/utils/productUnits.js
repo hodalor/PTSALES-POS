@@ -280,3 +280,32 @@ export async function transferSerializedUnits({ productId, variantId = '', fromB
   await incrementSerializedStock(product, String(toBranchId), normalizeInventoryType(toInventoryType), String(variantId || ''), rows.length);
   return rows;
 }
+
+export async function adjustSerializedUnits({ productId, variantId = '', branchId, inventoryType = 'retail', unitIds = [], entries = [], mode = 'increase' }) {
+  const direction = String(mode || 'increase').toLowerCase() === 'decrease' ? 'decrease' : 'increase';
+  if (direction === 'increase') {
+    return createSerializedUnits({ productId, variantId, branchId, inventoryType, entries });
+  }
+  const product = await assertSerializedProduct(productId);
+  const rows = await ProductUnit.find({
+    _id: { $in: unitIds },
+    productId: String(product.id || product._id),
+    variantId: String(variantId || ''),
+    branchId: String(branchId),
+    inventoryType: normalizeInventoryType(inventoryType),
+    status: 'in_stock'
+  });
+  if (rows.length !== unitIds.length) {
+    const err = new Error('Some serialized units are unavailable for adjustment');
+    err.status = 400;
+    throw err;
+  }
+  for (const row of rows) {
+    row.status = 'adjusted_out';
+    row.reservationToken = '';
+    row.reservedAt = null;
+    await row.save();
+  }
+  await incrementSerializedStock(product, String(branchId), normalizeInventoryType(inventoryType), String(variantId || ''), -rows.length);
+  return { product, removed: rows };
+}

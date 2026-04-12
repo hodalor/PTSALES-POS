@@ -4,6 +4,7 @@ import Audit from '../models/Audit.js';
 import ServerLog from '../models/ServerLog.js';
 import { requireAuth, requireRoleOrPerm } from '../middleware/auth.js';
 import mongoose from 'mongoose';
+import { normalizeTrackType } from '../utils/productUnits.js';
 
 const r = Router();
 
@@ -45,6 +46,26 @@ async function adjustBaseStock(productId, branchId, delta) {
   return p;
 }
 
+async function findProduct(productId) {
+  const p = await Product.findOne(productLookupQuery(productId));
+  if (!p) {
+    const err = new Error('Product not found');
+    err.status = 404;
+    throw err;
+  }
+  return p;
+}
+
+async function assertNonSerializedStockMutation(productId) {
+  const p = await findProduct(productId);
+  if (normalizeTrackType(p.trackType) === 'serialized') {
+    const err = new Error('Serialized products cannot be changed by manual stock quantity endpoints. Use IMEI or serial unit actions instead.');
+    err.status = 400;
+    throw err;
+  }
+  return p;
+}
+
  async function adjustVariantStock(productId, variantId, branchId, delta) {
   const p = await Product.findOne(productLookupQuery(productId));
   if (!p) {
@@ -75,6 +96,7 @@ r.post('/adjust', requireRoleOrPerm(['Admin','Manager','Inventory Staff'], 'add_
   if (!Number.isFinite(Number(delta)) || Number(delta) === 0) return res.status(400).json({ error: 'Delta must be non-zero number' });
   let p;
   try {
+    await assertNonSerializedStockMutation(productId);
     if (variantId) {
       p = await adjustVariantStock(productId, variantId, branchId, delta);
     } else {
@@ -109,6 +131,7 @@ r.post('/damage-remove', requireRoleOrPerm(['Admin','Manager','Inventory Staff']
   if (!Number.isFinite(q) || q <= 0) return res.status(400).json({ error: 'Qty must be a positive number' });
   let p;
   try {
+    await assertNonSerializedStockMutation(productId);
     if (variantId) {
       p = await adjustVariantStock(productId, variantId, branchId, -q);
     } else {
@@ -143,6 +166,7 @@ r.post('/receive', requireRoleOrPerm(['Admin','Manager','Inventory Staff'], 'add
   if (!Number.isFinite(u) || u <= 0) return res.status(400).json({ error: 'baseUnits must be a positive number' });
   let p;
   try {
+    await assertNonSerializedStockMutation(productId);
     if (variantId) {
       p = await adjustVariantStock(productId, variantId, branchId, u);
     } else {
@@ -189,6 +213,7 @@ r.post('/transfer', requireRoleOrPerm(['Admin','Manager','Inventory Staff'], 'ad
   if (!Number.isFinite(q) || q <= 0) return res.status(400).json({ error: 'Qty must be a positive number' });
   let p;
   try {
+    await assertNonSerializedStockMutation(productId);
     if (variantId) {
       p = await adjustVariantStock(productId, variantId, from, -q);
       p = await adjustVariantStock(productId, variantId, to, q);
@@ -222,6 +247,9 @@ r.post('/set', requireRoleOrPerm(['Admin','Manager','Inventory Staff'], 'edit_in
   const { productId, branchId, quantity, actor, variantId, remark } = req.body || {};
   const p = await Product.findOne(productLookupQuery(productId));
   if (!p) return res.status(404).json({ error: 'Not found' });
+  if (normalizeTrackType(p.trackType) === 'serialized') {
+    return res.status(400).json({ error: 'Serialized products cannot be set by manual stock quantity. Use IMEI or serial unit actions instead.' });
+  }
   let current = 0;
   if (variantId) {
     const v = (Array.isArray(p.variants) ? p.variants.find(v => v.id === variantId) : null);
