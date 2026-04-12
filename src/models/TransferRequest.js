@@ -5,6 +5,7 @@ const TransferRequestItemSchema = new mongoose.Schema({
   productId: String,
   variantId: String,
   qty: Number,
+  unitIds: { type: [String], default: [] },
   remark: String,
   status: { type: String, enum: ['pending', 'accepted', 'cancelled'], default: 'pending' }
 }, { _id: false });

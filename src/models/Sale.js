@@ -8,7 +8,9 @@ const SaleItemSchema = new mongoose.Schema({
   spec: String,
   qty: Number,
   price: Number,
-  priceTier: { type: String, default: 'retail' }
+  priceTier: { type: String, default: 'retail' },
+  soldUnitIds: { type: [String], default: [] },
+  soldUnits: { type: [{ unitId: String, imei: String, serialNumber: String }], default: [] }
 }, { _id: false });
 
 const PaymentSchema = new mongoose.Schema({

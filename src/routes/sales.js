@@ -8,10 +8,12 @@ import Invoice from '../models/Invoice.js';
 import Branch from '../models/Branch.js';
 import Customer from '../models/Customer.js';
 import CreditSale from '../models/CreditSale.js';
+import ProductUnit from '../models/ProductUnit.js';
 import { requireAuth, requireRoleOrPerm } from '../middleware/auth.js';
 import mongoose from 'mongoose';
 import { getMapQty, getStockTarget, markInventoryModified, resolveTierPrice, setMapQty } from '../utils/inventory.js';
 import { refreshCreditSaleStatus, updateCustomerCreditMetrics } from '../utils/credit.js';
+import { normalizeTrackType, releaseSerializedUnits, sellSerializedUnits } from '../utils/productUnits.js';
 
 const r = Router();
 
@@ -51,6 +53,7 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
     productId: it.productId,
     variantId: it.variantId || null,
     qty: Math.abs(Number(it.qty) || 0),
+    soldUnitIds: Array.isArray(it.soldUnitIds) ? it.soldUnitIds.map(String).filter(Boolean) : [],
     sku: it.sku || '',
     name: it.name || '',
     spec: it.spec || '',
@@ -120,6 +123,7 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
   const touched = [];
   let costTotal = 0;
   const finalItems = [];
+  const touchedSerializedUnits = [];
   try {
     for (const it of cleaned) {
       const p = await Product.findOne(productLookupQuery(it.productId));
@@ -135,6 +139,33 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
         const err = new Error(`Variant not found for product ${p.name}`);
         err.status = 400;
         throw err;
+      }
+      if (normalizeTrackType(p.trackType) === 'serialized') {
+        if (it.soldUnitIds.length !== it.qty) {
+          const err = new Error(`Serialized product ${p.name} requires ${it.qty} unit selection(s)`);
+          err.status = 400;
+          throw err;
+        }
+        const rows = await ProductUnit.find({
+          _id: { $in: it.soldUnitIds },
+          productId: String(p.id || p._id),
+          variantId: String(it.variantId || ''),
+          branchId,
+          inventoryType
+        });
+        if (rows.length !== it.soldUnitIds.length) {
+          const err = new Error(`Some serialized units were not found for ${p.name}`);
+          err.status = 400;
+          throw err;
+        }
+        rows.forEach(row => {
+          if (row.status === 'sold') {
+            const err = new Error(`Serialized unit already sold: ${row.imei || row.serialNumber}`);
+            err.status = 409;
+            throw err;
+          }
+          touchedSerializedUnits.push(String(row._id));
+        });
       }
       const target = getStockTarget(p, it.variantId, inventoryType);
       if (!target) {
@@ -160,6 +191,7 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
         productId: it.productId,
         variantId: it.variantId || null,
         qty: it.qty,
+        soldUnitIds: it.soldUnitIds,
         sku: it.sku || variant?.sku || p.sku || '',
         name: it.name || (variant?.label ? `${p.name} (${variant.label})` : p.name),
         spec: it.spec || '',
@@ -288,6 +320,24 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
       loyaltyPointsRedeemed: redeemed,
       loyaltyDiscount: loyaltyDiscount
     });
+    if (touchedSerializedUnits.length > 0) {
+      const soldRows = await sellSerializedUnits({
+        unitIds: touchedSerializedUnits,
+        reservationToken: String(payload.reservationToken || ''),
+        saleId: String(sale._id)
+      });
+      const soldById = new Map(soldRows.map(row => [String(row._id), row]));
+      sale.items = sale.items.map(item => ({
+        ...(item?.toObject ? item.toObject() : item),
+        soldUnits: Array.isArray(item.soldUnitIds)
+          ? item.soldUnitIds.map(unitId => {
+              const row = soldById.get(String(unitId));
+              return row ? { unitId: String(row._id), imei: row.imei || '', serialNumber: row.serialNumber || '' } : null;
+            }).filter(Boolean)
+          : []
+      }));
+      await sale.save();
+    }
     if (creditPayload) {
       creditSale = await CreditSale.create({
         customer_id: customerId,
@@ -331,6 +381,9 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async
         setMapQty(t.target.container, t.branchId, t.prev);
         markInventoryModified(t.target);
         await t.target.product.save();
+      }
+      if (touchedSerializedUnits.length > 0) {
+        await releaseSerializedUnits({ unitIds: touchedSerializedUnits, reservationToken: String(payload.reservationToken || '') });
       }
     } catch {}
     return res.status(e?.status || 500).json({ error: e?.message || 'Failed to create sale' });

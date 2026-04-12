@@ -7,6 +7,7 @@ import WholesaleOperation from '../models/WholesaleOperation.js';
 import mongoose from 'mongoose';
 import { getMapQty, getStockTarget, markInventoryModified, setMapQty } from './inventory.js';
 import { refreshCreditSaleStatus, updateCustomerCreditMetrics } from './credit.js';
+import { normalizeTrackType, transferSerializedUnits } from './productUnits.js';
 
 function productQuery(productId) {
   const pid = String(productId || '');
@@ -35,6 +36,7 @@ async function applyWholesaleOperation(operation, actor) {
         productId: operation.productId,
         variantId: operation.variantId || '',
         qty: Number(operation.qty || 0),
+        unitIds: Array.isArray(operation.unitIds) ? operation.unitIds.map(String).filter(Boolean) : [],
         cost: Number(operation.cost || 0),
         requestedAmount: Number(operation.requestedAmount || 0),
         adjustmentType: operation.adjustmentType || 'increase',
@@ -84,6 +86,24 @@ async function applyWholesaleOperation(operation, actor) {
       markInventoryModified(target);
       await product.save();
     } else if (operation.operationType === 'transfer') {
+      if (normalizeTrackType(product.trackType) === 'serialized') {
+        if (!Array.isArray(item.unitIds) || item.unitIds.length !== qty) {
+          const err = new Error(`Serialized transfer for ${product.name} requires exactly ${qty} selected unit(s)`);
+          err.status = 400;
+          throw err;
+        }
+        await transferSerializedUnits({
+          productId: item.productId,
+          variantId: item.variantId || '',
+          fromBranchId: operation.fromBranchId,
+          toBranchId: operation.toBranchId,
+          fromInventoryType: operation.fromInventoryType || 'wholesale',
+          toInventoryType: operation.toInventoryType || 'wholesale',
+          unitIds: item.unitIds
+        });
+        acceptedCount += 1;
+        continue;
+      }
       const fromTarget = getStockTarget(product, item.variantId, operation.fromInventoryType || 'wholesale');
       const toTarget = getStockTarget(product, item.variantId, operation.toInventoryType || 'wholesale');
       if (!fromTarget || !toTarget) {

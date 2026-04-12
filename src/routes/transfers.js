@@ -5,6 +5,7 @@ import Product from '../models/Product.js';
 import Audit from '../models/Audit.js';
 import ServerLog from '../models/ServerLog.js';
 import { requireAuth, requireRoleOrPerm } from '../middleware/auth.js';
+import { normalizeTrackType, transferSerializedUnits } from '../utils/productUnits.js';
 
 const r = Router();
 r.use(requireAuth);
@@ -42,6 +43,7 @@ function normalizeItems(payload = {}) {
       productId: String(item.productId || ''),
       variantId: String(item.variantId || ''),
       qty: Number(item.qty || 0),
+      unitIds: Array.isArray(item.unitIds) ? item.unitIds.map(String).filter(Boolean) : [],
       remark: String(item.remark || ''),
       status: String(item.status || 'pending').toLowerCase() === 'cancelled' ? 'cancelled' : 'accepted'
     }))
@@ -120,6 +122,22 @@ r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_transfers'), 
       if (!Number.isFinite(q) || q <= 0) continue;
       const p = await Product.findOne(productLookupQuery(item.productId));
       if (!p) return res.status(404).json({ error: 'Product not found' });
+      if (normalizeTrackType(p.trackType) === 'serialized') {
+        if (!Array.isArray(item.unitIds) || item.unitIds.length !== q) {
+          return res.status(400).json({ error: `Serialized transfer for ${p.name} requires exactly ${q} selected unit(s)` });
+        }
+        await transferSerializedUnits({
+          productId: item.productId,
+          variantId: item.variantId || '',
+          fromBranchId: tr.from,
+          toBranchId: tr.to,
+          fromInventoryType: 'retail',
+          toInventoryType: 'retail',
+          unitIds: item.unitIds
+        });
+        lastProduct = p;
+        continue;
+      }
       if (item.variantId) {
         const variants = Array.isArray(p.variants) ? p.variants : [];
         const idx = variants.findIndex(v => v.id === item.variantId);

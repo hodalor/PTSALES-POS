@@ -27,6 +27,7 @@ const ProductSchema = new mongoose.Schema({
   id: { type: String, index: true },
   name: { type: String, required: true },
   sku: { type: String, required: true, unique: true },
+  trackType: { type: String, enum: ['quantity', 'serialized'], default: 'quantity', index: true },
   price: { type: Number, required: true, default: 0 },
   retailPrice: { type: Number, default: 0 },
   wholesalePrice: { type: Number, default: 0 },

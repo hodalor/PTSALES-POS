@@ -5,6 +5,7 @@ const WholesaleOperationItemSchema = new mongoose.Schema({
   productId: { type: String, required: true },
   variantId: { type: String, default: '' },
   qty: { type: Number, default: 0 },
+  unitIds: { type: [String], default: [] },
   cost: { type: Number, default: 0 },
   requestedAmount: { type: Number, default: 0 },
   adjustmentType: { type: String, enum: ['increase', 'decrease'], default: 'increase' },

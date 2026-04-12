@@ -4,6 +4,7 @@ import Audit from '../models/Audit.js';
 import ServerLog from '../models/ServerLog.js';
 import { requireAuth, requireAdmin, requireRole, requireRoleOrPerm } from '../middleware/auth.js';
 import mongoose from 'mongoose';
+import { normalizeTrackType } from '../utils/productUnits.js';
 
 const r = Router();
 
@@ -44,6 +45,7 @@ function normalizePricingPayload(body = {}) {
   if (hasNumber(out.agentPrice)) out.agentPrice = toNumberOrZero(out.agentPrice);
   else out.agentPrice = out.wholesalePrice;
   out.allowCredit = out.allowCredit !== false;
+  out.trackType = normalizeTrackType(out.trackType);
   out.minimumCreditPercentage = Math.max(0, Math.min(100, Number(out.minimumCreditPercentage || 0)));
   out.wholesaleStockByBranch = normalizeStockByBranch(out.wholesaleStockByBranch);
   out.warehouseStockByBranch = normalizeStockByBranch(out.warehouseStockByBranch);
@@ -106,6 +108,7 @@ r.get('/', async (req, res) => {
     obj.wholesalePrice = hasNumber(obj.wholesalePrice) ? toNumberOrZero(obj.wholesalePrice) : obj.retailPrice;
     obj.agentPrice = hasNumber(obj.agentPrice) ? toNumberOrZero(obj.agentPrice) : obj.wholesalePrice;
     obj.allowCredit = obj.allowCredit !== false;
+    obj.trackType = normalizeTrackType(obj.trackType);
     obj.minimumCreditPercentage = Math.max(0, Math.min(100, Number(obj.minimumCreditPercentage || 0)));
     if (Array.isArray(obj.variants)) {
       obj.variants = obj.variants.map((v, idx) => ({

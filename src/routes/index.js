@@ -20,6 +20,7 @@ import adjustments from './adjustments.js';
 import approvals from './approvals.js';
 import wholesale from './wholesale.js';
 import credits from './credits.js';
+import productUnits from './productUnits.js';
 
 const router = Router();
 router.use('/products', products);
@@ -43,5 +44,6 @@ router.use('/adjustments', adjustments);
 router.use('/approvals', approvals);
 router.use('/wholesale', wholesale);
 router.use('/credits', credits);
+router.use('/product-units', productUnits);
 
 export default router;

@@ -5,6 +5,7 @@ import Sale from '../models/Sale.js';
 import Product from '../models/Product.js';
 import { requireAuth, requireRole, requireRoleOrPerm } from '../middleware/auth.js';
 import mongoose from 'mongoose';
+import { returnSerializedUnits } from '../utils/productUnits.js';
 
 const r = Router();
 
@@ -136,6 +137,17 @@ r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_refunds'), as
             p.stockByBranch.set(bid, current + item.qty);
         }
         await p.save();
+      }
+      const saleItem = Array.isArray(saleRef?.items)
+        ? saleRef.items.find(saleRow => String(saleRow.productId || '') === String(item.productId || '') && String(saleRow.variantId || '') === String(variantId || ''))
+        : null;
+      if (Array.isArray(saleItem?.soldUnitIds) && saleItem.soldUnitIds.length > 0) {
+        await returnSerializedUnits({
+          unitIds: saleItem.soldUnitIds.slice(0, Math.max(0, Number(item.qty || 0))),
+          branchId: rfd.branchId,
+          inventoryType: saleRef.inventoryType || 'retail',
+          saleId: String(saleRef._id || '')
+        });
       }
     }
   }
