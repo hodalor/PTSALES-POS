@@ -1,6 +1,6 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { addProduct, updateProduct, removeProduct, setStock, addCategory } from '../store/productsSlice';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { formatCurrency } from '../utils/currency';
 import { addAudit } from '../store/auditSlice';
 import { useToast } from '../components/ToastProvider';
@@ -10,6 +10,7 @@ import * as productsApi from '../api/products';
 import * as stockApi from '../api/stock';
 import * as productUnitsApi from '../api/productUnits';
 import Modal from '../components/Modal';
+import BarcodeScannerModal from '../components/BarcodeScannerModal';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 
@@ -82,6 +83,9 @@ function ProductsPage() {
   const [serializedPageSize, setSerializedPageSize] = useState(25);
   const [serializedTotal, setSerializedTotal] = useState(0);
   const [serializedScanInput, setSerializedScanInput] = useState('');
+  const [serializedBatchMode, setSerializedBatchMode] = useState(true);
+  const [serializedCameraOpen, setSerializedCameraOpen] = useState(false);
+  const serializedScanInputRef = useRef(null);
   
   const [openStockFor, setOpenStockFor] = useState(null);
   const toast = useToast();
@@ -243,6 +247,11 @@ function ProductsPage() {
     if (!text) return;
     setSerializedEntriesText(prev => prev ? `${prev}\n${text}` : text);
     setSerializedScanInput('');
+    if (serializedBatchMode) {
+      setTimeout(() => {
+        try { serializedScanInputRef.current?.focus(); } catch {}
+      }, 0);
+    }
   }
 
   function copy(text) {
@@ -1291,7 +1300,16 @@ function ProductsPage() {
             <div style={{ color: '#64748b', fontSize: 12 }}>
               Enter one IMEI or serial per line. You can also use IMEI,SerialNumber on the same line.
             </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className={serializedBatchMode ? 'btn btn-primary' : 'btn'} onClick={() => { setSerializedBatchMode(v => !v); setTimeout(() => { try { serializedScanInputRef.current?.focus(); } catch {} }, 0); }}>
+                {serializedBatchMode ? 'Batch Mode On' : 'Batch Mode Off'}
+              </button>
+              <button className="btn" onClick={() => setSerializedCameraOpen(true)}>
+                Camera Scan
+              </button>
+            </div>
             <input
+              ref={serializedScanInputRef}
               className="input"
               autoFocus
               placeholder="Scan IMEI barcode or type and press Enter"
@@ -1353,6 +1371,15 @@ function ProductsPage() {
           </div>
         </Modal>
       )}
+      <BarcodeScannerModal
+        title="Scan IMEI Barcode"
+        open={serializedCameraOpen}
+        onClose={() => setSerializedCameraOpen(false)}
+        onDetected={(value) => {
+          appendSerializedEntry(value);
+          setSerializedCameraOpen(false);
+        }}
+      />
     </div>
   );
 }

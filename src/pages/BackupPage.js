@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useToast } from '../components/ToastProvider';
 import { attemptSync } from '../offline/queue';
@@ -7,6 +8,7 @@ import { syncQueuedItem } from '../offline/syncHandlers';
 import { ensureOnlineJwt } from '../offline/reAuth';
 import { refreshAllData } from '../offline/refreshAll';
 import { useDispatch } from 'react-redux';
+import { listImeiConflicts } from '../offline/imeiConflicts';
 
 function BackupPage() {
   const toast = useToast();
@@ -16,6 +18,7 @@ function BackupPage() {
   const [selected, setSelected] = useState('sales');
   const [loading, setLoading] = useState(false);
   const [itemsByCollection, setItemsByCollection] = useState(new Map());
+  const [imeiConflictCount, setImeiConflictCount] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -23,6 +26,7 @@ function BackupPage() {
       try {
         const map = await listQueuedByCollection();
         if (alive) setItemsByCollection(map);
+        if (alive) setImeiConflictCount(listImeiConflicts().length);
       } catch {
         if (alive) setItemsByCollection(new Map());
       }
@@ -111,6 +115,9 @@ function BackupPage() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <Link to="/imei-conflicts" className="btn" style={{ textDecoration: 'none' }}>
+            IMEI Conflicts{imeiConflictCount > 0 ? `: ${imeiConflictCount}` : ''}
+          </Link>
           <button className="btn btn-primary" onClick={onBackupNow} disabled={loading || !navigator.onLine || Number(summary?.total || 0) === 0}>
             {loading ? 'Backing up…' : 'Backup Now'}
           </button>

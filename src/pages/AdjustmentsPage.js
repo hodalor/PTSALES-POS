@@ -1,14 +1,16 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { adjustStock } from '../store/productsSlice';
 import { useToast } from '../components/ToastProvider';
 import BranchSelect from '../components/BranchSelect';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
 import * as adjustmentsApi from '../api/adjustments';
+import * as productUnitsApi from '../api/productUnits';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import Modal from '../components/Modal';
 import { promptDialog } from '../utils/dialogs';
+import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
 function AdjustmentsPage() {
   const products = useSelector(s => s.products.products);
@@ -21,6 +23,14 @@ function AdjustmentsPage() {
   const [variantId, setVariantId] = useState('');
   const [branchId, setBranchId] = useState(currentBranchId);
   const [delta, setDelta] = useState(0);
+  const [serializedAdjustmentMode, setSerializedAdjustmentMode] = useState('increase');
+  const [serializedEntriesText, setSerializedEntriesText] = useState('');
+  const [serializedScanInput, setSerializedScanInput] = useState('');
+  const [serializedBatchMode, setSerializedBatchMode] = useState(true);
+  const [serializedCameraOpen, setSerializedCameraOpen] = useState(false);
+  const [serializedUnits, setSerializedUnits] = useState([]);
+  const [serializedUnitsQuery, setSerializedUnitsQuery] = useState('');
+  const [serializedLoading, setSerializedLoading] = useState(false);
   const [remark, setRemark] = useState('');
   const [savingAdjust, setSavingAdjust] = useState(false);
   const [tab, setTab] = useState('initiate');
@@ -32,6 +42,7 @@ function AdjustmentsPage() {
   const [detail, setDetail] = useState(null);
   const dispatch = useDispatch();
   const toast = useToast();
+  const serializedScanInputRef = useRef(null);
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   useEffect(() => { setBranchId(currentBranchId); }, [currentBranchId]);
 
@@ -50,6 +61,12 @@ function AdjustmentsPage() {
   }
   const canAdjust = (['admin','manager','inventory staff'].includes(roleLower)) || has('add_adjustments');
   const canApprove = (['admin','manager','superadmin'].includes(roleLower)) || has('approve_adjustments');
+  const selectedProduct = useMemo(() => products.find(p => p.id === productId) || null, [productId, products]);
+  const selectedTrackType = String(selectedProduct?.trackType || 'quantity');
+  const serializedEntries = useMemo(() => String(serializedEntriesText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
+    const parts = line.split(/[,\t|]/).map(part => part.trim()).filter(Boolean);
+    return { imei: parts[0] || '', serialNumber: parts[1] || parts[0] || '' };
+  }), [serializedEntriesText]);
 
   const byId = useMemo(() => {
     const map = new Map();
@@ -86,6 +103,72 @@ function AdjustmentsPage() {
     }).slice().reverse();
   }, [baseRows, dateFrom, dateTo, fActor, fBranch]);
 
+  useEffect(() => {
+    if (selectedTrackType !== 'serialized') {
+      setSerializedUnits([]);
+      setSerializedUnitsQuery('');
+      return;
+    }
+    if (serializedAdjustmentMode === 'increase') {
+      setDelta(Math.max(0, serializedEntries.length));
+      return;
+    }
+    let alive = true;
+    async function run() {
+      if (!productId || !branchId) {
+        if (alive) setSerializedUnits([]);
+        return;
+      }
+      setSerializedLoading(true);
+      try {
+        const result = await productUnitsApi.listProductUnits({
+          productId,
+          variantId,
+          branchId,
+          inventoryType: 'retail',
+          status: 'in_stock',
+          query: serializedUnitsQuery,
+          pageSize: 50
+        });
+        if (!alive) return;
+        setSerializedUnits(prev => {
+          const selectedIds = new Set(prev.filter(unit => unit.selected).map(unit => unit._id));
+          const rows = (Array.isArray(result?.rows) ? result.rows : []).map(unit => ({ ...unit, selected: selectedIds.has(unit._id) }));
+          setDelta(-rows.filter(unit => unit.selected).length);
+          return rows;
+        });
+      } catch (e) {
+        if (!alive) return;
+        toast.show(String(e?.message || 'Failed to load serialized units'), { type: 'error' });
+        setSerializedUnits([]);
+      } finally {
+        if (alive) setSerializedLoading(false);
+      }
+    }
+    run();
+    return () => { alive = false; };
+  }, [branchId, productId, selectedTrackType, serializedAdjustmentMode, serializedEntries.length, serializedUnitsQuery, toast, variantId]);
+
+  function appendSerializedEntry(value) {
+    const text = String(value || '').trim();
+    if (!text) return;
+    const nextLines = String(serializedEntriesText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (nextLines.some(line => {
+      const first = line.split(/[,\t|]/).map(part => part.trim()).filter(Boolean)[0] || '';
+      return first === text;
+    })) {
+      toast.show('This IMEI is already in the entry list', { type: 'error' });
+      return;
+    }
+    setSerializedEntriesText(prev => prev ? `${prev}\n${text}` : text);
+    setSerializedScanInput('');
+    if (serializedBatchMode) {
+      setTimeout(() => {
+        try { serializedScanInputRef.current?.focus(); } catch {}
+      }, 0);
+    }
+  }
+
   function onExportCsv() {
     const headers = [
       { key: 'ts', label: 'Timestamp', value: r => new Date(r.ts).toLocaleString() },
@@ -119,7 +202,6 @@ function AdjustmentsPage() {
       toast.show('Not authorized to adjust stock', { type: 'error' });
       return;
     }
-    const selectedProduct = products.find(p => p.id === productId);
     const current = (() => {
       if (!selectedProduct) return 0;
       if (variantId) {
@@ -140,10 +222,27 @@ function AdjustmentsPage() {
       initiatorName: auth.user?.name || 'unknown',
       initiatorRole: auth.role || '',
       clientId,
-      items: nextItems || undefined
+      items: nextItems || (selectedTrackType === 'serialized' ? [{
+        lineId: '1',
+        productId,
+        variantId: variantId || '',
+        delta: Number(delta),
+        unitIds: serializedAdjustmentMode === 'decrease' ? serializedUnits.filter(unit => unit.selected).map(unit => unit._id) : [],
+        serializedEntries: serializedAdjustmentMode === 'increase' ? serializedEntries : [],
+        remark: remark.trim(),
+        status: 'accepted'
+      }] : undefined)
     };
     if (!nextItems && (!productId || !branchId || delta === 0)) {
       toast.show('Select product/branch and enter non-zero delta', { type: 'error' });
+      return;
+    }
+    if (!nextItems && selectedTrackType === 'serialized' && serializedAdjustmentMode === 'increase' && serializedEntries.length <= 0) {
+      toast.show('Scan or enter IMEI numbers to add serialized stock', { type: 'error' });
+      return;
+    }
+    if (!nextItems && selectedTrackType === 'serialized' && serializedAdjustmentMode === 'decrease' && serializedUnits.filter(unit => unit.selected).length <= 0) {
+      toast.show('Select serialized units to remove', { type: 'error' });
       return;
     }
     if (!nextItems && Number(delta) < 0) {
@@ -181,9 +280,13 @@ function AdjustmentsPage() {
       }
     }
     setDelta(0);
+    setSerializedAdjustmentMode('increase');
     setVariantId('');
     setRemark('');
     setItems([]);
+    setSerializedEntriesText('');
+    setSerializedScanInput('');
+    setSerializedUnits([]);
     toast.show(navigator.onLine ? 'Adjustment request submitted for approval' : 'Saved offline. Will sync when online.', { type: 'success' });
     setSavingAdjust(false);
   }
@@ -193,17 +296,31 @@ function AdjustmentsPage() {
       toast.show('Select product/branch and enter non-zero delta', { type: 'error' });
       return;
     }
+    if (selectedTrackType === 'serialized' && serializedAdjustmentMode === 'increase' && serializedEntries.length <= 0) {
+      toast.show('Scan or enter IMEI numbers to add serialized stock', { type: 'error' });
+      return;
+    }
+    if (selectedTrackType === 'serialized' && serializedAdjustmentMode === 'decrease' && serializedUnits.filter(unit => unit.selected).length <= 0) {
+      toast.show('Select serialized units to remove', { type: 'error' });
+      return;
+    }
     setItems(prev => [...prev, {
       lineId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
       productId,
       variantId: variantId || '',
       delta: Number(delta),
+      unitIds: selectedTrackType === 'serialized' && serializedAdjustmentMode === 'decrease' ? serializedUnits.filter(unit => unit.selected).map(unit => unit._id) : [],
+      serializedEntries: selectedTrackType === 'serialized' && serializedAdjustmentMode === 'increase' ? serializedEntries : [],
       remark: remark.trim(),
       status: 'accepted'
     }]);
     setDelta(0);
+    setSerializedAdjustmentMode('increase');
     setVariantId('');
     setRemark('');
+    setSerializedEntriesText('');
+    setSerializedScanInput('');
+    setSerializedUnits([]);
   }
 
   function removeItem(lineId) {
@@ -263,8 +380,86 @@ function AdjustmentsPage() {
             </label>
             <label>
               <div style={{ marginBottom: 6, color: '#64748b' }}>Delta (+/-)</div>
-              <input className="input" type="number" value={delta} onChange={e => setDelta(Number(e.target.value))} placeholder="Delta (+/-)" />
+              <input className="input" type="number" value={delta} onChange={e => setDelta(Number(e.target.value))} placeholder="Delta (+/-)" disabled={selectedTrackType === 'serialized'} />
             </label>
+            {selectedTrackType === 'serialized' && (
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button type="button" className={serializedAdjustmentMode === 'increase' ? 'btn btn-primary' : 'btn'} onClick={() => { setSerializedAdjustmentMode('increase'); setSerializedUnits([]); }}>
+                    Add Units
+                  </button>
+                  <button type="button" className={serializedAdjustmentMode === 'decrease' ? 'btn btn-primary' : 'btn'} onClick={() => { setSerializedAdjustmentMode('decrease'); setSerializedEntriesText(''); setSerializedScanInput(''); }}>
+                    Remove Units
+                  </button>
+                </div>
+                {serializedAdjustmentMode === 'increase' ? (
+                  <>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button type="button" className={serializedBatchMode ? 'btn btn-primary' : 'btn'} onClick={() => { setSerializedBatchMode(v => !v); setTimeout(() => { try { serializedScanInputRef.current?.focus(); } catch {} }, 0); }}>
+                        {serializedBatchMode ? 'Batch Mode On' : 'Batch Mode Off'}
+                      </button>
+                      <button type="button" className="btn" onClick={() => setSerializedCameraOpen(true)}>
+                        Camera Scan
+                      </button>
+                    </div>
+                    <input
+                      ref={serializedScanInputRef}
+                      className="input"
+                      autoFocus
+                      placeholder="Scan IMEI barcode or type and press Enter"
+                      value={serializedScanInput}
+                      onChange={e => setSerializedScanInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          appendSerializedEntry(serializedScanInput);
+                        }
+                      }}
+                      style={{ color: '#111827', background: '#ffffff' }}
+                    />
+                    <textarea className="input" rows={6} value={serializedEntriesText} onChange={e => setSerializedEntriesText(e.target.value)} placeholder={'One per line\nIMEI123456789\nIMEI987654321,SN-0002'} style={{ color: '#111827', background: '#ffffff' }} />
+                    <div style={{ color: '#64748b', fontSize: 12 }}>Delta updates automatically from scanned/entered IMEI values. Current entries: {serializedEntries.length}</div>
+                  </>
+                ) : (
+                  <>
+                    <input className="input" placeholder="Search IMEI or serial number" value={serializedUnitsQuery} onChange={e => setSerializedUnitsQuery(e.target.value)} style={{ color: '#111827', background: '#ffffff' }} />
+                    <div style={{ color: '#64748b', fontSize: 12 }}>Selected: {serializedUnits.filter(unit => unit.selected).length}</div>
+                    <div style={{ overflowX: 'auto', maxHeight: 260 }}>
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th align="left"></th>
+                            <th align="left">IMEI</th>
+                            <th align="left">Serial</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {serializedUnits.map(unit => (
+                            <tr key={unit._id}>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  checked={!!unit.selected}
+                                  onChange={e => setSerializedUnits(prev => {
+                                    const next = prev.map(row => row._id === unit._id ? { ...row, selected: e.target.checked } : row);
+                                    setDelta(-next.filter(row => row.selected).length);
+                                    return next;
+                                  })}
+                                />
+                              </td>
+                              <td style={{ color: '#111827' }}>{unit.imei || '—'}</td>
+                              <td style={{ color: '#111827' }}>{unit.serialNumber || '—'}</td>
+                            </tr>
+                          ))}
+                          {!serializedLoading && serializedUnits.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No available serialized units</td></tr>}
+                          {serializedLoading && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>Loading serialized units…</td></tr>}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             <label style={{ gridColumn: '1 / -1' }}>
               <div style={{ marginBottom: 6, color: '#64748b' }}>Remark (required)</div>
               <input className="input" value={remark} onChange={e => setRemark(e.target.value)} placeholder="Reason or note" />
@@ -277,6 +472,7 @@ function AdjustmentsPage() {
                 <tr>
                   <th align="left">Product</th>
                   <th align="left">Delta</th>
+                  <th align="left">Units</th>
                   <th align="left"></th>
                 </tr>
               </thead>
@@ -287,16 +483,26 @@ function AdjustmentsPage() {
                     <tr key={item.lineId}>
                       <td>{product?.name || item.productId}</td>
                       <td>{item.delta}</td>
+                      <td>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—')}</td>
                       <td><button className="btn" onClick={() => removeItem(item.lineId)}>Remove</button></td>
                     </tr>
                   );
                 })}
-                {items.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No items added yet. You can still submit a single item.</td></tr>}
+                {items.length === 0 && <tr><td colSpan="4" style={{ padding: 12, color: '#64748b' }}>No items added yet. You can still submit a single item.</td></tr>}
               </tbody>
             </table>
           </div>
         </Modal>
       )}
+      <BarcodeScannerModal
+        title="Scan IMEI Barcode"
+        open={serializedCameraOpen}
+        onClose={() => setSerializedCameraOpen(false)}
+        onDetected={(value) => {
+          appendSerializedEntry(value);
+          setSerializedCameraOpen(false);
+        }}
+      />
       {tab === 'approvals' && (
         <ApprovalsSection
           canApprove={canApprove}
@@ -423,7 +629,7 @@ function ApprovalsSection({ canApprove, statusFilter, setStatusFilter, loading, 
       }
     })();
     return () => { alive = false; };
-  }, [statusFilter, setLoading, reloadAt]);
+  }, [statusFilter, setLoading, reloadAt, toast]);
   async function approve(r) {
     if (!canApprove) { toast.show('Not authorized to approve adjustments', { type: 'error' }); return; }
     const id = r._id || r.clientId;
@@ -536,6 +742,7 @@ function RequestDetail({ detail, products, byId }) {
               <tr>
                 <th align="left">Product</th>
                 <th align="left">Delta</th>
+                <th align="left">Units</th>
                 <th align="left">Status</th>
               </tr>
             </thead>
@@ -546,6 +753,7 @@ function RequestDetail({ detail, products, byId }) {
                   <tr key={item.lineId || index}>
                     <td>{product?.name || item.productId}</td>
                     <td>{item.delta}</td>
+                    <td>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—')}</td>
                     <td>{item.status || 'accepted'}</td>
                   </tr>
                 );

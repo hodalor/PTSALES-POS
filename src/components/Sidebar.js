@@ -409,17 +409,23 @@ function Sidebar({ collapsed }) {
         </NavLink>
         )}
         {isFeatureEnabled(settings, 'modules.backup') && can(['Admin','Manager','SuperAdmin'], null) && (
-        <NavLink to="/backup" className="sidebar-link" title="Backup" style={{ display: 'flex', alignItems: 'center' }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-            <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16v10H4V7z" stroke="currentColor" strokeWidth="2"/><path d="M8 11h8" stroke="currentColor" strokeWidth="2"/></svg>
-            <span className="sidebar-text">Backup</span>
-          </span>
-          {Number(offlineTotal || 0) > 0 && (
-            <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
-              {Number(offlineTotal || 0)}
+        <>
+          <NavLink to="/backup" className="sidebar-link" title="Backup" style={{ display: 'flex', alignItems: 'center' }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+              <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16v10H4V7z" stroke="currentColor" strokeWidth="2"/><path d="M8 11h8" stroke="currentColor" strokeWidth="2"/></svg>
+              <span className="sidebar-text">Backup</span>
             </span>
-          )}
-        </NavLink>
+            {Number(offlineTotal || 0) > 0 && (
+              <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+                {Number(offlineTotal || 0)}
+              </span>
+            )}
+          </NavLink>
+          <NavLink to="/imei-conflicts" className="sidebar-link" title="IMEI Conflicts">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 9v4M12 17h.01M5 20h14L12 4 5 20z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <span className="sidebar-text">IMEI Conflicts</span>
+          </NavLink>
+        </>
         )}
         <AdminGroup />
       </nav>

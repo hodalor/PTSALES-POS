@@ -64,6 +64,7 @@ import ExpensesPage from './pages/ExpensesPage';
 import ExpenseApprovalsPage from './pages/ExpenseApprovalsPage';
 import GodHandPage from './pages/GodHandPage';
 import BackupPage from './pages/BackupPage';
+import ImeiConflictsPage from './pages/ImeiConflictsPage';
 import InvoicesPage from './pages/InvoicesPage';
 import * as authApi from './api/auth';
 import { loginSuccess, setGrants, setInitialized, logout } from './store/authSlice';
@@ -455,6 +456,7 @@ function App() {
             <Route path="/labels" element={<ProtectedRoute feature="modules.labels" roles={['Admin','Manager','Inventory Staff']} grant={['view_labels','see_labels']}><LabelsPage /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute feature="modules.reports" roles={['Admin','Manager','Auditor']} grant={['view_reports','see_reports']}><ReportsPage /></ProtectedRoute>} />
             <Route path="/backup" element={<ProtectedRoute feature="modules.backup" roles={['Admin','Manager','SuperAdmin']}><BackupPage /></ProtectedRoute>} />
+            <Route path="/imei-conflicts" element={<ProtectedRoute feature="modules.backup" roles={['Admin','Manager','SuperAdmin']}><ImeiConflictsPage /></ProtectedRoute>} />
             <Route path="/customers" element={<ProtectedRoute feature="modules.customers" roles={['Admin','Manager','Cashier']} grant={['view_customers','see_customers']}><CustomersPage /></ProtectedRoute>} />
             <Route path="/credit-control" element={<ProtectedRoute feature="modules.creditControl" roles={['Admin','Manager','Cashier']} grant={['view_credit_control']}><CreditControlPage /></ProtectedRoute>} />
             <Route path="/easybuy/good-clients" element={<ProtectedRoute feature="modules.creditControl" roles={['Admin','Manager','Cashier']} grant={['view_credit_control']}><EasyBuyGoodClientsPage /></ProtectedRoute>} />

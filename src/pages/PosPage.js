@@ -8,7 +8,7 @@ import { buildBrandedReceiptHtml, printReceiptHtml } from '../utils/print';
 import { escposReceipt, escposOpenDrawer, downloadText } from '../utils/escpos';
 import { useToast } from '../components/ToastProvider';
 import { formatCurrency } from '../utils/currency';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { addAudit } from '../store/auditSlice';
 import { productSpec } from '../utils/productSpec';
 import { createSale } from '../api/sales';
@@ -18,6 +18,7 @@ import { confirmDialog, promptDialog } from '../utils/dialogs';
 import { isFeatureEnabled } from '../utils/featureFlags';
 import * as productUnitsApi from '../api/productUnits';
 import Modal from '../components/Modal';
+import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
 function PosPage({ mode = 'retail' }) {
   const cart = useSelector(state => state.cart);
@@ -49,6 +50,8 @@ function PosPage({ mode = 'retail' }) {
   const [serializedUnitsPageSize, setSerializedUnitsPageSize] = useState(25);
   const [serializedUnitsTotal, setSerializedUnitsTotal] = useState(0);
   const [serializedScanInput, setSerializedScanInput] = useState('');
+  const [serializedCameraOpen, setSerializedCameraOpen] = useState(false);
+  const serializedScanInputRef = useRef(null);
   const [saving, setSaving] = useState(false);
   const [customerQuery, setCustomerQuery] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -1046,6 +1049,7 @@ function PosPage({ mode = 'retail' }) {
           >
             <div style={{ display: 'grid', gap: 12 }}>
               <input
+                ref={serializedScanInputRef}
                 className="input"
                 autoFocus
                 placeholder="Scan IMEI barcode or type and press Enter"
@@ -1059,6 +1063,9 @@ function PosPage({ mode = 'retail' }) {
                 }}
                 style={{ color: '#111827', background: '#ffffff' }}
               />
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn" onClick={() => setSerializedCameraOpen(true)}>Camera Scan</button>
+              </div>
               <input
                 className="input"
                 placeholder="Search existing units"
@@ -1111,6 +1118,18 @@ function PosPage({ mode = 'retail' }) {
             </div>
           </Modal>
         )}
+        <BarcodeScannerModal
+          title="Scan IMEI Barcode"
+          open={serializedCameraOpen}
+          onClose={() => setSerializedCameraOpen(false)}
+          onDetected={async (value) => {
+            setSerializedCameraOpen(false);
+            setSerializedScanInput(value);
+            if (serializedPickerProduct) {
+              await addSerializedUnitToCart(serializedPickerProduct, { imei: value, serialNumber: value });
+            }
+          }}
+        />
       </div>
     </div>
   );

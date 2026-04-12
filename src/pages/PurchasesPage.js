@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { adjustStock } from '../store/productsSlice';
 import { useToast } from '../components/ToastProvider';
 import BranchSelect from '../components/BranchSelect';
@@ -12,6 +12,7 @@ import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import { approvePurchase, createPurchaseRequest, rejectPurchase } from '../store/purchasesSlice';
 import Modal from '../components/Modal';
+import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
 function PurchasesPage() {
   const products = useSelector(s => s.products.products);
@@ -30,6 +31,9 @@ function PurchasesPage() {
   const [expiryDate, setExpiryDate] = useState('');
   const [note, setNote] = useState('');
   const [serializedEntriesText, setSerializedEntriesText] = useState('');
+  const [serializedScanInput, setSerializedScanInput] = useState('');
+  const [serializedBatchMode, setSerializedBatchMode] = useState(true);
+  const [serializedCameraOpen, setSerializedCameraOpen] = useState(false);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [fActor, setFActor] = useState('');
@@ -46,6 +50,7 @@ function PurchasesPage() {
   const [busyId, setBusyId] = useState(null);
   const dispatch = useDispatch();
   const toast = useToast();
+  const serializedScanInputRef = useRef(null);
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const [auditDetail, setAuditDetail] = useState(null);
   useEffect(() => { setBranchId(currentBranchId); }, [currentBranchId]);
@@ -58,6 +63,10 @@ function PurchasesPage() {
   }, [branches]);
   const selectedProduct = useMemo(() => products.find(p => p.id === productId) || null, [productId, products]);
   const selectedTrackType = String(selectedProduct?.trackType || 'quantity');
+  const serializedEntries = useMemo(() => String(serializedEntriesText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
+    const parts = line.split(/[,\t|]/).map(part => part.trim()).filter(Boolean);
+    return { imei: parts[0] || '', serialNumber: parts[1] || parts[0] || '' };
+  }), [serializedEntriesText]);
   const roleLower = String(auth.role || '').toLowerCase();
   const grants = Array.isArray(auth.grants) ? auth.grants : [];
   function has(g) {
@@ -86,6 +95,33 @@ function PurchasesPage() {
       return true;
     }).slice().reverse();
   }, [basePurchases, dateFrom, dateTo, fActor, fBranch]);
+
+  useEffect(() => {
+    if (selectedTrackType === 'serialized') {
+      setPackName('');
+      setQty(Math.max(0, serializedEntries.length));
+    }
+  }, [selectedTrackType, serializedEntries.length]);
+
+  function appendSerializedEntry(value) {
+    const text = String(value || '').trim();
+    if (!text) return;
+    const nextLines = String(serializedEntriesText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (nextLines.some(line => {
+      const first = line.split(/[,\t|]/).map(part => part.trim()).filter(Boolean)[0] || '';
+      return first === text;
+    })) {
+      toast.show('This IMEI is already in the entry list', { type: 'error' });
+      return;
+    }
+    setSerializedEntriesText(prev => prev ? `${prev}\n${text}` : text);
+    setSerializedScanInput('');
+    if (serializedBatchMode) {
+      setTimeout(() => {
+        try { serializedScanInputRef.current?.focus(); } catch {}
+      }, 0);
+    }
+  }
 
   function onExportCsv() {
     const headers = [
@@ -131,19 +167,15 @@ function PurchasesPage() {
       }
     }
     const nextItems = items.length > 0 ? items : null;
-    if (!nextItems && (!productId || !branchId || qty <= 0)) {
+    if (!nextItems && (!productId || !branchId || (selectedTrackType === 'serialized' ? serializedEntries.length <= 0 : qty <= 0))) {
       toast.show('Select product/branch and quantity', { type: 'error' });
       return;
     }
     const price = Number(cost) || 0;
     const prod = products.find(p => p.id === productId);
     const pack = (prod?.packs || []).find(pk => pk.name === packName);
-    const factor = pack ? Number(pack.quantity) || 1 : 1;
-    const baseUnits = Number(qty) * factor;
-    const serializedEntries = String(serializedEntriesText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
-      const parts = line.split(/[,\t|]/).map(part => part.trim()).filter(Boolean);
-      return { imei: parts[0] || '', serialNumber: parts[1] || parts[0] || '' };
-    });
+    const factor = selectedTrackType === 'serialized' ? 1 : (pack ? Number(pack.quantity) || 1 : 1);
+    const baseUnits = selectedTrackType === 'serialized' ? serializedEntries.length : Number(qty) * factor;
     if (!nextItems && selectedTrackType === 'serialized' && serializedEntries.length !== baseUnits) {
       toast.show(`Enter exactly ${baseUnits} IMEI/serial entries`, { type: 'error' });
       setSaving(false);
@@ -163,7 +195,7 @@ function PurchasesPage() {
       expiryDate: expiryDate || undefined,
       remark: note.trim() || '',
       variantId: nextItems ? (nextItems[0]?.variantId || undefined) : (variantId || undefined),
-      pack: pack ? pack.name : '',
+      pack: selectedTrackType === 'serialized' ? '' : (pack ? pack.name : ''),
       initiatorName: auth.user?.name || 'unknown',
       initiatorRole: auth.role || '',
       clientId,
@@ -211,7 +243,7 @@ function PurchasesPage() {
       remark: note.trim() || '',
       initiatorName: auth.user?.name || 'unknown',
       initiatorRole: auth.role || '',
-      pack: pack ? pack.name : '',
+      pack: selectedTrackType === 'serialized' ? '' : (pack ? pack.name : ''),
       status: 'pending_approval',
       clientId,
       created_at: new Date().toISOString(),
@@ -233,7 +265,7 @@ function PurchasesPage() {
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
       actionType: 'purchase_initiated',
-      details: { product: prod?.name || productId, variant: (prod?.variants || []).find(v => v.id === variantId)?.label || '', qty: Number(qty), pack: pack ? pack.name : 'Base Unit', factor, baseUnits, branchId, supplier: supplier.trim() || '', cost: price, costPerUnit: cpu, expiryDate: expiryDate || null },
+      details: { product: prod?.name || productId, variant: (prod?.variants || []).find(v => v.id === variantId)?.label || '', qty: selectedTrackType === 'serialized' ? serializedEntries.length : Number(qty), pack: selectedTrackType === 'serialized' ? 'Serialized Units' : (pack ? pack.name : 'Base Unit'), factor, baseUnits, branchId, supplier: supplier.trim() || '', cost: price, costPerUnit: cpu, expiryDate: expiryDate || null },
       remark: note.trim() || '',
       branchId,
       offline: !navigator.onLine
@@ -246,25 +278,22 @@ function PurchasesPage() {
     setExpiryDate('');
     setNote('');
     setSerializedEntriesText('');
+    setSerializedScanInput('');
     setItems([]);
     toast.show(navigator.onLine ? 'Purchase request submitted for approval' : 'Saved offline. Will sync when online.', { type: 'success' });
     setSaving(false);
   }
 
   function addCurrentItem() {
-    if (!productId || !branchId || qty <= 0) {
+    if (!productId || !branchId || (selectedTrackType === 'serialized' ? serializedEntries.length <= 0 : qty <= 0)) {
       toast.show('Select product/branch and quantity', { type: 'error' });
       return;
     }
     const price = Number(cost) || 0;
     const prod = products.find(p => p.id === productId);
     const pack = (prod?.packs || []).find(pk => pk.name === packName);
-    const factor = pack ? Number(pack.quantity) || 1 : 1;
-    const baseUnits = Number(qty) * factor;
-    const serializedEntries = String(serializedEntriesText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
-      const parts = line.split(/[,\t|]/).map(part => part.trim()).filter(Boolean);
-      return { imei: parts[0] || '', serialNumber: parts[1] || parts[0] || '' };
-    });
+    const factor = selectedTrackType === 'serialized' ? 1 : (pack ? Number(pack.quantity) || 1 : 1);
+    const baseUnits = selectedTrackType === 'serialized' ? serializedEntries.length : Number(qty) * factor;
     if (selectedTrackType === 'serialized' && serializedEntries.length !== baseUnits) {
       toast.show(`Enter exactly ${baseUnits} IMEI/serial entries`, { type: 'error' });
       return;
@@ -276,7 +305,7 @@ function PurchasesPage() {
       variantId: variantId || '',
       baseUnits,
       serializedEntries,
-      pack: pack ? pack.name : '',
+      pack: selectedTrackType === 'serialized' ? '' : (pack ? pack.name : ''),
       supplier: supplier.trim() || '',
       cost: price,
       costPerUnit: cpu,
@@ -292,6 +321,7 @@ function PurchasesPage() {
     setExpiryDate('');
     setNote('');
     setSerializedEntriesText('');
+    setSerializedScanInput('');
   }
 
   function removeItem(lineId) {
@@ -424,7 +454,7 @@ function PurchasesPage() {
             )}
             <label>
               <div style={{ marginBottom: 6, color: '#64748b' }}>Pack</div>
-              <select className="select" value={packName} onChange={e => setPackName(e.target.value)}>
+              <select className="select" value={packName} onChange={e => setPackName(e.target.value)} disabled={selectedTrackType === 'serialized'}>
                 <option value="">Base Unit</option>
                 {(products.find(p => p.id === productId)?.packs || []).map(pk => (
                   <option key={pk.name} value={pk.name}>{pk.name} = {pk.quantity} units</option>
@@ -433,18 +463,37 @@ function PurchasesPage() {
             </label>
             <label>
               <div style={{ marginBottom: 6, color: '#64748b' }}>Quantity</div>
-              <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} />
+              <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} disabled={selectedTrackType === 'serialized'} />
             </label>
             {selectedTrackType === 'serialized' && (
               <label style={{ gridColumn: '1 / -1' }}>
                 <div style={{ marginBottom: 6, color: '#64748b' }}>IMEI / Serial Numbers</div>
-                <textarea className="input" rows={6} value={serializedEntriesText} onChange={e => setSerializedEntriesText(e.target.value)} placeholder={'One per line\nIMEI123456789\nIMEI987654321,SN-0002'} />
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <button type="button" className={serializedBatchMode ? 'btn btn-primary' : 'btn'} onClick={() => { setSerializedBatchMode(v => !v); setTimeout(() => { try { serializedScanInputRef.current?.focus(); } catch {} }, 0); }}>
+                    {serializedBatchMode ? 'Batch Mode On' : 'Batch Mode Off'}
+                  </button>
+                  <button type="button" className="btn" onClick={() => setSerializedCameraOpen(true)}>
+                    Camera Scan
+                  </button>
+                </div>
+                <input
+                  ref={serializedScanInputRef}
+                  className="input"
+                  autoFocus
+                  placeholder="Scan IMEI barcode or type and press Enter"
+                  value={serializedScanInput}
+                  onChange={e => setSerializedScanInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      appendSerializedEntry(serializedScanInput);
+                    }
+                  }}
+                  style={{ marginBottom: 8, color: '#111827', background: '#ffffff' }}
+                />
+                <textarea className="input" rows={6} value={serializedEntriesText} onChange={e => setSerializedEntriesText(e.target.value)} placeholder={'One per line\nIMEI123456789\nIMEI987654321,SN-0002'} style={{ color: '#111827', background: '#ffffff' }} />
                 <div style={{ marginTop: 4, color: '#94a3b8', fontSize: 12 }}>
-                  Enter one unit per line. Selected pack/quantity currently requires {(() => {
-                    const pack = (selectedProduct?.packs || []).find(pk => pk.name === packName);
-                    const factor = pack ? Number(pack.quantity) || 1 : 1;
-                    return Number(qty || 0) * factor;
-                  })()} entry(s).
+                  Enter one unit per line. Quantity updates automatically from scanned/entered IMEI values. Current entries: {serializedEntries.length}.
                 </div>
               </label>
             )}
@@ -497,6 +546,15 @@ function PurchasesPage() {
           </div>
         </Modal>
       )}
+      <BarcodeScannerModal
+        title="Scan IMEI Barcode"
+        open={serializedCameraOpen}
+        onClose={() => setSerializedCameraOpen(false)}
+        onDetected={(value) => {
+          appendSerializedEntry(value);
+          setSerializedCameraOpen(false);
+        }}
+      />
       {tab === 'approvals' && (
         <div className="card" style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

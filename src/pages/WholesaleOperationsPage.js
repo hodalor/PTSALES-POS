@@ -7,6 +7,7 @@ import * as productUnitsApi from '../api/productUnits';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import Modal from '../components/Modal';
+import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
 function labelForArea(area, op) {
   const prefix = String(area || 'wholesale').toLowerCase() === 'warehouse' ? 'Warehouse' : 'Wholesale';
@@ -55,6 +56,10 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
   const [serializedUnits, setSerializedUnits] = useState([]);
   const [serializedUnitsQuery, setSerializedUnitsQuery] = useState('');
   const [serializedLoading, setSerializedLoading] = useState(false);
+  const [serializedEntriesText, setSerializedEntriesText] = useState('');
+  const [serializedScanInput, setSerializedScanInput] = useState('');
+  const [serializedBatchMode, setSerializedBatchMode] = useState(true);
+  const [serializedCameraOpen, setSerializedCameraOpen] = useState(false);
 
   const [productId, setProductId] = useState(products[0]?.id || '');
   const [variantId, setVariantId] = useState('');
@@ -82,6 +87,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
   const canManagerApprove = roleLower === 'superadmin' || roleLower === 'admin' || roleLower === 'manager' || grants.includes('approve_wholesale_manager') || grants.includes('approve_credit_manager');
   const defaultBranchIdRef = useRef(currentBranchId || scopedBranchOptions[0]?.id || branchOptions[0]?.id || '');
   const defaultTransferToBranchIdRef = useRef(branchOptions.find(branch => branch.id !== (currentBranchId || branchOptions[0]?.id))?.id || branchOptions[0]?.id || '');
+  const serializedScanInputRef = useRef(null);
   const transferFromBranchOptions = useMemo(
     () => branchOptions.filter(branch => String(branch.branchType || 'retail').toLowerCase() === String(fromInventoryType || normalizedArea).toLowerCase()),
     [branchOptions, fromInventoryType, normalizedArea]
@@ -90,10 +96,21 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
     () => branchOptions.filter(branch => String(branch.branchType || 'retail').toLowerCase() === String(toInventoryType || normalizedArea).toLowerCase()),
     [branchOptions, toInventoryType, normalizedArea]
   );
+  const serializedEntries = useMemo(() => String(serializedEntriesText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
+    const parts = line.split(/[,\t|]/).map(part => part.trim()).filter(Boolean);
+    return { imei: parts[0] || '', serialNumber: parts[1] || parts[0] || '' };
+  }), [serializedEntriesText]);
+  const usesSerializedSelection = selectedTrackType === 'serialized' && (operationType === 'transfer' || (operationType === 'adjustment' && adjustmentType === 'decrease'));
 
   useEffect(() => {
     if (!productId && products[0]?.id) setProductId(products[0].id);
   }, [productId, products]);
+
+  useEffect(() => {
+    if (selectedTrackType === 'serialized' && !usesSerializedSelection) {
+      setQty(Math.max(0, serializedEntries.length));
+    }
+  }, [selectedTrackType, serializedEntries.length, usesSerializedSelection]);
 
   useEffect(() => {
     defaultBranchIdRef.current = currentBranchId || scopedBranchOptions[0]?.id || branchOptions[0]?.id || '';
@@ -146,7 +163,8 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
 
   useEffect(() => {
     async function run() {
-      if (operationType !== 'transfer' || selectedTrackType !== 'serialized' || !productId || !fromBranchId) {
+      const shouldLoad = selectedTrackType === 'serialized' && (operationType === 'transfer' || (operationType === 'adjustment' && adjustmentType === 'decrease'));
+      if (!shouldLoad || !productId || !(operationType === 'transfer' ? fromBranchId : branchId)) {
         setSerializedUnits([]);
         return;
       }
@@ -155,8 +173,8 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
         const result = await productUnitsApi.listProductUnits({
           productId,
           variantId,
-          branchId: fromBranchId,
-          inventoryType: fromInventoryType,
+          branchId: operationType === 'transfer' ? fromBranchId : branchId,
+          inventoryType: operationType === 'transfer' ? fromInventoryType : normalizedArea,
           status: 'in_stock',
           query: serializedUnitsQuery,
           pageSize: 50
@@ -173,7 +191,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
       }
     }
     run();
-  }, [fromBranchId, fromInventoryType, operationType, productId, selectedTrackType, serializedUnitsQuery, toast, variantId]);
+  }, [adjustmentType, branchId, fromBranchId, fromInventoryType, normalizedArea, operationType, productId, selectedTrackType, serializedUnitsQuery, toast, variantId]);
 
   const loadOperations = useCallback(async () => {
     setLoading(true);
@@ -207,6 +225,28 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
     setItems([]);
     setSerializedUnits([]);
     setSerializedUnitsQuery('');
+    setSerializedEntriesText('');
+    setSerializedScanInput('');
+  }
+
+  function appendSerializedEntry(value) {
+    const text = String(value || '').trim();
+    if (!text) return;
+    const nextLines = String(serializedEntriesText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (nextLines.some(line => {
+      const first = line.split(/[,\t|]/).map(part => part.trim()).filter(Boolean)[0] || '';
+      return first === text;
+    })) {
+      toast.show('This IMEI is already in the entry list', { type: 'error' });
+      return;
+    }
+    setSerializedEntriesText(prev => prev ? `${prev}\n${text}` : text);
+    setSerializedScanInput('');
+    if (serializedBatchMode) {
+      setTimeout(() => {
+        try { serializedScanInputRef.current?.focus(); } catch {}
+      }, 0);
+    }
   }
 
   function openReview(row) {
@@ -220,6 +260,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
             variantId: item.variantId || '',
             qty: Number(item.qty || 0),
             unitIds: Array.isArray(item.unitIds) ? item.unitIds.map(String) : [],
+            serializedEntries: Array.isArray(item.serializedEntries) ? item.serializedEntries.map(entry => ({ imei: entry?.imei || '', serialNumber: entry?.serialNumber || '' })) : [],
             cost: Number(item.cost || 0),
             requestedAmount: Number(item.requestedAmount || 0),
             adjustmentType: item.adjustmentType || 'increase',
@@ -234,6 +275,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
             variantId: row.variantId || '',
             qty: Number(row.qty || 0),
             unitIds: Array.isArray(row.unitIds) ? row.unitIds.map(String) : [],
+            serializedEntries: Array.isArray(row.serializedEntries) ? row.serializedEntries.map(entry => ({ imei: entry?.imei || '', serialNumber: entry?.serialNumber || '' })) : [],
             cost: Number(row.cost || 0),
             requestedAmount: Number(row.requestedAmount || 0),
             adjustmentType: row.adjustmentType || 'increase',
@@ -282,8 +324,12 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
       toast.show('Quantity must be greater than zero', { type: 'error' });
       return;
     }
-    if (operationType === 'transfer' && selectedTrackType === 'serialized' && serializedUnits.filter(unit => unit.selected).length !== Number(qty)) {
-      toast.show('Select the exact serialized units to transfer', { type: 'error' });
+    if (usesSerializedSelection && serializedUnits.filter(unit => unit.selected).length !== Number(qty)) {
+      toast.show(operationType === 'transfer' ? 'Select the exact serialized units to transfer' : 'Select the exact serialized units to remove', { type: 'error' });
+      return;
+    }
+    if (selectedTrackType === 'serialized' && !usesSerializedSelection && serializedEntries.length !== Number(qty)) {
+      toast.show('Enter the exact serialized units to add', { type: 'error' });
       return;
     }
     setItems(prev => [...prev, {
@@ -291,7 +337,8 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
       productId,
       variantId: variantId || '',
       qty: Number(qty),
-      unitIds: operationType === 'transfer' && selectedTrackType === 'serialized' ? serializedUnits.filter(unit => unit.selected).map(unit => unit._id) : [],
+      unitIds: usesSerializedSelection ? serializedUnits.filter(unit => unit.selected).map(unit => unit._id) : [],
+      serializedEntries: selectedTrackType === 'serialized' && !usesSerializedSelection ? serializedEntries : [],
       cost: Number(cost || 0),
       requestedAmount: Number(requestedAmount || 0),
       adjustmentType,
@@ -308,6 +355,8 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
     setSupplier('');
     setReason('');
     setRemark('');
+    setSerializedEntriesText('');
+    setSerializedScanInput('');
   }
 
   function removeItem(lineId) {
@@ -338,12 +387,16 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
         toast.show('Source and destination branches must be different', { type: 'error' });
         return;
       }
-      if (!nextItems && selectedTrackType === 'serialized' && serializedUnits.filter(unit => unit.selected).length !== Number(qty)) {
-        toast.show('Select the exact serialized units to transfer', { type: 'error' });
+      if (!nextItems && usesSerializedSelection && serializedUnits.filter(unit => unit.selected).length !== Number(qty)) {
+        toast.show(operationType === 'transfer' ? 'Select the exact serialized units to transfer' : 'Select the exact serialized units to remove', { type: 'error' });
         return;
       }
     } else if (!branchId) {
       toast.show('Select a branch', { type: 'error' });
+      return;
+    }
+    if (!nextItems && selectedTrackType === 'serialized' && !usesSerializedSelection && serializedEntries.length !== Number(qty)) {
+      toast.show('Enter the exact serialized units to add', { type: 'error' });
       return;
     }
 
@@ -366,15 +419,18 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
       toBranchId: operationType === 'transfer' ? toBranchId : undefined,
       fromInventoryType: operationType === 'transfer' ? fromInventoryType : normalizedArea,
       toInventoryType: operationType === 'transfer' ? toInventoryType : normalizedArea,
-      items: nextItems || (operationType === 'transfer' && selectedTrackType === 'serialized'
+      items: nextItems || ((selectedTrackType === 'serialized' && (usesSerializedSelection || !usesSerializedSelection))
         ? [{
             lineId: '1',
             productId,
             variantId: variantId || '',
             qty: Number(qty),
-            unitIds: serializedUnits.filter(unit => unit.selected).map(unit => unit._id),
+            unitIds: usesSerializedSelection ? serializedUnits.filter(unit => unit.selected).map(unit => unit._id) : [],
+            serializedEntries: !usesSerializedSelection ? serializedEntries : [],
             remark: remark.trim(),
             reason: reason.trim(),
+            adjustmentType,
+            supplier: supplier.trim(),
             status: 'accepted'
           }]
         : undefined)
@@ -583,10 +639,10 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
 
             <label>
               <div style={{ marginBottom: 6, color: '#94a3b8' }}>Quantity</div>
-              <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} disabled={operationType === 'transfer' && selectedTrackType === 'serialized'} />
+              <input className="input" type="number" min="1" value={qty} onChange={e => setQty(Number(e.target.value))} disabled={selectedTrackType === 'serialized'} />
             </label>
 
-            {operationType === 'transfer' && selectedTrackType === 'serialized' && (
+            {usesSerializedSelection && (
               <div style={{ gridColumn: '1 / -1', display: 'grid', gap: 8 }}>
                 <div style={{ color: '#94a3b8' }}>Serialized Units</div>
                 <input className="input" placeholder="Search IMEI or serial number" value={serializedUnitsQuery} onChange={e => setSerializedUnitsQuery(e.target.value)} />
@@ -625,6 +681,39 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
                       {serializedLoading && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>Loading serialized units…</td></tr>}
                     </tbody>
                   </table>
+                </div>
+              </div>
+            )}
+
+            {selectedTrackType === 'serialized' && !usesSerializedSelection && (
+              <div style={{ gridColumn: '1 / -1', display: 'grid', gap: 8 }}>
+                <div style={{ color: '#94a3b8' }}>IMEI / Serial Numbers</div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button type="button" className={serializedBatchMode ? 'btn btn-primary' : 'btn'} onClick={() => { setSerializedBatchMode(v => !v); setTimeout(() => { try { serializedScanInputRef.current?.focus(); } catch {} }, 0); }}>
+                    {serializedBatchMode ? 'Batch Mode On' : 'Batch Mode Off'}
+                  </button>
+                  <button type="button" className="btn" onClick={() => setSerializedCameraOpen(true)}>
+                    Camera Scan
+                  </button>
+                </div>
+                <input
+                  ref={serializedScanInputRef}
+                  className="input"
+                  autoFocus
+                  placeholder="Scan IMEI barcode or type and press Enter"
+                  value={serializedScanInput}
+                  onChange={e => setSerializedScanInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      appendSerializedEntry(serializedScanInput);
+                    }
+                  }}
+                  style={{ color: '#111827', background: '#ffffff' }}
+                />
+                <textarea className="input" rows={6} value={serializedEntriesText} onChange={e => setSerializedEntriesText(e.target.value)} placeholder={'One per line\nIMEI123456789\nIMEI987654321,SN-0002'} style={{ color: '#111827', background: '#ffffff' }} />
+                <div style={{ color: '#64748b', fontSize: 12 }}>
+                  Quantity updates automatically from scanned/entered IMEI values. Current entries: {serializedEntries.length}
                 </div>
               </div>
             )}
@@ -681,7 +770,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
                       <tr key={item.lineId}>
                         <td>{product?.name || item.productId}</td>
                         <td>{item.qty}</td>
-                        <td>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : '—'}</td>
+                        <td>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—')}</td>
                         <td>{item.reason || item.remark || '—'}</td>
                         <td><button className="btn" onClick={() => removeItem(item.lineId)}>Remove</button></td>
                       </tr>
@@ -694,6 +783,15 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
           </div>
         </Modal>
       )}
+      <BarcodeScannerModal
+        title="Scan IMEI Barcode"
+        open={serializedCameraOpen}
+        onClose={() => setSerializedCameraOpen(false)}
+        onDetected={(value) => {
+          appendSerializedEntry(value);
+          setSerializedCameraOpen(false);
+        }}
+      />
 
       {selectedRow && (
         <Modal
@@ -741,9 +839,9 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
                       <tr key={item.lineId || index}>
                         <td>{product?.name || item.productId}</td>
                         <td>
-                          <input className="input" type="number" min="0" value={item.qty} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, qty: Number(e.target.value) || 0 } : row))} style={{ width: 90 }} disabled={(Array.isArray(item.unitIds) && item.unitIds.length > 0) || !((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing} />
+                          <input className="input" type="number" min="0" value={item.qty} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, qty: Number(e.target.value) || 0 } : row))} style={{ width: 90 }} disabled={(Array.isArray(item.unitIds) && item.unitIds.length > 0) || (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0) || !((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing} />
                         </td>
-                        <td>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : '—'}</td>
+                        <td>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—')}</td>
                         <td>
                           <select className="select" value={item.status || 'accepted'} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, status: e.target.value } : row))} disabled={!((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing}>
                             <option value="accepted">Accepted</option>
