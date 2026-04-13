@@ -5,8 +5,8 @@ import { approveOperation, deleteOperation, listOperations, rejectOperation } fr
 import { findApprovalByReference } from '../api/approvals';
 import { formatCurrency } from '../utils/currency';
 import Modal from '../components/Modal';
-import { promptDialog } from '../utils/dialogs';
-import { refreshProductCatalog } from '../utils/inventoryRefresh';
+import { confirmDialog, promptDialog } from '../utils/dialogs';
+import { refreshAffectedProducts } from '../utils/inventoryRefresh';
 
 function WarehouseApprovalsPage() {
   const toast = useToast();
@@ -22,6 +22,9 @@ function WarehouseApprovalsPage() {
   const [selectedRow, setSelectedRow] = useState(null);
   const [reviewItems, setReviewItems] = useState([]);
   const [syncing, setSyncing] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 50;
 
   const roleLower = String(auth.role || '').toLowerCase();
   const grants = Array.isArray(auth.grants) ? auth.grants : [];
@@ -40,19 +43,23 @@ function WarehouseApprovalsPage() {
   const load = useCallback(async (options = {}) => {
     setLoading(true);
     try {
-      const merged = (await listOperations({ operationArea: 'warehouse', status, force: !!options.force }))
+      const result = await listOperations({ operationArea: 'warehouse', status, force: !!options.force, paged: true, page, pageSize });
+      const merged = (Array.isArray(result?.rows) ? result.rows : [])
         .filter(row => ['purchase', 'transfer', 'adjustment'].includes(String(row.operationType || '').toLowerCase()))
         .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       setRows(merged);
+      setTotal(Number(result?.total || merged.length));
     } catch (e) {
       toast.show(String(e?.message || 'Failed to load warehouse approvals'), { type: 'error' });
       setRows([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [status, toast]);
+  }, [page, status, toast]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setPage(1); }, [status]);
 
   useEffect(() => {
     if (!selectedRow) {
@@ -94,6 +101,7 @@ function WarehouseApprovalsPage() {
     const nextStatus = action === 'approve'
       ? (String(row.status || '').toLowerCase() === 'pending_director' ? 'pending_manager' : 'approved')
       : 'rejected';
+    const affectedProductIds = Array.from(new Set((Array.isArray(row.items) ? row.items : [{ productId: row.productId }]).map(item => String(item?.productId || '')).filter(Boolean)));
     try {
       const normalizedItems = reviewItems.map(item => ({ ...item, status: normalizeReviewStatus(item.status) }));
       const payload = {
@@ -116,7 +124,7 @@ function WarehouseApprovalsPage() {
       setSyncing(true);
       void Promise.allSettled([
         load({ force: true }),
-        action === 'approve' && nextStatus === 'approved' ? refreshProductCatalog(dispatch) : Promise.resolve()
+        action === 'approve' && nextStatus === 'approved' ? refreshAffectedProducts(dispatch, affectedProductIds) : Promise.resolve()
       ]).finally(() => setSyncing(false));
     } catch (e) {
       const msg = String(e?.message || '');
@@ -129,7 +137,7 @@ function WarehouseApprovalsPage() {
             setSyncing(true);
             void Promise.allSettled([
               load({ force: true }),
-              action === 'approve' && String(approval.status || '').toLowerCase() === 'approved' ? refreshProductCatalog(dispatch) : Promise.resolve()
+              action === 'approve' && String(approval.status || '').toLowerCase() === 'approved' ? refreshAffectedProducts(dispatch, affectedProductIds) : Promise.resolve()
             ]).finally(() => setSyncing(false));
             toast.show('Warehouse request was processed. List refreshed.', { type: 'success' });
             return;
@@ -152,8 +160,8 @@ function WarehouseApprovalsPage() {
   }
 
   async function removeRequest(row) {
-    const confirmation = await promptDialog('Type DELETE to remove this stuck request');
-    if (String(confirmation || '').trim().toUpperCase() !== 'DELETE') return;
+    const confirmed = await confirmDialog('Delete this stuck warehouse request?');
+    if (!confirmed) return;
     setWorkingId(row._id || row.clientId || '');
     try {
       await deleteOperation(row._id || row.clientId);
@@ -181,6 +189,13 @@ function WarehouseApprovalsPage() {
           <button className={status === 'approved' ? 'btn btn-primary' : 'btn'} onClick={() => setStatus('approved')}>Approved</button>
           <button className={status === 'rejected' ? 'btn btn-primary' : 'btn'} onClick={() => setStatus('rejected')}>Rejected</button>
           <button className="btn" onClick={load} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
+        </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <div style={{ color: '#64748b', fontSize: 13 }}>Showing {rows.length} of {total} requests</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button className="btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={loading || page <= 1}>Previous</button>
+          <button className="btn" onClick={() => setPage(p => p + 1)} disabled={loading || page * pageSize >= total}>Next</button>
         </div>
       </div>
       {syncing && (

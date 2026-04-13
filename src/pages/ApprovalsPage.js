@@ -3,7 +3,7 @@ import { useDispatch } from 'react-redux';
 import { approveApproval, listApprovals, rejectApproval } from '../api/approvals';
 import { useToast } from '../components/ToastProvider';
 import { promptDialog } from '../utils/dialogs';
-import { refreshProductCatalog } from '../utils/inventoryRefresh';
+import { refreshAffectedProducts } from '../utils/inventoryRefresh';
 
 function ApprovalsPage() {
   const toast = useToast();
@@ -37,7 +37,7 @@ function ApprovalsPage() {
     try {
       await approveApproval(row._id, { remark: String(remark || '') });
       if (String(row.referenceModel || '') === 'WholesaleOperation' && String(row.status || '').toLowerCase() === 'pending_manager') {
-        await refreshProductCatalog(dispatch);
+        await refreshAffectedProducts(dispatch, [row.productId].filter(Boolean));
       }
       toast.show('Approval updated', { type: 'success' });
       await load(status, { force: true });

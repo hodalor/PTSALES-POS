@@ -67,6 +67,44 @@ const productsSlice = createSlice({
       const cats = Array.from(new Set(mapped.map(p => p.category).filter(Boolean)));
       state.categories = cats.length > 0 ? cats : state.categories;
     },
+    mergeProducts(state, action) {
+      const list = Array.isArray(action.payload) ? action.payload : [];
+      const mapped = list.map(p => {
+        const rawId = p.id || p._id || null;
+        const id = rawId != null ? String(rawId) : null;
+        const variants = Array.isArray(p.variants) ? p.variants.map((v, idx) => ({
+          id: v.id || v.label || String(idx),
+          label: v.label,
+          sku: v.sku || '',
+          price: v.price,
+          retailPrice: v.retailPrice != null ? Number(v.retailPrice) : (v.price != null ? Number(v.price) : Number(p.retailPrice != null ? p.retailPrice : p.price || 0)),
+          wholesalePrice: v.wholesalePrice != null ? Number(v.wholesalePrice) : (v.retailPrice != null ? Number(v.retailPrice) : Number(p.wholesalePrice != null ? p.wholesalePrice : p.price || 0)),
+          agentPrice: v.agentPrice != null ? Number(v.agentPrice) : (v.wholesalePrice != null ? Number(v.wholesalePrice) : Number(p.agentPrice != null ? p.agentPrice : p.price || 0)),
+          stockByBranch: v.stockByBranch || {},
+          wholesaleStockByBranch: v.wholesaleStockByBranch || {},
+          warehouseStockByBranch: v.warehouseStockByBranch || {}
+        })) : [];
+        return {
+          ...p,
+          id,
+          trackType: p.trackType || 'quantity',
+          retailPrice: p.retailPrice != null ? Number(p.retailPrice) : Number(p.price || 0),
+          wholesalePrice: p.wholesalePrice != null ? Number(p.wholesalePrice) : Number(p.retailPrice != null ? p.retailPrice : p.price || 0),
+          agentPrice: p.agentPrice != null ? Number(p.agentPrice) : Number(p.wholesalePrice != null ? p.wholesalePrice : (p.retailPrice != null ? p.retailPrice : p.price || 0)),
+          stockByBranch: p.stockByBranch || {},
+          wholesaleStockByBranch: p.wholesaleStockByBranch || {},
+          warehouseStockByBranch: p.warehouseStockByBranch || {},
+          variants
+        };
+      });
+      mapped.forEach(next => {
+        const index = state.products.findIndex(p => p.id === next.id);
+        if (index >= 0) state.products[index] = { ...state.products[index], ...next };
+        else state.products.push(next);
+      });
+      const cats = Array.from(new Set(state.products.map(p => p.category).filter(Boolean)));
+      state.categories = cats.length > 0 ? cats : state.categories;
+    },
     addProduct: {
       reducer(state, action) {
         state.products.push(action.payload);
@@ -144,5 +182,5 @@ const productsSlice = createSlice({
   }
 });
 
-export const { setProducts, addProduct, updateProduct, removeProduct, setStock, adjustStock, addCategory } = productsSlice.actions;
+export const { setProducts, mergeProducts, addProduct, updateProduct, removeProduct, setStock, adjustStock, addCategory } = productsSlice.actions;
 export default productsSlice.reducer;

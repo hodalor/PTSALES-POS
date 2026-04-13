@@ -13,6 +13,9 @@ function operationsKey(params = {}) {
   if (params.status) query.set('status', String(params.status));
   if (params.operationType) query.set('operationType', String(params.operationType));
   if (params.operationArea) query.set('operationArea', String(params.operationArea));
+  if (params.paged) query.set('paged', '1');
+  if (params.page) query.set('page', String(params.page));
+  if (params.pageSize) query.set('pageSize', String(params.pageSize));
   return query.toString() ? `?${query.toString()}` : '';
 }
 
@@ -52,8 +55,17 @@ export function listOperations(params = {}) {
   const cached = operationsCache.get(qs);
   if (!params.force && cached?.data && cached.expiresAt > now) return Promise.resolve(cached.data);
   if (!params.force && cached?.promise) return cached.promise;
-  const promise = fetchJson(`/api/wholesale/operations${qs}`).then(rows => {
-    const normalized = (Array.isArray(rows) ? rows : []).map(row => normalizeModernOperation(row, row?.operationType || params.operationType));
+  const promise = fetchJson(`/api/wholesale/operations${qs}`).then(result => {
+    if (params.paged) {
+      const rows = Array.isArray(result?.rows) ? result.rows : [];
+      const data = {
+        ...(result || {}),
+        rows: rows.map(row => normalizeModernOperation(row, row?.operationType || params.operationType))
+      };
+      operationsCache.set(qs, { data, expiresAt: Date.now() + OPERATIONS_TTL_MS });
+      return data;
+    }
+    const normalized = (Array.isArray(result) ? result : []).map(row => normalizeModernOperation(row, row?.operationType || params.operationType));
     operationsCache.set(qs, { data: normalized, expiresAt: Date.now() + OPERATIONS_TTL_MS });
     return normalized;
   }).catch(async (error) => {

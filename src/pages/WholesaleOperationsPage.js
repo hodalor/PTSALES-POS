@@ -8,7 +8,7 @@ import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import Modal from '../components/Modal';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
-import { refreshProductCatalog } from '../utils/inventoryRefresh';
+import { refreshAffectedProducts } from '../utils/inventoryRefresh';
 
 function labelForArea(area, op) {
   const prefix = String(area || 'wholesale').toLowerCase() === 'warehouse' ? 'Warehouse' : 'Distribution';
@@ -51,6 +51,8 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
 
   const [statusFilter, setStatusFilter] = useState('pending_director');
   const [operations, setOperations] = useState([]);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -66,6 +68,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
   const [serializedScanInput, setSerializedScanInput] = useState('');
   const [serializedBatchMode, setSerializedBatchMode] = useState(true);
   const [serializedCameraOpen, setSerializedCameraOpen] = useState(false);
+  const pageSize = 50;
 
   const [productId, setProductId] = useState(products[0]?.id || '');
   const [variantId, setVariantId] = useState('');
@@ -202,22 +205,27 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
   const loadOperations = useCallback(async (options = {}) => {
     setLoading(true);
     try {
-      const rows = await wholesaleApi.listOperations({ operationType, status: statusFilter, operationArea: normalizedArea, force: !!options.force });
-      setOperations(Array.isArray(rows) ? rows : []);
+      const result = await wholesaleApi.listOperations({ operationType, status: statusFilter, operationArea: normalizedArea, force: !!options.force, paged: true, page, pageSize });
+      setOperations(Array.isArray(result?.rows) ? result.rows : []);
+      setTotal(Number(result?.total || 0));
     } catch (e) {
       const msg = String(e?.message || '');
       if (!/404|not found/i.test(msg)) {
         toast.show(msg || 'Failed to load wholesale operations', { type: 'error' });
       }
       setOperations([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [normalizedArea, operationType, statusFilter, toast]);
+  }, [normalizedArea, operationType, page, pageSize, statusFilter, toast]);
 
   useEffect(() => {
     loadOperations();
   }, [loadOperations]);
+  useEffect(() => {
+    setPage(1);
+  }, [normalizedArea, operationType, statusFilter]);
 
   function resetForm() {
     setVariantId('');
@@ -310,10 +318,11 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
         approverName: auth.user?.name || auth.user?.username || 'unknown',
         approverRole: auth.role || ''
       };
+      const affectedProductIds = Array.from(new Set(reviewItems.map(item => String(item.productId || '')).filter(Boolean)));
       if (type === 'approve') await wholesaleApi.approveOperation(selectedRow, { ...payload, items: reviewItems.map(item => ({ ...item, status: normalizeReviewStatus(item.status) })) });
       else await wholesaleApi.rejectOperation(selectedRow, payload);
       if (type === 'approve' && String(selectedRow.status || '').toLowerCase() === 'pending_manager') {
-        await refreshProductCatalog(dispatch);
+        await refreshAffectedProducts(dispatch, affectedProductIds);
       }
       toast.show(type === 'approve' ? 'Request updated' : 'Request rejected', { type: 'success' });
       setSelectedRow(null);
@@ -532,6 +541,13 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
             <button className={statusFilter === 'approved' ? 'btn btn-primary' : 'btn'} onClick={() => setStatusFilter('approved')}>Approved</button>
             <button className={statusFilter === 'rejected' ? 'btn btn-primary' : 'btn'} onClick={() => setStatusFilter('rejected')}>Rejected</button>
             <button className="btn" onClick={loadOperations} disabled={loading}>{loading ? 'Refreshing…' : 'Refresh'}</button>
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <div style={{ color: '#64748b', fontSize: 13 }}>Showing {operations.length} of {total} requests</div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={loading || page <= 1}>Previous</button>
+            <button className="btn" onClick={() => setPage(p => p + 1)} disabled={loading || page * pageSize >= total}>Next</button>
           </div>
         </div>
 
