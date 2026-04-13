@@ -107,34 +107,36 @@ const productsSlice = createSlice({
       state.products = state.products.filter(p => p.id !== action.payload);
     },
     setStock(state, action) {
-      const { productId, branchId, quantity, variantId } = action.payload;
+      const { productId, branchId, quantity, variantId, inventoryType = 'retail' } = action.payload;
       const p = state.products.find(x => x.id === productId);
       if (!p) return;
+      const stockField = inventoryType === 'wholesale' ? 'wholesaleStockByBranch' : inventoryType === 'warehouse' ? 'warehouseStockByBranch' : 'stockByBranch';
       if (variantId && Array.isArray(p.variants)) {
         const v = p.variants.find(vv => vv.id === variantId);
         if (!v) return;
-        v.stockByBranch = v.stockByBranch || {};
-        v.stockByBranch[branchId] = quantity;
+        v[stockField] = v[stockField] || {};
+        v[stockField][branchId] = quantity;
         return;
       }
-      p.stockByBranch = p.stockByBranch || {};
-      p.stockByBranch[branchId] = quantity;
+      p[stockField] = p[stockField] || {};
+      p[stockField][branchId] = quantity;
     },
     adjustStock(state, action) {
-      const { productId, branchId, delta, variantId } = action.payload;
+      const { productId, branchId, delta, variantId, inventoryType = 'retail' } = action.payload;
       const p = state.products.find(x => x.id === productId);
       if (!p) return;
+      const stockField = inventoryType === 'wholesale' ? 'wholesaleStockByBranch' : inventoryType === 'warehouse' ? 'warehouseStockByBranch' : 'stockByBranch';
       if (variantId && Array.isArray(p.variants)) {
         const v = p.variants.find(vv => vv.id === variantId);
         if (!v) return;
-        v.stockByBranch = v.stockByBranch || {};
-        const cur = v.stockByBranch[branchId] || 0;
-        v.stockByBranch[branchId] = Math.max(0, cur + delta);
+        v[stockField] = v[stockField] || {};
+        const cur = v[stockField][branchId] || 0;
+        v[stockField][branchId] = Math.max(0, cur + delta);
         return;
       }
-      p.stockByBranch = p.stockByBranch || {};
-      const cur = p.stockByBranch[branchId] || 0;
-      p.stockByBranch[branchId] = Math.max(0, cur + delta);
+      p[stockField] = p[stockField] || {};
+      const cur = p[stockField][branchId] || 0;
+      p[stockField][branchId] = Math.max(0, cur + delta);
     },
     addCategory(state, action) {
       if (!state.categories.includes(action.payload)) state.categories.push(action.payload);

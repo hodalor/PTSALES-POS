@@ -163,7 +163,7 @@ function Sidebar({ collapsed }) {
           <button className="sidebar-group-toggle" onClick={() => setWholesaleOpen(o => !o)}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M4 6h16v12H4z" stroke="currentColor" strokeWidth="2"/><path d="M8 10h8M8 14h8M8 18h5" stroke="currentColor" strokeWidth="2"/></svg>
-              <span className="sidebar-text">Wholesale Ops</span>
+              <span className="sidebar-text">Distribution</span>
             </span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               {wholesaleLowStock > 0 && (
@@ -178,31 +178,31 @@ function Sidebar({ collapsed }) {
           </button>
           {wholesaleOpen && (
           <div className="sidebar-subgroup">
-            <NavLink to="/wholesale-goods" className="sidebar-link" title="Wholesale Goods" style={{ display: 'flex', alignItems: 'center' }}>
-              <span className="sidebar-text">Wholesale Goods</span>
+            <NavLink to="/wholesale-goods" className="sidebar-link" title="Distribution Goods" style={{ display: 'flex', alignItems: 'center' }}>
+              <span className="sidebar-text">Distribution Goods</span>
               {wholesaleLowStock > 0 && (
                 <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
                   {wholesaleLowStock}
                 </span>
               )}
             </NavLink>
-            <NavLink to="/wholesale-pos" className="sidebar-link" title="Wholesale POS">
-              <span className="sidebar-text">Wholesale POS</span>
+            <NavLink to="/wholesale-pos" className="sidebar-link" title="Distribution POS">
+              <span className="sidebar-text">Distribution POS</span>
             </NavLink>
-            <NavLink to="/wholesale-invoices" className="sidebar-link" title="Wholesale Invoices">
-              <span className="sidebar-text">Wholesale Invoices</span>
+            <NavLink to="/wholesale-invoices" className="sidebar-link" title="Distribution Invoices">
+              <span className="sidebar-text">Distribution Invoices</span>
             </NavLink>
-            <NavLink to="/wholesale-purchase" className="sidebar-link" title="Wholesale Purchase">
-              <span className="sidebar-text">Wholesale Purchase</span>
+            <NavLink to="/wholesale-purchase" className="sidebar-link" title="Distribution Purchase">
+              <span className="sidebar-text">Distribution Purchase</span>
             </NavLink>
-            <NavLink to="/wholesale-transfer" className="sidebar-link" title="Wholesale Transfer">
-              <span className="sidebar-text">Wholesale Transfer</span>
+            <NavLink to="/wholesale-transfer" className="sidebar-link" title="Distribution Transfer">
+              <span className="sidebar-text">Distribution Transfer</span>
             </NavLink>
-            <NavLink to="/wholesale-adjustment" className="sidebar-link" title="Wholesale Adjustment">
-              <span className="sidebar-text">Wholesale Adjustment</span>
+            <NavLink to="/wholesale-adjustment" className="sidebar-link" title="Distribution Adjustment">
+              <span className="sidebar-text">Distribution Adjustment</span>
             </NavLink>
-            <NavLink to="/wholesale-refund" className="sidebar-link" title="Wholesale Refund">
-              <span className="sidebar-text">Wholesale Refund</span>
+            <NavLink to="/wholesale-refund" className="sidebar-link" title="Distribution Refund">
+              <span className="sidebar-text">Distribution Refund</span>
             </NavLink>
           </div>
           )}
@@ -308,7 +308,7 @@ function Sidebar({ collapsed }) {
           <button className="sidebar-group-toggle" onClick={() => setEasyBuyOpen(o => !o)}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M3 7h18v10H3z" stroke="currentColor" strokeWidth="2"/><path d="M7 11h10M7 15h6" stroke="currentColor" strokeWidth="2"/></svg>
-              <span className="sidebar-text">EasyBuy</span>
+              <span className="sidebar-text">Credit Sale</span>
             </span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               {(easyBuyOverdue + easyBuyPendingApprovals) > 0 && (
@@ -323,7 +323,7 @@ function Sidebar({ collapsed }) {
           </button>
           {easyBuyOpen && (
           <div className="sidebar-subgroup">
-            <NavLink to="/credit-control" className="sidebar-link" title="EasyBuy Overview" style={{ display: 'flex', alignItems: 'center' }}>
+            <NavLink to="/credit-control" className="sidebar-link" title="Credit Sale Overview" style={{ display: 'flex', alignItems: 'center' }}>
               <span className="sidebar-text">Overview</span>
               {easyBuyOverdue > 0 && (
                 <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#f59e0b', color: '#111827', fontWeight: 800, fontSize: 12 }}>
@@ -342,8 +342,8 @@ function Sidebar({ collapsed }) {
                 </span>
               )}
             </NavLink>
-            <NavLink to="/easybuy/repayment-approvals" className="sidebar-link" title="Repayment Approvals" style={{ display: 'flex', alignItems: 'center' }}>
-              <span className="sidebar-text">Repayment Approvals</span>
+            <NavLink to="/easybuy/repayment-approvals" className="sidebar-link" title="Payment Approvals" style={{ display: 'flex', alignItems: 'center' }}>
+              <span className="sidebar-text">Payment Approvals</span>
               {easyBuyPendingApprovals > 0 && (
                 <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
                   {easyBuyPendingApprovals}

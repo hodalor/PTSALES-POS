@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { formatCurrency } from '../utils/currency';
+import { getAllowedPriceTiers, getDisplayPrice, getPriceTierLabel } from '../utils/priceVisibility';
 
 function WholesaleGoodsPage() {
   const products = useSelector(s => s.products.products || []);
   const branches = useSelector(s => s.branches.branches || []);
   const settings = useSelector(s => s.settings);
+  const auth = useSelector(s => s.auth);
   const [query, setQuery] = useState('');
   const [viewMode, setViewMode] = useState('card');
+  const visiblePriceTiers = useMemo(() => getAllowedPriceTiers(auth), [auth]);
 
   const wholesaleBranches = useMemo(
     () => branches.filter(branch => String(branch.branchType || 'retail').toLowerCase() === 'wholesale'),
@@ -37,8 +40,8 @@ function WholesaleGoodsPage() {
     <div style={{ padding: 16, display: 'grid', gap: 12 }}>
       <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div>
-          <h1 style={{ margin: 0 }}>Wholesale Goods</h1>
-          <div style={{ color: '#64748b', fontSize: 13 }}>Browse products available in wholesale shops and switch between list and card views.</div>
+          <h1 style={{ margin: 0 }}>Distribution Goods</h1>
+          <div style={{ color: '#64748b', fontSize: 13 }}>Browse products available in distribution shops and switch between list and card views.</div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button className={viewMode === 'card' ? 'btn btn-primary' : 'btn'} onClick={() => setViewMode('card')}>Card</button>
@@ -47,8 +50,8 @@ function WholesaleGoodsPage() {
       </div>
 
       <div className="card" style={{ display: 'grid', gap: 12 }}>
-        <input className="input" placeholder="Search wholesale goods by name, SKU, or barcode" value={query} onChange={e => setQuery(e.target.value)} />
-        <div style={{ color: '#64748b', fontSize: 13 }}>Wholesale shops: {wholesaleBranches.map(branch => branch.name).join(', ') || 'None configured'}</div>
+        <input className="input" placeholder="Search distribution goods by name, SKU, or barcode" value={query} onChange={e => setQuery(e.target.value)} />
+        <div style={{ color: '#64748b', fontSize: 13 }}>Distribution shops: {wholesaleBranches.map(branch => branch.name).join(', ') || 'None configured'}</div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
@@ -73,7 +76,7 @@ function WholesaleGoodsPage() {
       {summary.lowStockProducts > 0 && (
         <div className="card" style={{ padding: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <div style={{ fontWeight: 700, color: '#b91c1c' }}>Wholesale Low Stock Notifications</div>
+            <div style={{ fontWeight: 700, color: '#b91c1c' }}>Distribution Low Stock Notifications</div>
             <div style={{ color: '#64748b', fontSize: 12 }}>{summary.lowStockProducts} product(s) need attention</div>
           </div>
           <div style={{ display: 'grid', gap: 8 }}>
@@ -106,10 +109,10 @@ function WholesaleGoodsPage() {
               )}
               <div style={{ fontWeight: 700, fontSize: 18 }}>{product.name}</div>
               <div style={{ color: '#64748b' }}>{product.sku || 'No SKU'}</div>
-              <div><strong>Wholesale Stock:</strong> {product.wholesaleStock}</div>
-              <div><strong>Wholesale Price:</strong> {formatCurrency(Number(product.wholesalePrice != null ? product.wholesalePrice : product.price || 0), settings)}</div>
-              <div><strong>Agent Price:</strong> {formatCurrency(Number(product.agentPrice != null ? product.agentPrice : (product.wholesalePrice != null ? product.wholesalePrice : (product.price || 0))), settings)}</div>
-              <div><strong>Retail Price:</strong> {formatCurrency(Number(product.retailPrice != null ? product.retailPrice : product.price || 0), settings)}</div>
+              <div><strong>Distribution Stock:</strong> {product.wholesaleStock}</div>
+              {visiblePriceTiers.map(tier => (
+                <div key={tier}><strong>{getPriceTierLabel(tier)}:</strong> {formatCurrency(getDisplayPrice(product, tier), settings)}</div>
+              ))}
               <div><strong>Low Stock Threshold:</strong> {product.wholesaleLowStock}</div>
               <div style={{ display: 'inline-flex', width: 'fit-content', padding: '4px 10px', borderRadius: 999, background: product.wholesaleStock <= Number(product.wholesaleLowStock || 0) ? '#fee2e2' : '#dcfce7', color: product.wholesaleStock <= Number(product.wholesaleLowStock || 0) ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
                 {product.wholesaleStock <= Number(product.wholesaleLowStock || 0) ? 'Low stock' : 'Available'}
@@ -126,11 +129,9 @@ function WholesaleGoodsPage() {
                 <th align="left">Image</th>
                 <th align="left">Product</th>
                 <th align="left">SKU</th>
-                <th align="left">Wholesale Stock</th>
+                <th align="left">Distribution Stock</th>
                 <th align="left">Low Stock At</th>
-                <th align="left">Retail Price</th>
-                <th align="left">Wholesale Price</th>
-                <th align="left">Agent Price</th>
+                {visiblePriceTiers.map(tier => <th key={tier} align="left">{getPriceTierLabel(tier)}</th>)}
                 <th align="left">Status</th>
               </tr>
             </thead>
@@ -142,9 +143,7 @@ function WholesaleGoodsPage() {
                   <td>{product.sku || '—'}</td>
                   <td>{product.wholesaleStock}</td>
                   <td>{product.wholesaleLowStock}</td>
-                  <td>{formatCurrency(Number(product.retailPrice != null ? product.retailPrice : product.price || 0), settings)}</td>
-                  <td>{formatCurrency(Number(product.wholesalePrice != null ? product.wholesalePrice : product.price || 0), settings)}</td>
-                  <td>{formatCurrency(Number(product.agentPrice != null ? product.agentPrice : (product.wholesalePrice != null ? product.wholesalePrice : (product.price || 0))), settings)}</td>
+                  {visiblePriceTiers.map(tier => <td key={tier}>{formatCurrency(getDisplayPrice(product, tier), settings)}</td>)}
                   <td>
                     <span style={{ display: 'inline-flex', padding: '4px 10px', borderRadius: 999, background: product.wholesaleStock <= Number(product.wholesaleLowStock || 0) ? '#fee2e2' : '#dcfce7', color: product.wholesaleStock <= Number(product.wholesaleLowStock || 0) ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
                       {product.wholesaleStock <= Number(product.wholesaleLowStock || 0) ? 'Low stock' : 'Available'}
@@ -152,7 +151,7 @@ function WholesaleGoodsPage() {
                   </td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td colSpan="9" style={{ padding: 12, color: '#64748b' }}>No wholesale goods found</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={6 + visiblePriceTiers.length} style={{ padding: 12, color: '#64748b' }}>No distribution goods found</td></tr>}
             </tbody>
           </table>
         </div>

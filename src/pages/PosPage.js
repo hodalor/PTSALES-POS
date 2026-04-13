@@ -1,6 +1,6 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { addItem, removeItem, setQuantity, updateItemPricing, clearCart, setDiscount, addHeld, removeHeld, replaceCart, updateHeld } from '../store/cartSlice';
-import { adjustStock } from '../store/productsSlice';
+import { adjustStock, setStock } from '../store/productsSlice';
 import { recordSale } from '../store/salesSlice';
 import { addInvoice } from '../store/invoicesSlice';
 import { updateCustomer } from '../store/customersSlice';
@@ -19,6 +19,7 @@ import { isFeatureEnabled } from '../utils/featureFlags';
 import * as productUnitsApi from '../api/productUnits';
 import Modal from '../components/Modal';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
+import { getAllowedPriceTiers, getDisplayPrice, getPreferredPriceTier, getPriceTierLabel } from '../utils/priceVisibility';
 
 function PosPage({ mode = 'retail' }) {
   const cart = useSelector(state => state.cart);
@@ -30,12 +31,14 @@ function PosPage({ mode = 'retail' }) {
   const settings = useSelector(s => s.settings);
   const auth = useSelector(s => s.auth);
   const isWholesale = String(mode || '').toLowerCase() === 'wholesale';
-  const modeLabel = isWholesale ? 'Wholesale POS' : 'POS';
+  const modeLabel = isWholesale ? 'Distribution POS' : 'POS';
   const initialPriceTier = isWholesale ? 'wholesale' : 'retail';
+  const allowedPriceTiers = useMemo(() => getAllowedPriceTiers(auth), [auth]);
+  const initialVisiblePriceTier = useMemo(() => getPreferredPriceTier(allowedPriceTiers, initialPriceTier), [allowedPriceTiers, initialPriceTier]);
   const [query, setQuery] = useState('');
   const [payments, setPayments] = useState([{ type: 'cash', amount: '' }]);
   const [view, setView] = useState(isWholesale ? 'list' : 'grid');
-  const [selectedPriceTier, setSelectedPriceTier] = useState(initialPriceTier);
+  const [selectedPriceTier, setSelectedPriceTier] = useState(initialVisiblePriceTier);
   const [easyBuyEnabled, setEasyBuyEnabled] = useState(false);
   const [easyBuyAmountPaidNow, setEasyBuyAmountPaidNow] = useState('');
   const [easyBuyDueDate, setEasyBuyDueDate] = useState('');
@@ -52,6 +55,8 @@ function PosPage({ mode = 'retail' }) {
   const [serializedScanInput, setSerializedScanInput] = useState('');
   const [serializedCameraOpen, setSerializedCameraOpen] = useState(false);
   const serializedScanInputRef = useRef(null);
+  const serializedLoadSeqRef = useRef(0);
+  const serializedPickerKeyRef = useRef('');
   const [saving, setSaving] = useState(false);
   const [customerQuery, setCustomerQuery] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -65,9 +70,9 @@ function PosPage({ mode = 'retail' }) {
   });
   const toast = useToast();
   useEffect(() => {
-    setSelectedPriceTier(initialPriceTier);
+    setSelectedPriceTier(getPreferredPriceTier(allowedPriceTiers, initialPriceTier));
     setView(isWholesale ? 'list' : 'grid');
-  }, [initialPriceTier, isWholesale]);
+  }, [allowedPriceTiers, initialPriceTier, isWholesale]);
   const sellables = useMemo(() => {
     const out = [];
     products.forEach(p => {
@@ -79,9 +84,9 @@ function PosPage({ mode = 'retail' }) {
       if (Array.isArray(p.variants) && p.variants.length > 0) {
         p.variants.forEach(v => {
           const prices = {
-            retail: Number(v.retailPrice || v.price || basePrices.retail || 0),
-            wholesale: Number(v.wholesalePrice || v.retailPrice || v.price || basePrices.wholesale || 0),
-            agent: Number(v.agentPrice || v.wholesalePrice || v.retailPrice || v.price || basePrices.agent || 0)
+            retail: getDisplayPrice({ ...p, ...v, price: v.price != null ? v.price : p.price, retailPrice: v.retailPrice, wholesalePrice: v.wholesalePrice, agentPrice: v.agentPrice }, 'retail'),
+            wholesale: getDisplayPrice({ ...p, ...v, price: v.price != null ? v.price : p.price, retailPrice: v.retailPrice, wholesalePrice: v.wholesalePrice, agentPrice: v.agentPrice }, 'wholesale'),
+            agent: getDisplayPrice({ ...p, ...v, price: v.price != null ? v.price : p.price, retailPrice: v.retailPrice, wholesalePrice: v.wholesalePrice, agentPrice: v.agentPrice }, 'agent')
           };
           out.push({
             id: `${p.id}:${v.id}`,
@@ -89,7 +94,7 @@ function PosPage({ mode = 'retail' }) {
             variantId: v.id,
             name: `${p.name} (${v.label})`,
             sku: v.sku || `${p.sku}-${v.label}`,
-            price: prices[selectedPriceTier] ?? prices.retail,
+            price: prices[selectedPriceTier] ?? prices[getPreferredPriceTier(allowedPriceTiers, initialPriceTier)] ?? prices.retail,
             prices,
             image: p.image,
             stockByBranch: isWholesale ? (v.wholesaleStockByBranch || {}) : (v.stockByBranch || {}),
@@ -103,7 +108,7 @@ function PosPage({ mode = 'retail' }) {
       } else {
         out.push({
           ...p,
-          price: basePrices[selectedPriceTier] ?? basePrices.retail,
+          price: basePrices[selectedPriceTier] ?? basePrices[getPreferredPriceTier(allowedPriceTiers, initialPriceTier)] ?? basePrices.retail,
           prices: basePrices,
           stockByBranch: isWholesale ? (p.wholesaleStockByBranch || {}) : (p.stockByBranch || {}),
           allowCredit: p.allowCredit !== false,
@@ -112,7 +117,7 @@ function PosPage({ mode = 'retail' }) {
       }
     });
     return out;
-  }, [isWholesale, products, selectedPriceTier]);
+  }, [allowedPriceTiers, initialPriceTier, isWholesale, products, selectedPriceTier]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return sellables;
@@ -169,6 +174,26 @@ function PosPage({ mode = 'retail' }) {
     return list;
   }, [heldSales, heldSort, heldQuery, customers]);
 
+  function visibleStockForProduct(p) {
+    const stockMap = isWholesale ? (p.wholesaleStockByBranch || p.stockByBranch || {}) : (p.stockByBranch || {});
+    const available = Number(stockMap?.[branchId] || 0);
+    if (String(p.trackType || 'quantity') !== 'serialized') return available;
+    const cached = productUnitsApi.getCachedProductUnitCount({
+      productId: p.productId || p.id,
+      variantId: p.variantId || '',
+      branchId,
+      inventoryType: isWholesale ? 'wholesale' : 'retail',
+      status: 'in_stock'
+    });
+    if (cached.hasCache) return cached.count;
+    const reservedInCart = cart.items.filter(item =>
+      String(item.productId || '') === String(p.productId || p.id || '')
+      && String(item.variantId || '') === String(p.variantId || '')
+      && item.unitId
+    ).length;
+    return Math.max(0, available - reservedInCart);
+  }
+
   function onChangeHeldSort(v) {
     setHeldSort(v);
     try { localStorage.setItem('ptSales:heldSort', v); } catch {}
@@ -210,6 +235,23 @@ function PosPage({ mode = 'retail' }) {
 
   async function loadSerializedUnits(product, search = '', pageValue = 1, pageSizeValue = serializedUnitsPageSize) {
     if (!product) return;
+    const requestId = ++serializedLoadSeqRef.current;
+    const productKey = `${product.productId || product.id || ''}:${product.variantId || ''}`;
+    serializedPickerKeyRef.current = productKey;
+    const cached = productUnitsApi.getCachedProductUnits({
+      productId: product.productId || product.id,
+      variantId: product.variantId || '',
+      branchId,
+      inventoryType: isWholesale ? 'wholesale' : 'retail',
+      status: 'in_stock',
+      query: search,
+      page: pageValue,
+      pageSize: pageSizeValue
+    });
+    if (requestId === serializedLoadSeqRef.current) {
+      setSerializedUnits(Array.isArray(cached?.rows) ? cached.rows : []);
+      setSerializedUnitsTotal(Number(cached?.total || 0));
+    }
     setSerializedLoading(true);
     try {
       const result = await productUnitsApi.listProductUnits({
@@ -222,14 +264,24 @@ function PosPage({ mode = 'retail' }) {
         page: pageValue,
         pageSize: pageSizeValue
       });
+      const sameProduct = serializedPickerKeyRef.current === productKey;
+      if (requestId !== serializedLoadSeqRef.current || !sameProduct) return;
       setSerializedUnits(Array.isArray(result?.rows) ? result.rows : []);
       setSerializedUnitsTotal(Number(result?.total || 0));
+      dispatch(setStock({
+        productId: product.productId || product.id,
+        variantId: product.variantId || null,
+        branchId,
+        inventoryType: isWholesale ? 'wholesale' : 'retail',
+        quantity: Number(result?.total || 0)
+      }));
     } catch (e) {
+      if (requestId !== serializedLoadSeqRef.current) return;
       toast.show(String(e?.message || 'Failed to load serialized units'), { type: 'error' });
       setSerializedUnits([]);
       setSerializedUnitsTotal(0);
     } finally {
-      setSerializedLoading(false);
+      if (requestId === serializedLoadSeqRef.current) setSerializedLoading(false);
     }
   }
 
@@ -243,7 +295,14 @@ function PosPage({ mode = 'retail' }) {
 
   async function addSerializedUnitToCart(product, unit) {
     try {
-      const reserved = await productUnitsApi.scanProductUnit({
+      const reserved = unit?._id ? await productUnitsApi.reserveProductUnit({
+        unitId: unit._id,
+        productId: product.productId || product.id,
+        variantId: product.variantId || '',
+        branchId,
+        inventoryType: isWholesale ? 'wholesale' : 'retail',
+        reservationToken
+      }) : await productUnitsApi.scanProductUnit({
         productId: product.productId || product.id,
         variantId: product.variantId || '',
         branchId,
@@ -266,6 +325,8 @@ function PosPage({ mode = 'retail' }) {
         imei: reserved.imei || '',
         serialNumber: reserved.serialNumber || ''
       }));
+      setSerializedUnits(prev => prev.filter(row => String(row._id) !== String(reserved._id)));
+      setSerializedUnitsTotal(prev => Math.max(0, Number(prev || 0) - 1));
       setSerializedPickerProduct(null);
       setSerializedScanInput('');
       toast.show(`Added unit ${reserved.imei || reserved.serialNumber}`, { type: 'success' });
@@ -283,11 +344,14 @@ function PosPage({ mode = 'retail' }) {
     }
     if (String(p.trackType || 'quantity') === 'serialized') {
       setSerializedPickerProduct(p);
+      serializedPickerKeyRef.current = `${p.productId || p.id || ''}:${p.variantId || ''}`;
       setSerializedUnitsQuery('');
       setSerializedScanInput('');
       setSerializedUnitsPage(1);
       setSerializedUnitsPageSize(25);
-      await loadSerializedUnits(p, '', 1, 25);
+      setSerializedUnits([]);
+      setSerializedUnitsTotal(0);
+      loadSerializedUnits(p, '', 1, 25);
       return;
     }
     const spec = productSpec(p);
@@ -532,7 +596,7 @@ function PosPage({ mode = 'retail' }) {
     cart.items.forEach(i => {
       const ref = skuToRef.get(i.sku);
       if (ref) {
-        dispatch(adjustStock({ productId: ref.productId, variantId: ref.variantId, branchId, delta: -i.quantity }));
+        dispatch(adjustStock({ productId: ref.productId, variantId: ref.variantId, branchId, inventoryType: isWholesale ? 'wholesale' : 'retail', delta: -i.quantity }));
       }
     });
     dispatch(recordSale(saleForUi));
@@ -644,6 +708,12 @@ function PosPage({ mode = 'retail' }) {
           toast.show(sale.items.some(item => Array.isArray(item.soldUnitIds) && item.soldUnitIds.length > 0) ? 'Saved offline. Serialized IMEI sale will sync later and conflicts will be flagged if found.' : 'Network issue: saved offline and will sync later', { type: 'warning' });
         } catch (err) {
           await releaseSerializedCartItems(cart.items);
+          cart.items.forEach(i => {
+            const ref = skuToRef.get(i.sku);
+            if (ref) {
+              dispatch(adjustStock({ productId: ref.productId, variantId: ref.variantId, branchId, inventoryType: isWholesale ? 'wholesale' : 'retail', delta: i.quantity }));
+            }
+          });
           toast.show(String(e?.message || 'Failed to record sale'), { type: 'error' });
         }
       } finally {
@@ -718,10 +788,8 @@ function PosPage({ mode = 'retail' }) {
         <div className="toolbar">
           <input className="input" placeholder="Search name, SKU or scan barcode" value={query} onChange={e => setQuery(e.target.value)} onKeyDown={onSearchKeyDown} style={{ width: '100%' }} />
           {isWholesale && (
-          <select className="select" value={selectedPriceTier} onChange={e => setSelectedPriceTier(e.target.value)} style={{ minWidth: 140 }}>
-            <option value="retail">Retail Price</option>
-            <option value="wholesale">Wholesale Price</option>
-            <option value="agent">Agent Price</option>
+          <select className="select" value={selectedPriceTier} onChange={e => setSelectedPriceTier(e.target.value)}>
+            {allowedPriceTiers.map(tier => <option key={tier} value={tier}>{getPriceTierLabel(tier)}</option>)}
           </select>
           )}
           <div style={{ display: 'flex', gap: 6 }}>
@@ -742,8 +810,8 @@ function PosPage({ mode = 'retail' }) {
                 {productSpec(p) && <div className="product-sku" style={{ color: '#64748b' }}>{productSpec(p)}</div>}
                 <div className="product-sku">{p.sku}</div>
                 <div className="product-price">{formatCurrency(p.price, settings)}</div>
-                <div className="product-stock" style={{ color: (p.lowStock ?? 0) > 0 && (p.stockByBranch?.[branchId] || 0) <= (p.lowStock ?? 0) ? '#ef4444' : undefined }}>
-                  Stock: {p.stockByBranch?.[branchId] || 0}{(p.lowStock ?? 0) > 0 && (p.stockByBranch?.[branchId] || 0) <= (p.lowStock ?? 0) ? ' • Low' : ''}
+                <div className="product-stock" style={{ color: (p.lowStock ?? 0) > 0 && visibleStockForProduct(p) <= (p.lowStock ?? 0) ? '#ef4444' : undefined }}>
+                  Stock: {visibleStockForProduct(p)}{(p.lowStock ?? 0) > 0 && visibleStockForProduct(p) <= (p.lowStock ?? 0) ? ' • Low' : ''}
                 </div>
               </button>
             ))}
@@ -759,8 +827,8 @@ function PosPage({ mode = 'retail' }) {
                     {productSpec(p) && <div className="sku" style={{ color: '#64748b' }}>{productSpec(p)}</div>}
                     <div className="sku">{p.sku}</div>
                   </div>
-                  <div className="stock" style={{ color: (p.lowStock ?? 0) > 0 && (p.stockByBranch?.[branchId] || 0) <= (p.lowStock ?? 0) ? '#ef4444' : undefined }}>
-                    Stock: {p.stockByBranch?.[branchId] || 0}{(p.lowStock ?? 0) > 0 && (p.stockByBranch?.[branchId] || 0) <= (p.lowStock ?? 0) ? ' • Low' : ''}
+                  <div className="stock" style={{ color: (p.lowStock ?? 0) > 0 && visibleStockForProduct(p) <= (p.lowStock ?? 0) ? '#ef4444' : undefined }}>
+                    Stock: {visibleStockForProduct(p)}{(p.lowStock ?? 0) > 0 && visibleStockForProduct(p) <= (p.lowStock ?? 0) ? ' • Low' : ''}
                   </div>
                 </div>
                 <div style={{ fontWeight: 700 }}>{formatCurrency(p.price, settings)}</div>

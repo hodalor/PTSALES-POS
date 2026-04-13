@@ -399,9 +399,16 @@ function RefundApprovalsPage() {
                   <tbody>
                     {items.map((it, idx) => (
                       <tr key={idx}>
-                        <td>{it.name}{it.spec ? ` [${it.spec}]` : ''}</td>
-                        <td>{it.sku}</td>
-                        <td>{it.qty}</td>
+                        <td>
+                          <div style={{ color: '#111827' }}>{it.name}{it.spec ? ` [${it.spec}]` : ''}</div>
+                          {Array.isArray(it.soldUnits) && it.soldUnits.length > 0 && (
+                            <div style={{ marginTop: 4, color: '#111827', fontSize: 12 }}>
+                              {it.soldUnits.map(unit => unit.imei || unit.serialNumber || unit.unitId).filter(Boolean).join(', ')}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ color: '#111827' }}>{it.sku}</td>
+                        <td style={{ color: '#111827' }}>{it.qty}</td>
                         {restockMode === 'partial' && (
                           <td>
                             {Array.isArray(it.soldUnits) && it.soldUnits.length > 0 ? (
@@ -410,7 +417,7 @@ function RefundApprovalsPage() {
                                   const key = `${it.sku}:${it.productId || ''}:${it.variantId || ''}`;
                                   const checked = (partialUnitMap[key] || []).includes(unit.unitId);
                                   return (
-                                    <label key={unit.unitId} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <label key={unit.unitId} style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#111827' }}>
                                       <input
                                         type="checkbox"
                                         checked={checked}
@@ -421,7 +428,7 @@ function RefundApprovalsPage() {
                                           return { ...prev, [key]: Array.from(current) };
                                         })}
                                       />
-                                      <span>{unit.imei || unit.serialNumber || unit.unitId}</span>
+                                      <span style={{ color: '#111827' }}>{unit.imei || unit.serialNumber || unit.unitId}</span>
                                     </label>
                                   );
                                 })}
@@ -434,7 +441,7 @@ function RefundApprovalsPage() {
                                 max={Number(it.qty) || 0}
                                 value={partialMap[it.sku] ?? 0}
                                 onChange={e => setPartialMap(m => ({ ...m, [it.sku]: Math.max(0, Math.min(Number(e.target.value) || 0, Number(it.qty) || 0)) }))}
-                                style={{ width: 100 }}
+                                style={{ width: 100, color: '#111827' }}
                               />
                             )}
                           </td>

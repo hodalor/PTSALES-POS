@@ -1,13 +1,16 @@
 import { useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { formatCurrency } from '../utils/currency';
+import { getAllowedPriceTiers, getDisplayPrice, getPriceTierLabel } from '../utils/priceVisibility';
 
 function WarehouseGoodsPage() {
   const products = useSelector(s => s.products.products || []);
   const branches = useSelector(s => s.branches.branches || []);
   const settings = useSelector(s => s.settings);
+  const auth = useSelector(s => s.auth);
   const [query, setQuery] = useState('');
   const [viewMode, setViewMode] = useState('card');
+  const visiblePriceTiers = useMemo(() => getAllowedPriceTiers(auth), [auth]);
 
   const warehouseBranches = useMemo(
     () => branches.filter(branch => String(branch.branchType || 'retail').toLowerCase() === 'warehouse'),
@@ -107,9 +110,9 @@ function WarehouseGoodsPage() {
               <div style={{ fontWeight: 700, fontSize: 18 }}>{product.name}</div>
               <div style={{ color: '#64748b' }}>{product.sku || 'No SKU'}</div>
               <div><strong>Warehouse Stock:</strong> {product.warehouseStock}</div>
-              <div><strong>Wholesale Price:</strong> {formatCurrency(Number(product.wholesalePrice != null ? product.wholesalePrice : product.price || 0), settings)}</div>
-              <div><strong>Agent Price:</strong> {formatCurrency(Number(product.agentPrice != null ? product.agentPrice : (product.wholesalePrice != null ? product.wholesalePrice : (product.price || 0))), settings)}</div>
-              <div><strong>Retail Price:</strong> {formatCurrency(Number(product.retailPrice != null ? product.retailPrice : product.price || 0), settings)}</div>
+              {visiblePriceTiers.map(tier => (
+                <div key={tier}><strong>{getPriceTierLabel(tier)}:</strong> {formatCurrency(getDisplayPrice(product, tier), settings)}</div>
+              ))}
               <div><strong>Low Stock Threshold:</strong> {product.warehouseLowStock}</div>
               <div style={{ display: 'inline-flex', width: 'fit-content', padding: '4px 10px', borderRadius: 999, background: product.warehouseStock <= Number(product.warehouseLowStock || 0) ? '#fee2e2' : '#dcfce7', color: product.warehouseStock <= Number(product.warehouseLowStock || 0) ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
                 {product.warehouseStock <= Number(product.warehouseLowStock || 0) ? 'Low stock' : 'Available'}
@@ -128,9 +131,7 @@ function WarehouseGoodsPage() {
                 <th align="left">SKU</th>
                 <th align="left">Warehouse Stock</th>
                 <th align="left">Low Stock At</th>
-                <th align="left">Retail Price</th>
-                <th align="left">Wholesale Price</th>
-                <th align="left">Agent Price</th>
+                {visiblePriceTiers.map(tier => <th key={tier} align="left">{getPriceTierLabel(tier)}</th>)}
                 <th align="left">Status</th>
               </tr>
             </thead>
@@ -142,9 +143,7 @@ function WarehouseGoodsPage() {
                   <td>{product.sku || '—'}</td>
                   <td>{product.warehouseStock}</td>
                   <td>{product.warehouseLowStock}</td>
-                  <td>{formatCurrency(Number(product.retailPrice != null ? product.retailPrice : product.price || 0), settings)}</td>
-                  <td>{formatCurrency(Number(product.wholesalePrice != null ? product.wholesalePrice : product.price || 0), settings)}</td>
-                  <td>{formatCurrency(Number(product.agentPrice != null ? product.agentPrice : (product.wholesalePrice != null ? product.wholesalePrice : (product.price || 0))), settings)}</td>
+                  {visiblePriceTiers.map(tier => <td key={tier}>{formatCurrency(getDisplayPrice(product, tier), settings)}</td>)}
                   <td>
                     <span style={{ display: 'inline-flex', padding: '4px 10px', borderRadius: 999, background: product.warehouseStock <= Number(product.warehouseLowStock || 0) ? '#fee2e2' : '#dcfce7', color: product.warehouseStock <= Number(product.warehouseLowStock || 0) ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
                       {product.warehouseStock <= Number(product.warehouseLowStock || 0) ? 'Low stock' : 'Available'}
@@ -152,7 +151,7 @@ function WarehouseGoodsPage() {
                   </td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td colSpan="9" style={{ padding: 12, color: '#64748b' }}>No warehouse goods found</td></tr>}
+              {rows.length === 0 && <tr><td colSpan={6 + visiblePriceTiers.length} style={{ padding: 12, color: '#64748b' }}>No warehouse goods found</td></tr>}
             </tbody>
           </table>
         </div>

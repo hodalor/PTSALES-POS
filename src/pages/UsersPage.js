@@ -15,9 +15,13 @@ const ALL_GRANTS = [
   { key: 'view_dashboard', label: 'Dashboard' },
   { key: 'view_pos', label: 'POS' },
   { key: 'view_wholesale_pos', label: 'Wholesale POS' },
+  { key: 'view_retail_price', label: 'Retail Price Visibility' },
+  { key: 'view_wholesale_price', label: 'Wholesale Price Visibility' },
+  { key: 'view_agent_price', label: 'Agent Price Visibility' },
   { key: 'view_sales', label: 'Sales' }, { key: 'add_sales', label: 'Sales: Add' },
   { key: 'view_products', label: 'Products' }, { key: 'add_products', label: 'Products: Add' }, { key: 'edit_products', label: 'Products: Edit' },
   { key: 'view_inventory', label: 'Inventory' }, { key: 'edit_inventory', label: 'Inventory: Edit' },
+  { key: 'view_serialized_inventory', label: 'Serialized Inventory' },
   { key: 'view_labels', label: 'Labels' },
   { key: 'view_purchases', label: 'Purchases' }, { key: 'add_purchases', label: 'Purchases: Add' }, { key: 'edit_purchases', label: 'Purchases: Edit' }, { key: 'approve_purchases', label: 'Purchases: Approve' },
   { key: 'view_transfers', label: 'Transfers' }, { key: 'add_transfers', label: 'Transfers: Add' }, { key: 'edit_transfers', label: 'Transfers: Edit' }, { key: 'approve_transfers', label: 'Transfers: Approve' },
@@ -25,11 +29,16 @@ const ALL_GRANTS = [
   { key: 'view_suppliers', label: 'Suppliers' }, { key: 'add_suppliers', label: 'Suppliers: Add' }, { key: 'edit_suppliers', label: 'Suppliers: Edit' },
   { key: 'view_customers', label: 'Customers' }, { key: 'add_customers', label: 'Customers: Add' }, { key: 'edit_customers', label: 'Customers: Edit' },
   { key: 'view_credit_control', label: 'Credit Control' }, { key: 'approve_credit_director', label: 'Credit: Director Approve' }, { key: 'approve_credit_manager', label: 'Credit: Manager Approve' },
+  { key: 'view_credit_repayment_approvals', label: 'Credit Repayment Approvals' },
   { key: 'view_approvals', label: 'Approvals Center' }, { key: 'approve_wholesale_director', label: 'Wholesale: Director Approve' }, { key: 'approve_wholesale_manager', label: 'Wholesale: Manager Approve' },
   { key: 'view_refunds', label: 'Refunds' }, { key: 'add_refunds', label: 'Refunds: Add Request' }, { key: 'approve_refunds', label: 'Refunds: Approve/Reject' },
   { key: 'view_expenses', label: 'Expenses' }, { key: 'add_expenses', label: 'Expenses: Add/Delete' }, { key: 'approve_expenses', label: 'Expenses: Approve/Reject' },
   { key: 'view_reports', label: 'Reports' },
   { key: 'view_stock_records', label: 'Stock Records' },
+  { key: 'view_wholesale_invoices', label: 'Wholesale Invoices' },
+  { key: 'view_warehouse_invoices', label: 'Warehouse Invoices' },
+  { key: 'view_warehouse_approvals', label: 'Warehouse Approvals' },
+  { key: 'view_imei_conflicts', label: 'IMEI Conflicts' },
   { key: 'view_cashdrawer', label: 'Cash Drawer' },
   { key: 'view_users', label: 'Users' },
   { key: 'view_config', label: 'Config' },
@@ -78,13 +87,13 @@ function UsersPage() {
     const rl = String(r || '').toLowerCase();
     if (rl === 'superadmin') return allGrantKeys.slice();
     if (rl === 'admin') return [
-      'view_dashboard','view_pos','view_wholesale_pos','view_sales','add_sales','view_products','add_products','edit_products','view_inventory','edit_inventory','view_labels','view_purchases','add_purchases','edit_purchases','approve_purchases','view_transfers','add_transfers','edit_transfers','approve_transfers','view_adjustments','add_adjustments','edit_adjustments','approve_adjustments','view_suppliers','add_suppliers','edit_suppliers','view_customers','add_customers','edit_customers','view_credit_control','approve_credit_director','approve_credit_manager','view_approvals','approve_wholesale_director','approve_wholesale_manager','view_refunds','approve_refunds','add_refunds','view_expenses','add_expenses','approve_expenses','view_reports','view_stock_records','view_cashdrawer','view_users','view_config','view_audit'
+      'view_dashboard','view_pos','view_wholesale_pos','view_retail_price','view_wholesale_price','view_agent_price','view_sales','add_sales','view_products','add_products','edit_products','view_inventory','edit_inventory','view_serialized_inventory','view_labels','view_purchases','add_purchases','edit_purchases','approve_purchases','view_transfers','add_transfers','edit_transfers','approve_transfers','view_adjustments','add_adjustments','edit_adjustments','approve_adjustments','view_suppliers','add_suppliers','edit_suppliers','view_customers','add_customers','edit_customers','view_credit_control','approve_credit_director','approve_credit_manager','view_credit_repayment_approvals','view_approvals','approve_wholesale_director','approve_wholesale_manager','view_refunds','approve_refunds','add_refunds','view_expenses','add_expenses','approve_expenses','view_reports','view_stock_records','view_wholesale_invoices','view_warehouse_invoices','view_warehouse_approvals','view_imei_conflicts','view_cashdrawer','view_users','view_config','view_audit'
     ];
     if (rl === 'manager' || rl === 'branch manager') return [
-      'view_dashboard','view_pos','view_wholesale_pos','view_sales','add_sales','view_products','add_products','edit_products','view_inventory','edit_inventory','view_labels','view_purchases','add_purchases','edit_purchases','approve_purchases','view_transfers','add_transfers','edit_transfers','approve_transfers','view_adjustments','add_adjustments','edit_adjustments','approve_adjustments','view_suppliers','add_suppliers','edit_suppliers','view_customers','add_customers','edit_customers','view_credit_control','approve_credit_manager','view_approvals','approve_wholesale_manager','view_refunds','approve_refunds','add_refunds','view_expenses','add_expenses','approve_expenses','view_reports','view_cashdrawer','view_config'
+      'view_dashboard','view_pos','view_wholesale_pos','view_retail_price','view_wholesale_price','view_agent_price','view_sales','add_sales','view_products','add_products','edit_products','view_inventory','edit_inventory','view_serialized_inventory','view_labels','view_purchases','add_purchases','edit_purchases','approve_purchases','view_transfers','add_transfers','edit_transfers','approve_transfers','view_adjustments','add_adjustments','edit_adjustments','approve_adjustments','view_suppliers','add_suppliers','edit_suppliers','view_customers','add_customers','edit_customers','view_credit_control','approve_credit_manager','view_credit_repayment_approvals','view_approvals','approve_wholesale_manager','view_refunds','approve_refunds','add_refunds','view_expenses','add_expenses','approve_expenses','view_reports','view_wholesale_invoices','view_warehouse_invoices','view_warehouse_approvals','view_imei_conflicts','view_cashdrawer','view_config'
     ];
-    if (rl === 'cashier') return ['view_pos','view_sales','add_sales','view_customers','view_credit_control','view_refunds','add_refunds','view_cashdrawer'];
-    if (rl === 'inventory staff') return ['view_products','view_inventory','edit_inventory','view_labels','view_purchases','add_purchases','view_transfers','add_transfers','view_adjustments','add_adjustments','view_suppliers'];
+    if (rl === 'cashier') return ['view_pos','view_wholesale_pos','view_retail_price','view_wholesale_price','view_agent_price','view_sales','add_sales','view_customers','view_credit_control','view_refunds','add_refunds','view_wholesale_invoices','view_warehouse_invoices','view_cashdrawer'];
+    if (rl === 'inventory staff') return ['view_retail_price','view_wholesale_price','view_agent_price','view_products','view_inventory','view_serialized_inventory','edit_inventory','view_labels','view_purchases','add_purchases','view_transfers','add_transfers','view_adjustments','add_adjustments','view_suppliers','view_wholesale_pos'];
     if (rl === 'auditor') return ['view_reports'];
     return [];
   }, [allGrantKeys]);

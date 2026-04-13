@@ -33,12 +33,8 @@ function WarehouseApprovalsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [purchaseRows, transferRows, adjustmentRows] = await Promise.all([
-        listOperations({ operationArea: 'warehouse', operationType: 'purchase', status }),
-        listOperations({ operationArea: 'warehouse', operationType: 'transfer', status }),
-        listOperations({ operationArea: 'warehouse', operationType: 'adjustment', status })
-      ]);
-      const merged = [...(purchaseRows || []), ...(transferRows || []), ...(adjustmentRows || [])]
+      const merged = (await listOperations({ operationArea: 'warehouse', status }))
+        .filter(row => ['purchase', 'transfer', 'adjustment'].includes(String(row.operationType || '').toLowerCase()))
         .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       setRows(merged);
     } catch (e) {
@@ -100,7 +96,7 @@ function WarehouseApprovalsPage() {
       setRows(prev => prev.filter(item => String(item._id || item.clientId) !== String(row._id || row.clientId)));
       setSelectedRow(null);
       toast.show(action === 'approve' ? 'Warehouse request approved' : 'Warehouse request rejected', { type: 'success' });
-      await load();
+      void load();
     } catch (e) {
       toast.show(String(e?.message || `Failed to ${action} request`), { type: 'error' });
     } finally {

@@ -4,6 +4,21 @@ import * as transfersApi from './transfers';
 import * as adjustmentsApi from './adjustments';
 import * as refundsApi from './refunds';
 
+const operationsCache = new Map();
+const OPERATIONS_TTL_MS = 5000;
+
+function operationsKey(params = {}) {
+  const query = new URLSearchParams();
+  if (params.status) query.set('status', String(params.status));
+  if (params.operationType) query.set('operationType', String(params.operationType));
+  if (params.operationArea) query.set('operationArea', String(params.operationArea));
+  return query.toString() ? `?${query.toString()}` : '';
+}
+
+function invalidateOperationsCache() {
+  operationsCache.clear();
+}
+
 function toLegacyStatus(status = '') {
   const raw = String(status || '').toLowerCase();
   if (raw === 'pending_director' || raw === 'pending_manager') return 'pending';
@@ -31,13 +46,15 @@ function normalizeModernOperation(row, operationType) {
 }
 
 export function listOperations(params = {}) {
-  const query = new URLSearchParams();
-  if (params.status) query.set('status', String(params.status));
-  if (params.operationType) query.set('operationType', String(params.operationType));
-  if (params.operationArea) query.set('operationArea', String(params.operationArea));
-  const qs = query.toString() ? `?${query.toString()}` : '';
-  return fetchJson(`/api/wholesale/operations${qs}`).then(rows => {
-    return (Array.isArray(rows) ? rows : []).map(row => normalizeModernOperation(row, params.operationType));
+  const qs = operationsKey(params);
+  const now = Date.now();
+  const cached = operationsCache.get(qs);
+  if (cached?.data && cached.expiresAt > now) return Promise.resolve(cached.data);
+  if (cached?.promise) return cached.promise;
+  const promise = fetchJson(`/api/wholesale/operations${qs}`).then(rows => {
+    const normalized = (Array.isArray(rows) ? rows : []).map(row => normalizeModernOperation(row, row?.operationType || params.operationType));
+    operationsCache.set(qs, { data: normalized, expiresAt: Date.now() + OPERATIONS_TTL_MS });
+    return normalized;
   }).catch(async (error) => {
     const msg = String(error?.message || '');
     if (!/404|not found/i.test(msg)) throw error;
@@ -62,14 +79,19 @@ export function listOperations(params = {}) {
         .map(row => normalizeLegacyOperation(row, 'refund'));
     }
     return [];
+  }).finally(() => {
+    const latest = operationsCache.get(qs);
+    if (latest?.promise) operationsCache.set(qs, { data: latest.data, expiresAt: latest.expiresAt || 0 });
   });
+  operationsCache.set(qs, { ...cached, promise, expiresAt: now + OPERATIONS_TTL_MS });
+  return promise;
 }
 
 export function createOperation(body) {
   return fetchJson('/api/wholesale/operations', {
     method: 'POST',
     body: JSON.stringify(body)
-  }).catch(async (error) => {
+  }).finally(() => invalidateOperationsCache()).catch(async (error) => {
     const msg = String(error?.message || '');
     if (!/404|not found/i.test(msg)) throw error;
     if (String(body?.operationArea || 'wholesale') === 'warehouse') throw error;
@@ -144,7 +166,7 @@ export function approveOperation(row, body = {}) {
     return fetchJson(`/api/approvals/${encodeURIComponent(row.approvalId)}/approve`, {
       method: 'POST',
       body: JSON.stringify(body)
-    });
+    }).finally(() => invalidateOperationsCache());
   }
   const payloadBase = {
     id: row?._id || row?.clientId,
@@ -152,9 +174,9 @@ export function approveOperation(row, body = {}) {
     approverRole: body.approverRole || '',
     remark: body.remark || ''
   };
-  if (row?.operationType === 'purchase') return purchasesApi.approve(payloadBase);
-  if (row?.operationType === 'transfer') return transfersApi.approve(payloadBase);
-  if (row?.operationType === 'adjustment') return adjustmentsApi.approve({ id: payloadBase.id, remark: payloadBase.remark });
+  if (row?.operationType === 'purchase') return purchasesApi.approve(payloadBase).finally(() => invalidateOperationsCache());
+  if (row?.operationType === 'transfer') return transfersApi.approve(payloadBase).finally(() => invalidateOperationsCache());
+  if (row?.operationType === 'adjustment') return adjustmentsApi.approve({ id: payloadBase.id, remark: payloadBase.remark }).finally(() => invalidateOperationsCache());
   if (row?.operationType === 'refund') {
     return refundsApi.approve({
       id: payloadBase.id,
@@ -162,7 +184,7 @@ export function approveOperation(row, body = {}) {
       approverRole: payloadBase.approverRole,
       approvalRemark: payloadBase.remark,
       restockMode: 'none'
-    });
+    }).finally(() => invalidateOperationsCache());
   }
   throw new Error('Unsupported operation');
 }
@@ -173,7 +195,7 @@ export function rejectOperation(row, body = {}) {
     return fetchJson(`/api/approvals/${encodeURIComponent(row.approvalId)}/reject`, {
       method: 'POST',
       body: JSON.stringify(body)
-    });
+    }).finally(() => invalidateOperationsCache());
   }
   const payloadBase = {
     id: row?._id || row?.clientId,
@@ -181,16 +203,16 @@ export function rejectOperation(row, body = {}) {
     approverRole: body.approverRole || '',
     remark: body.remark || ''
   };
-  if (row?.operationType === 'purchase') return purchasesApi.reject(payloadBase);
-  if (row?.operationType === 'transfer') return transfersApi.reject(payloadBase);
-  if (row?.operationType === 'adjustment') return adjustmentsApi.reject({ id: payloadBase.id, remark: payloadBase.remark });
+  if (row?.operationType === 'purchase') return purchasesApi.reject(payloadBase).finally(() => invalidateOperationsCache());
+  if (row?.operationType === 'transfer') return transfersApi.reject(payloadBase).finally(() => invalidateOperationsCache());
+  if (row?.operationType === 'adjustment') return adjustmentsApi.reject({ id: payloadBase.id, remark: payloadBase.remark }).finally(() => invalidateOperationsCache());
   if (row?.operationType === 'refund') {
     return refundsApi.reject({
       id: payloadBase.id,
       approverName: payloadBase.approverName,
       approverRole: payloadBase.approverRole,
       remark: payloadBase.remark
-    });
+    }).finally(() => invalidateOperationsCache());
   }
   throw new Error('Unsupported operation');
 }

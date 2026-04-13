@@ -9,6 +9,7 @@ import { buildInvoiceA4Html, printInvoiceA4 } from '../utils/invoicePrint';
 import * as invoicesApi from '../api/invoices';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import { isFeatureEnabled } from '../utils/featureFlags';
+import { getAllowedPriceTiers, getDisplayPrice, getPreferredPriceTier } from '../utils/priceVisibility';
 
 function InvoicesPage({ mode = 'retail' }) {
   const dispatch = useDispatch();
@@ -17,6 +18,7 @@ function InvoicesPage({ mode = 'retail' }) {
   const products = useSelector(s => s.products.products);
   const customers = useSelector(s => s.customers.customers);
   const invoices = useSelector(s => s.invoices.invoices);
+  const auth = useSelector(s => s.auth);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState('new');
   const [invoiceKind, setInvoiceKind] = useState(mode === 'retail' ? 'all' : mode); // all, retail, wholesale, warehouse
@@ -51,7 +53,10 @@ function InvoicesPage({ mode = 'retail' }) {
   const [saving, setSaving] = useState(false);
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const modeLower = String(mode || 'retail').toLowerCase();
-  const pageTitle = modeLower === 'wholesale' ? 'Wholesale Invoices' : modeLower === 'warehouse' ? 'Warehouse Invoices' : 'Invoices';
+  const allowedPriceTiers = useMemo(() => getAllowedPriceTiers(auth), [auth]);
+  const preferredModeTier = modeLower === 'retail' ? 'retail' : 'wholesale';
+  const activeInvoiceTier = useMemo(() => getPreferredPriceTier(allowedPriceTiers, preferredModeTier), [allowedPriceTiers, preferredModeTier]);
+  const pageTitle = modeLower === 'wholesale' ? 'Distribution Invoices' : modeLower === 'warehouse' ? 'Warehouse Invoices' : 'Invoices';
   const invoiceSource = modeLower === 'wholesale' ? 'wholesale-manual' : modeLower === 'warehouse' ? 'warehouse-manual' : 'manual';
   const invoicePrefix = modeLower === 'wholesale'
     ? (settings.wholesaleInvoicePrefix || 'WINV')
@@ -64,10 +69,8 @@ function InvoicesPage({ mode = 'retail' }) {
       ? Number(settings.nextWarehouseInvoiceNumber || 1)
       : Number(settings.nextInvoiceNumber || 1);
   const defaultRateFor = useCallback((p) => (
-    modeLower === 'retail'
-      ? Number(p.retailPrice != null ? p.retailPrice : p.price || 0)
-      : Number(p.wholesalePrice != null ? p.wholesalePrice : p.price || 0)
-  ), [modeLower]);
+    getDisplayPrice(p, activeInvoiceTier)
+  ), [activeInvoiceTier]);
   const bumpInvoiceSequence = useCallback(() => {
     if (modeLower === 'wholesale') dispatch(setNextWholesaleInvoiceNumber(nextInvoiceNumberValue + 1));
     else if (modeLower === 'warehouse') dispatch(setNextWarehouseInvoiceNumber(nextInvoiceNumberValue + 1));
@@ -259,7 +262,7 @@ function InvoicesPage({ mode = 'retail' }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
         <h1 style={{ margin: 0 }}>{pageTitle}</h1>
         <div style={{ color: '#64748b', fontSize: 13 }}>
-          {modeLower === 'retail' ? 'Create retail A4 invoices and reprint invoice records.' : modeLower === 'wholesale' ? 'Create wholesale A4 invoices using wholesale pricing defaults.' : 'Create warehouse A4 invoices using warehouse issue pricing defaults.'}
+          {modeLower === 'retail' ? 'Create retail A4 invoices and reprint invoice records.' : modeLower === 'wholesale' ? 'Create distribution A4 invoices using the assigned visible pricing tier.' : 'Create warehouse A4 invoices using the assigned visible pricing tier.'}
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>

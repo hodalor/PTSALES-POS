@@ -13,6 +13,7 @@ import Modal from '../components/Modal';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
+import { getAllowedPriceTiers, getDisplayPrice, getPreferredPriceTier } from '../utils/priceVisibility';
 
 function ProductsPage() {
   const dispatch = useDispatch();
@@ -36,6 +37,8 @@ function ProductsPage() {
   const canEditProducts = (['admin','manager'].includes(roleLower)) || has('edit_products');
   const canEditStock = false;
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
+  const visiblePriceTiers = useMemo(() => getAllowedPriceTiers(auth), [auth]);
+  const primaryVisibleTier = useMemo(() => getPreferredPriceTier(visiblePriceTiers, 'retail'), [visiblePriceTiers]);
 
   const [modalMode, setModalMode] = useState('none'); // none, add, edit
   const [editingId, setEditingId] = useState(null);
@@ -790,7 +793,7 @@ function ProductsPage() {
                     </div>
                   ) : '-'}
                 </td>
-                <td>{formatCurrency(p.price, settings)}</td>
+                <td>{formatCurrency(getDisplayPrice(p, primaryVisibleTier), settings)}</td>
                 <td>{p.category || '-'}</td>
                 <td>{p.lowStock ?? 0}</td>
                 <td>
@@ -1011,20 +1014,26 @@ function ProductsPage() {
                     <label className="label">SKU</label>
                     <input className="input" placeholder="SKU" value={sku} onChange={e => setSku(e.target.value)} style={{ display: 'block', width: '100%' }} />
                 </div>
-                <div>
-                    <label className="label">Retail Price</label>
-                    <input className="input" placeholder="Retail selling price" type="number" value={price} onChange={e => setPrice(e.target.value)} style={{ display: 'block', width: '100%' }} />
-                </div>
-                <div>
-                    <label className="label">Wholesale Price</label>
-                    <input className="input" placeholder="Wholesale selling price" type="number" value={wholesalePrice} onChange={e => setWholesalePrice(e.target.value)} style={{ display: 'block', width: '100%' }} />
-                </div>
+                {visiblePriceTiers.includes('retail') && (
+                  <div>
+                      <label className="label">Retail Price</label>
+                      <input className="input" placeholder="Retail selling price" type="number" value={price} onChange={e => setPrice(e.target.value)} style={{ display: 'block', width: '100%' }} />
+                  </div>
+                )}
+                {visiblePriceTiers.includes('wholesale') && (
+                  <div>
+                      <label className="label">Wholesale Price</label>
+                      <input className="input" placeholder="Wholesale selling price" type="number" value={wholesalePrice} onChange={e => setWholesalePrice(e.target.value)} style={{ display: 'block', width: '100%' }} />
+                  </div>
+                )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-              <div>
-                <label className="label">Agent Price</label>
-                <input className="input" placeholder="Agent selling price" type="number" value={agentPrice} onChange={e => setAgentPrice(e.target.value)} style={{ display: 'block', width: '100%' }} />
-              </div>
+              {visiblePriceTiers.includes('agent') && (
+                <div>
+                  <label className="label">Agent Price</label>
+                  <input className="input" placeholder="Agent selling price" type="number" value={agentPrice} onChange={e => setAgentPrice(e.target.value)} style={{ display: 'block', width: '100%' }} />
+                </div>
+              )}
               <div>
                 <label className="label">Track Type</label>
                 <select className="select" value={trackType} onChange={e => setTrackType(e.target.value)} style={{ display: 'block', width: '100%' }}>

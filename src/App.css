@@ -220,6 +220,12 @@ html, body, #root {
   background: #fff;
   color: #111827;
 }
+.input:disabled, .select:disabled, textarea.input:disabled {
+  color: #111827;
+  -webkit-text-fill-color: #111827;
+  opacity: 1;
+  background: #f8fafc;
+}
 .input:focus, .select:focus {
   outline: none;
   border-color: #cbd5e1;

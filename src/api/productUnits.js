@@ -1,6 +1,8 @@
 import { fetchJson } from './client';
 
 const CACHE_KEY = 'ptsales:serialized-units-cache:v1';
+const REQUEST_CACHE_TTL_MS = 4000;
+const listRequestCache = new Map();
 
 function readCache() {
   try {
@@ -19,6 +21,27 @@ function writeCache(rows) {
   } catch {}
 }
 
+function findCachedByCode(code = '', params = {}) {
+  const normalized = String(code || '').trim();
+  if (!normalized) return null;
+  return readCache().find(row => {
+    if (params.productId && String(row.productId || '') !== String(params.productId)) return false;
+    if (params.variantId && String(row.variantId || '') !== String(params.variantId)) return false;
+    if (params.branchId && String(row.branchId || '') !== String(params.branchId)) return false;
+    if (params.inventoryType && String(row.inventoryType || '') !== String(params.inventoryType)) return false;
+    return String(row.imei || '') === normalized || String(row.serialNumber || '') === normalized;
+  }) || null;
+}
+
+function overlayRows(nextRows = [], params = {}) {
+  const cache = new Map(readCache().map(row => [String(row._id), row]));
+  const withStatus = (Array.isArray(nextRows) ? nextRows : [])
+    .map(row => cache.has(String(row?._id)) ? { ...row, ...cache.get(String(row._id)) } : row)
+    .filter(Boolean);
+  if (!params.status) return withStatus;
+  return withStatus.filter(row => String(row.status || '') === String(params.status));
+}
+
 function mergeRows(nextRows = []) {
   const map = new Map(readCache().map(row => [String(row._id), row]));
   (Array.isArray(nextRows) ? nextRows : []).forEach(row => {
@@ -27,6 +50,10 @@ function mergeRows(nextRows = []) {
   const merged = Array.from(map.values()).sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
   writeCache(merged);
   return merged;
+}
+
+function invalidateListRequestCache() {
+  listRequestCache.clear();
 }
 
 function filterRows(params = {}) {
@@ -49,6 +76,28 @@ function filterRows(params = {}) {
     rows: rows.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize),
     total: rows.length
   };
+}
+
+export function getCachedProductUnitCount(params = {}) {
+  const baseRows = readCache().filter(row => {
+    if (params.productId && String(row.productId || '') !== String(params.productId)) return false;
+    if (params.variantId && String(row.variantId || '') !== String(params.variantId)) return false;
+    if (params.branchId && String(row.branchId || '') !== String(params.branchId)) return false;
+    if (params.inventoryType && String(row.inventoryType || '') !== String(params.inventoryType)) return false;
+    return true;
+  });
+  const rows = baseRows.filter(row => {
+    if (params.status && String(row.status || '') !== String(params.status)) return false;
+    return true;
+  });
+  return {
+    count: rows.length,
+    hasCache: baseRows.length > 0
+  };
+}
+
+export function getCachedProductUnits(params = {}) {
+  return filterRows(params);
 }
 
 function reserveLocalUnit({ code = '', productId = '', variantId = '', branchId = '', inventoryType = '', reservationToken = '' }) {
@@ -89,6 +138,7 @@ export function markSoldProductUnits(unitIds = []) {
   if (!Array.isArray(unitIds) || unitIds.length === 0) return;
   const next = readCache().map(row => unitIds.map(String).includes(String(row._id)) ? { ...row, status: 'sold', reservationToken: '', reservedAt: null, soldAt: new Date().toISOString(), offlineCached: true } : row);
   writeCache(next);
+  invalidateListRequestCache();
 }
 
 export function listProductUnits(params = {}) {
@@ -101,10 +151,22 @@ export function listProductUnits(params = {}) {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return Promise.resolve(filterRows(params));
   }
-  return fetchJson(`/api/product-units${qs}`, { timeoutMs: 60000 }).then(result => {
+  const now = Date.now();
+  const cached = listRequestCache.get(qs);
+  if (cached?.data && cached.expiresAt > now) return Promise.resolve(cached.data);
+  if (cached?.promise) return cached.promise;
+  const promise = fetchJson(`/api/product-units${qs}`, { timeoutMs: 60000 }).then(result => {
     mergeRows(result?.rows || []);
-    return result;
+    const rows = overlayRows(result?.rows || [], params);
+    const data = { ...result, rows, total: params.status ? rows.length : Number(result?.total || rows.length) };
+    listRequestCache.set(qs, { data, expiresAt: Date.now() + REQUEST_CACHE_TTL_MS });
+    return data;
+  }).finally(() => {
+    const latest = listRequestCache.get(qs);
+    if (latest?.promise) listRequestCache.set(qs, { data: latest.data, expiresAt: latest.expiresAt || 0 });
   });
+  listRequestCache.set(qs, { ...cached, promise, expiresAt: now + REQUEST_CACHE_TTL_MS });
+  return promise;
 }
 
 export function bulkCreateProductUnits(body) {
@@ -112,10 +174,27 @@ export function bulkCreateProductUnits(body) {
     method: 'POST',
     body: JSON.stringify(body),
     timeoutMs: 0
-  });
+  }).finally(() => invalidateListRequestCache());
 }
 
 export function reserveProductUnit(body) {
+  if (body?.unitId) {
+    const rows = readCache();
+    const cachedById = rows.find(row => String(row._id) === String(body.unitId));
+    if (cachedById && ['sold', 'adjusted_out'].includes(String(cachedById.status || ''))) {
+      return Promise.reject(new Error('Serialized unit is no longer available'));
+    }
+    if (cachedById && String(cachedById.status || '') === 'reserved' && cachedById.reservationToken && String(cachedById.reservationToken) !== String(body?.reservationToken || '')) {
+      return Promise.reject(new Error('Serialized unit is already reserved'));
+    }
+  }
+  const cached = findCachedByCode(body?.code || body?.imei || '', body || {});
+  if (cached && ['sold', 'adjusted_out'].includes(String(cached.status || ''))) {
+    return Promise.reject(new Error('Serialized unit is no longer available'));
+  }
+  if (cached && String(cached.status || '') === 'reserved' && cached.reservationToken && String(cached.reservationToken) !== String(body?.reservationToken || '')) {
+    return Promise.reject(new Error('Serialized unit is already reserved'));
+  }
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return Promise.resolve(reserveLocalUnit(body || {}));
   }
@@ -126,10 +205,18 @@ export function reserveProductUnit(body) {
   }).then(row => {
     mergeRows([row]);
     return row;
-  });
+  }).finally(() => invalidateListRequestCache());
 }
 
 export function scanProductUnit(body) {
+  const code = body?.imei || body?.code || '';
+  const cached = findCachedByCode(code, body || {});
+  if (cached && ['sold', 'adjusted_out'].includes(String(cached.status || ''))) {
+    return Promise.reject(new Error('Serialized unit is already sold or unavailable'));
+  }
+  if (cached && String(cached.status || '') === 'reserved' && cached.reservationToken && String(cached.reservationToken) !== String(body?.reservationToken || '')) {
+    return Promise.reject(new Error('Serialized unit is already reserved'));
+  }
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return Promise.resolve(reserveLocalUnit({ ...(body || {}), code: body?.imei || body?.code || '' }));
   }
@@ -140,7 +227,7 @@ export function scanProductUnit(body) {
   }).then(row => {
     mergeRows([row]);
     return row;
-  });
+  }).finally(() => invalidateListRequestCache());
 }
 
 export function releaseProductUnits(body) {
@@ -154,7 +241,7 @@ export function releaseProductUnits(body) {
   }).then(result => {
     releaseLocalUnits(body || {});
     return result;
-  });
+  }).finally(() => invalidateListRequestCache());
 }
 
 export function lookupProductUnit(code) {
@@ -165,6 +252,6 @@ export function lookupProductUnit(code) {
   }
   return fetchJson(`/api/product-units/lookup/${encodeURIComponent(code)}`, { timeoutMs: 30000 }).then(row => {
     mergeRows([row]);
-    return row;
+    return overlayRows([row])[0] || row;
   });
 }

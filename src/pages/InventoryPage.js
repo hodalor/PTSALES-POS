@@ -8,6 +8,7 @@ import { formatCurrency } from '../utils/currency';
 import { useToast } from '../components/ToastProvider';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
+import { getAllowedPriceTiers, getDisplayPrice, getPriceTierLabel } from '../utils/priceVisibility';
 
 function branchTypeBadgeStyle(branchType = 'retail') {
   const kind = String(branchType || 'retail').toLowerCase();
@@ -30,6 +31,7 @@ function InventoryPage() {
   const [openVariantsFor, setOpenVariantsFor] = useState(null);
   const dispatch = useDispatch();
   const toast = useToast();
+  const visiblePriceTiers = useMemo(() => getAllowedPriceTiers(auth), [auth]);
 
   const branch = useMemo(() => branches.find(b => b.id === branchId) || branches[0], [branches, branchId]);
   const rows = useMemo(() => products, [products]);
@@ -208,8 +210,9 @@ function InventoryPage() {
                 <div><strong>Category:</strong> {selected.category || '—'}</div>
                 <div><strong>Track Type:</strong> {String(selected.trackType || 'quantity') === 'serialized' ? 'Serialized' : 'Quantity'}</div>
                 <div><strong>Manual Stock Edit:</strong> {String(selected.trackType || 'quantity') === 'serialized' ? 'Disabled for serialized items' : 'Disabled'}</div>
-                <div><strong>Retail Price:</strong> {formatCurrency(Number(selected.retailPrice != null ? selected.retailPrice : selected.price || 0), settings)}</div>
-                <div><strong>Wholesale Price:</strong> {formatCurrency(Number(selected.wholesalePrice != null ? selected.wholesalePrice : selected.price || 0), settings)}</div>
+                {visiblePriceTiers.map(tier => (
+                  <div key={tier}><strong>{getPriceTierLabel(tier)}:</strong> {formatCurrency(getDisplayPrice(selected, tier), settings)}</div>
+                ))}
                 <div><strong>Barcode:</strong> <code style={{ fontSize: 12 }}>{selected.barcode || '—'}</code></div>
                 <div><strong>Low Stock:</strong> {selected.lowStock ?? 0}</div>
                 <div><strong>{String(selected.trackType || 'quantity') === 'serialized' ? 'Serialized Retail Units' : 'Total Retail Across Branches'}:</strong> {Object.values(selected.stockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
