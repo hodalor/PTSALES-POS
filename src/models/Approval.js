@@ -28,5 +28,7 @@ const ApprovalSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 ApprovalSchema.index({ status: 1, actionType: 1, createdAt: -1 });
+ApprovalSchema.index({ actionType: 1, createdAt: -1 });
+ApprovalSchema.index({ referenceModel: 1, referenceId: 1 }, { unique: true });
 
 export default mongoose.model('Approval', ApprovalSchema);

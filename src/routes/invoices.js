@@ -28,15 +28,29 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_invoices'), as
   } catch {}
   let number = String(payload.number || '');
   const digits = Math.max(3, Number(settingsData.invoiceNumberDigits || 6));
-  const prefix = String(settingsData.invoicePrefix || 'INV');
+  const source = String(payload.source || 'manual');
+  const counterField = source === 'wholesale-manual'
+    ? 'data.nextWholesaleInvoiceNumber'
+    : source === 'warehouse-manual'
+      ? 'data.nextWarehouseInvoiceNumber'
+      : 'data.nextInvoiceNumber';
+  const prefix = source === 'wholesale-manual'
+    ? String(settingsData.wholesaleInvoicePrefix || 'WINV')
+    : source === 'warehouse-manual'
+      ? String(settingsData.warehouseInvoicePrefix || 'WHINV')
+      : String(settingsData.invoicePrefix || 'INV');
   if (!number) {
     try {
       const updated = await Settings.findOneAndUpdate(
         { key: 'default' },
-        { $inc: { 'data.nextInvoiceNumber': 1 } },
+        { $inc: { [counterField]: 1 } },
         { new: true, upsert: true }
       );
-      const n = Math.max(1, Number(updated?.data?.nextInvoiceNumber || 1) - 1);
+      const n = Math.max(1, Number(counterField === 'data.nextWholesaleInvoiceNumber'
+        ? updated?.data?.nextWholesaleInvoiceNumber
+        : counterField === 'data.nextWarehouseInvoiceNumber'
+          ? updated?.data?.nextWarehouseInvoiceNumber
+          : updated?.data?.nextInvoiceNumber || 1) - 1);
       number = `${prefix}-${String(n).padStart(digits, '0')}`;
     } catch {
       number = `${prefix}-${String(Date.now()).slice(-digits)}`;

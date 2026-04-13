@@ -12,7 +12,7 @@ r.get('/', async (req, res) => {
   if (req.query.status) query.status = String(req.query.status);
   if (req.query.actionType) query.actionType = String(req.query.actionType);
   if (req.query.referenceModel) query.referenceModel = String(req.query.referenceModel);
-  const rows = await Approval.find(query).sort({ createdAt: -1 }).limit(500);
+  const rows = await Approval.find(query).sort({ createdAt: -1 }).limit(500).lean();
   res.json(rows);
 });
 

@@ -6,6 +6,7 @@ const AdjustmentRequestItemSchema = new mongoose.Schema({
   variantId: String,
   delta: Number,
   unitIds: { type: [String], default: [] },
+  selectedUnits: { type: [{ unitId: String, imei: String, serialNumber: String }], default: [] },
   serializedEntries: { type: [{ imei: String, serialNumber: String }], default: [] },
   remark: String,
   status: { type: String, enum: ['pending', 'accepted', 'cancelled'], default: 'pending' }

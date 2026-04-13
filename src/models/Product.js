@@ -37,6 +37,8 @@ const ProductSchema = new mongoose.Schema({
   barcode: { type: String },
   image: { type: String },
   lowStock: { type: Number, default: 0 },
+  wholesaleLowStock: { type: Number, default: 0 },
+  warehouseLowStock: { type: Number, default: 0 },
   expiryDate: { type: Date },
   unitKind: { type: String, default: 'none' },
   unitValue: { type: Number },

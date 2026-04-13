@@ -53,6 +53,7 @@ r.post('/reserve', requireRoleOrPerm(['Admin', 'Manager', 'Cashier', 'Inventory 
     const inventoryType = payload.inventoryType ? String(payload.inventoryType) : await resolveInventoryTypeFromBranch(payload.branchId, 'retail');
     const row = await reserveSerializedUnit({
       code: payload.code || '',
+      unitId: payload.unitId || '',
       productId: payload.productId || '',
       variantId: payload.variantId || '',
       branchId: payload.branchId,

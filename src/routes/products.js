@@ -46,6 +46,9 @@ function normalizePricingPayload(body = {}) {
   else out.agentPrice = out.wholesalePrice;
   out.allowCredit = out.allowCredit !== false;
   out.trackType = normalizeTrackType(out.trackType);
+  out.lowStock = toNumberOrZero(out.lowStock || 0);
+  out.wholesaleLowStock = toNumberOrZero(out.wholesaleLowStock != null ? out.wholesaleLowStock : out.lowStock || 0);
+  out.warehouseLowStock = toNumberOrZero(out.warehouseLowStock != null ? out.warehouseLowStock : out.lowStock || 0);
   out.minimumCreditPercentage = Math.max(0, Math.min(100, Number(out.minimumCreditPercentage || 0)));
   out.wholesaleStockByBranch = normalizeStockByBranch(out.wholesaleStockByBranch);
   out.warehouseStockByBranch = normalizeStockByBranch(out.warehouseStockByBranch);
@@ -109,6 +112,9 @@ r.get('/', async (req, res) => {
     obj.agentPrice = hasNumber(obj.agentPrice) ? toNumberOrZero(obj.agentPrice) : obj.wholesalePrice;
     obj.allowCredit = obj.allowCredit !== false;
     obj.trackType = normalizeTrackType(obj.trackType);
+    obj.lowStock = toNumberOrZero(obj.lowStock || 0);
+    obj.wholesaleLowStock = hasNumber(obj.wholesaleLowStock) ? toNumberOrZero(obj.wholesaleLowStock) : obj.lowStock;
+    obj.warehouseLowStock = hasNumber(obj.warehouseLowStock) ? toNumberOrZero(obj.warehouseLowStock) : obj.lowStock;
     obj.minimumCreditPercentage = Math.max(0, Math.min(100, Number(obj.minimumCreditPercentage || 0)));
     if (Array.isArray(obj.variants)) {
       obj.variants = obj.variants.map((v, idx) => ({

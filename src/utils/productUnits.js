@@ -142,20 +142,23 @@ export async function createSerializedUnits({ productId, variantId = '', branchI
   return { product, created };
 }
 
-export async function reserveSerializedUnit({ code, productId = '', variantId = '', branchId, inventoryType = 'retail', reservationToken }) {
+export async function reserveSerializedUnit({ code, unitId = '', productId = '', variantId = '', branchId, inventoryType = 'retail', reservationToken }) {
   const normalizedType = normalizeInventoryType(inventoryType);
   const query = {
     branchId: String(branchId),
     inventoryType: normalizedType,
     status: { $in: ['in_stock', 'reserved'] }
   };
-  if (code) {
+  if (unitId) {
+    query._id = String(unitId);
+  } else if (code) {
     query.$or = [{ imei: String(code) }, { serialNumber: String(code) }];
   } else {
     query.productId = String(productId);
     if (variantId) query.variantId = String(variantId);
   }
-  const unit = await ProductUnit.findOne(query).sort({ createdAt: 1 });
+  const sort = unitId ? undefined : { createdAt: 1 };
+  const unit = await ProductUnit.findOne(query).sort(sort);
   if (!unit) {
     const err = new Error('Serialized unit not available');
     err.status = 404;
@@ -166,11 +169,29 @@ export async function reserveSerializedUnit({ code, productId = '', variantId = 
     err.status = 409;
     throw err;
   }
-  unit.status = 'reserved';
-  unit.reservationToken = String(reservationToken || '');
-  unit.reservedAt = new Date();
-  await unit.save();
-  return unit;
+  const updated = await ProductUnit.findOneAndUpdate(
+    {
+      _id: unit._id,
+      $or: [
+        { status: 'in_stock' },
+        { status: 'reserved', reservationToken: String(reservationToken || '') }
+      ]
+    },
+    {
+      $set: {
+        status: 'reserved',
+        reservationToken: String(reservationToken || ''),
+        reservedAt: new Date()
+      }
+    },
+    { new: true }
+  );
+  if (!updated) {
+    const err = new Error('Serialized unit already reserved');
+    err.status = 409;
+    throw err;
+  }
+  return updated;
 }
 
 export async function listSerializedUnits({ productId = '', variantId = '', branchId = '', inventoryType = '', status = '', query = '', page = 1, pageSize = 30 }) {
@@ -188,7 +209,21 @@ export async function listSerializedUnits({ productId = '', variantId = '', bran
   }
   const skip = Math.max(0, (Number(page || 1) - 1) * Number(pageSize || 30));
   const [rows, total] = await Promise.all([
-    ProductUnit.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Math.max(1, Number(pageSize || 30))),
+    ProductUnit.find(filter, {
+      productId: 1,
+      variantId: 1,
+      imei: 1,
+      serialNumber: 1,
+      inventoryType: 1,
+      branchId: 1,
+      status: 1,
+      reservationToken: 1,
+      reservedAt: 1,
+      soldAt: 1,
+      soldSaleId: 1,
+      createdAt: 1,
+      updatedAt: 1
+    }).sort({ createdAt: -1 }).skip(skip).limit(Math.max(1, Number(pageSize || 30))).lean(),
     ProductUnit.countDocuments(filter)
   ]);
   return { rows, total };

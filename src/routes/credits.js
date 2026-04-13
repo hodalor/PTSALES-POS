@@ -25,7 +25,7 @@ r.get('/repayments', async (req, res) => {
   const query = {};
   if (req.query.customerId) query.customerId = String(req.query.customerId);
   if (req.query.status) query.status = String(req.query.status);
-  const rows = await CreditRepayment.find(query).sort({ createdAt: -1 }).limit(500);
+  const rows = await CreditRepayment.find(query).sort({ createdAt: -1 }).limit(500).lean();
   res.json(rows);
 });
 

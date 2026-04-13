@@ -6,6 +6,7 @@ const WholesaleOperationItemSchema = new mongoose.Schema({
   variantId: { type: String, default: '' },
   qty: { type: Number, default: 0 },
   unitIds: { type: [String], default: [] },
+  selectedUnits: { type: [{ unitId: String, imei: String, serialNumber: String }], default: [] },
   serializedEntries: { type: [{ imei: String, serialNumber: String }], default: [] },
   cost: { type: Number, default: 0 },
   requestedAmount: { type: Number, default: 0 },
@@ -58,5 +59,9 @@ const WholesaleOperationSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 WholesaleOperationSchema.index({ operationArea: 1, operationType: 1, status: 1, createdAt: -1 });
+WholesaleOperationSchema.index({ operationArea: 1, status: 1, createdAt: -1 });
+WholesaleOperationSchema.index({ branchId: 1, status: 1, createdAt: -1 });
+WholesaleOperationSchema.index({ fromBranchId: 1, status: 1, createdAt: -1 });
+WholesaleOperationSchema.index({ toBranchId: 1, status: 1, createdAt: -1 });
 
 export default mongoose.model('WholesaleOperation', WholesaleOperationSchema);

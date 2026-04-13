@@ -35,7 +35,7 @@ r.get('/operations', async (req, res) => {
       query.branchId = { $in: arr };
     }
   }
-  const rows = await WholesaleOperation.find(query).sort({ createdAt: -1 }).limit(500);
+  const rows = await WholesaleOperation.find(query).sort({ createdAt: -1 }).limit(500).lean();
   res.json(rows);
 });
 

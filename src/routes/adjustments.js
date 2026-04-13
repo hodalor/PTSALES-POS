@@ -48,6 +48,7 @@ function normalizeItems(payload = {}) {
       variantId: String(item.variantId || ''),
       delta: Number(item.delta || 0),
       unitIds: Array.isArray(item.unitIds) ? item.unitIds.map(String).filter(Boolean) : [],
+      selectedUnits: Array.isArray(item.selectedUnits) ? item.selectedUnits.map(unit => ({ unitId: String(unit?.unitId || ''), imei: String(unit?.imei || '').trim(), serialNumber: String(unit?.serialNumber || '').trim() })) : [],
       serializedEntries: Array.isArray(item.serializedEntries) ? item.serializedEntries.map(entry => ({ imei: String(entry?.imei || '').trim(), serialNumber: String(entry?.serialNumber || '').trim() })) : [],
       remark: String(item.remark || ''),
       status: String(item.status || 'pending').toLowerCase() === 'cancelled' ? 'cancelled' : 'accepted'
