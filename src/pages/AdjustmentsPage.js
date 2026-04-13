@@ -228,6 +228,7 @@ function AdjustmentsPage() {
         variantId: variantId || '',
         delta: Number(delta),
         unitIds: serializedAdjustmentMode === 'decrease' ? serializedUnits.filter(unit => unit.selected).map(unit => unit._id) : [],
+        selectedUnits: serializedAdjustmentMode === 'decrease' ? serializedUnits.filter(unit => unit.selected).map(unit => ({ unitId: unit._id, imei: unit.imei || '', serialNumber: unit.serialNumber || '' })) : [],
         serializedEntries: serializedAdjustmentMode === 'increase' ? serializedEntries : [],
         remark: remark.trim(),
         status: 'accepted'
@@ -310,6 +311,7 @@ function AdjustmentsPage() {
       variantId: variantId || '',
       delta: Number(delta),
       unitIds: selectedTrackType === 'serialized' && serializedAdjustmentMode === 'decrease' ? serializedUnits.filter(unit => unit.selected).map(unit => unit._id) : [],
+      selectedUnits: selectedTrackType === 'serialized' && serializedAdjustmentMode === 'decrease' ? serializedUnits.filter(unit => unit.selected).map(unit => ({ unitId: unit._id, imei: unit.imei || '', serialNumber: unit.serialNumber || '' })) : [],
       serializedEntries: selectedTrackType === 'serialized' && serializedAdjustmentMode === 'increase' ? serializedEntries : [],
       remark: remark.trim(),
       status: 'accepted'
@@ -481,7 +483,19 @@ function AdjustmentsPage() {
                   const product = products.find(p => p.id === item.productId);
                   return (
                     <tr key={item.lineId}>
-                      <td>{product?.name || item.productId}</td>
+                      <td>
+                        <div>{product?.name || item.productId}</div>
+                        {Array.isArray(item.selectedUnits) && item.selectedUnits.length > 0 && (
+                          <div style={{ marginTop: 4, color: '#111827', fontSize: 12 }}>
+                            {item.selectedUnits.map(unit => unit.imei || unit.serialNumber || unit.unitId).filter(Boolean).join(', ')}
+                          </div>
+                        )}
+                        {Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 && (
+                          <div style={{ marginTop: 4, color: '#111827', fontSize: 12 }}>
+                            {item.serializedEntries.map(unit => unit.imei || unit.serialNumber).filter(Boolean).join(', ')}
+                          </div>
+                        )}
+                      </td>
                       <td>{item.delta}</td>
                       <td>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—')}</td>
                       <td><button className="btn" onClick={() => removeItem(item.lineId)}>Remove</button></td>
@@ -751,7 +765,19 @@ function RequestDetail({ detail, products, byId }) {
                 const product = products.find(row => row.id === item.productId);
                 return (
                   <tr key={item.lineId || index}>
-                    <td>{product?.name || item.productId}</td>
+                    <td>
+                      <div>{product?.name || item.productId}</div>
+                      {Array.isArray(item.selectedUnits) && item.selectedUnits.length > 0 && (
+                        <div style={{ marginTop: 4, color: '#111827', fontSize: 12 }}>
+                          {item.selectedUnits.map(unit => unit.imei || unit.serialNumber || unit.unitId).filter(Boolean).join(', ')}
+                        </div>
+                      )}
+                      {Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 && (
+                        <div style={{ marginTop: 4, color: '#111827', fontSize: 12 }}>
+                          {item.serializedEntries.map(unit => unit.imei || unit.serialNumber).filter(Boolean).join(', ')}
+                        </div>
+                      )}
+                    </td>
                     <td>{item.delta}</td>
                     <td>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—')}</td>
                     <td>{item.status || 'accepted'}</td>

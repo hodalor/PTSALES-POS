@@ -1,16 +1,16 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { productSpec } from '../utils/productSpec';
 import { formatCurrency } from '../utils/currency';
 import { useToast } from '../components/ToastProvider';
 import { addInvoice } from '../store/invoicesSlice';
-import { setNextInvoiceNumber } from '../store/settingsSlice';
+import { setNextInvoiceNumber, setNextWarehouseInvoiceNumber, setNextWholesaleInvoiceNumber } from '../store/settingsSlice';
 import { buildInvoiceA4Html, printInvoiceA4 } from '../utils/invoicePrint';
 import * as invoicesApi from '../api/invoices';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import { isFeatureEnabled } from '../utils/featureFlags';
 
-function InvoicesPage() {
+function InvoicesPage({ mode = 'retail' }) {
   const dispatch = useDispatch();
   const toast = useToast();
   const settings = useSelector(s => s.settings);
@@ -19,7 +19,7 @@ function InvoicesPage() {
   const invoices = useSelector(s => s.invoices.invoices);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState('new');
-  const [invoiceKind, setInvoiceKind] = useState('all'); // all, retail, wholesale
+  const [invoiceKind, setInvoiceKind] = useState(mode === 'retail' ? 'all' : mode); // all, retail, wholesale, warehouse
   const showNewTab = isFeatureEnabled(settings, 'tabs.invoiceNew');
   const showRecordsTab = isFeatureEnabled(settings, 'tabs.invoiceRecords');
   useEffect(() => {
@@ -50,6 +50,29 @@ function InvoicesPage() {
   const [termsOfDelivery, setTermsOfDelivery] = useState('');
   const [saving, setSaving] = useState(false);
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
+  const modeLower = String(mode || 'retail').toLowerCase();
+  const pageTitle = modeLower === 'wholesale' ? 'Wholesale Invoices' : modeLower === 'warehouse' ? 'Warehouse Invoices' : 'Invoices';
+  const invoiceSource = modeLower === 'wholesale' ? 'wholesale-manual' : modeLower === 'warehouse' ? 'warehouse-manual' : 'manual';
+  const invoicePrefix = modeLower === 'wholesale'
+    ? (settings.wholesaleInvoicePrefix || 'WINV')
+    : modeLower === 'warehouse'
+      ? (settings.warehouseInvoicePrefix || 'WHINV')
+      : (settings.invoicePrefix || 'INV');
+  const nextInvoiceNumberValue = modeLower === 'wholesale'
+    ? Number(settings.nextWholesaleInvoiceNumber || 1)
+    : modeLower === 'warehouse'
+      ? Number(settings.nextWarehouseInvoiceNumber || 1)
+      : Number(settings.nextInvoiceNumber || 1);
+  const defaultRateFor = useCallback((p) => (
+    modeLower === 'retail'
+      ? Number(p.retailPrice != null ? p.retailPrice : p.price || 0)
+      : Number(p.wholesalePrice != null ? p.wholesalePrice : p.price || 0)
+  ), [modeLower]);
+  const bumpInvoiceSequence = useCallback(() => {
+    if (modeLower === 'wholesale') dispatch(setNextWholesaleInvoiceNumber(nextInvoiceNumberValue + 1));
+    else if (modeLower === 'warehouse') dispatch(setNextWarehouseInvoiceNumber(nextInvoiceNumberValue + 1));
+    else dispatch(setNextInvoiceNumber(nextInvoiceNumberValue + 1));
+  }, [dispatch, modeLower, nextInvoiceNumberValue]);
 
   const sellables = useMemo(() => {
     const out = [];
@@ -62,18 +85,18 @@ function InvoicesPage() {
             variantId: v.id,
             name: `${p.name} (${v.label})`,
             sku: v.sku || `${p.sku}-${v.label}`,
-            price: (v.price != null ? v.price : p.price),
+            price: defaultRateFor({ ...p, ...v, price: v.price != null ? v.price : p.price }),
             image: p.image,
             unitSymbol: p.unitSymbol || 'pcs',
             attributes: p.attributes
           });
         });
       } else {
-        out.push({ ...p, unitSymbol: p.unitSymbol || 'pcs' });
+        out.push({ ...p, price: defaultRateFor(p), unitSymbol: p.unitSymbol || 'pcs' });
       }
     });
     return out;
-  }, [products]);
+  }, [products, defaultRateFor]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return sellables;
@@ -119,7 +142,7 @@ function InvoicesPage() {
       return;
     }
     const digits = Number(settings.invoiceNumberDigits || 6);
-    const number = `${settings.invoicePrefix || 'INV'}-${String(settings.nextInvoiceNumber || 1).padStart(digits, '0')}`;
+    const number = `${invoicePrefix}-${String(nextInvoiceNumberValue || 1).padStart(digits, '0')}`;
     const inv = {
       number,
       date: new Date().toISOString(),
@@ -147,7 +170,7 @@ function InvoicesPage() {
       supplierRef,
       buyerOrderNo,
       paymentStatus: 'unpaid',
-      source: 'manual',
+      source: invoiceSource,
       despatchDocNo,
       deliveryDate,
       despatchedThrough: despatchedThrough === 'Other' ? despatchCustom : despatchedThrough,
@@ -164,13 +187,13 @@ function InvoicesPage() {
         }
         await enqueueHttp({ collection: 'invoices', label: 'Invoice', path: '/api/invoices', method: 'POST', body: inv });
         dispatch(addInvoice(inv));
-        dispatch(setNextInvoiceNumber((settings.nextInvoiceNumber || 1) + 1));
+        bumpInvoiceSequence();
         toast.show('Saved offline. Will backup when online.', { type: 'success' });
       } else {
         try {
           savedServer = await invoicesApi.create(inv);
           dispatch(addInvoice(savedServer || inv));
-          dispatch(setNextInvoiceNumber((settings.nextInvoiceNumber || 1) + 1));
+          bumpInvoiceSequence();
           toast.show('Invoice generated', { type: 'success' });
         } catch (e) {
           const msg = String(e?.message || '');
@@ -181,7 +204,7 @@ function InvoicesPage() {
               if (ok) {
                 savedServer = await invoicesApi.create(inv);
                 dispatch(addInvoice(savedServer || inv));
-                dispatch(setNextInvoiceNumber((settings.nextInvoiceNumber || 1) + 1));
+                bumpInvoiceSequence();
                 toast.show('Invoice generated', { type: 'success' });
                 savedServer = savedServer || null;
               } else {
@@ -194,7 +217,7 @@ function InvoicesPage() {
             if (offlineBackupAllowed) {
               await enqueueHttp({ collection: 'invoices', label: 'Invoice', path: '/api/invoices', method: 'POST', body: inv });
               dispatch(addInvoice(inv));
-              dispatch(setNextInvoiceNumber((settings.nextInvoiceNumber || 1) + 1));
+              bumpInvoiceSequence();
               toast.show('Server not ready. Saved invoice locally for backup.', { type: 'warning' });
             } else {
               throw e;
@@ -233,6 +256,12 @@ function InvoicesPage() {
 
   return (
     <div style={{ padding: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+        <h1 style={{ margin: 0 }}>{pageTitle}</h1>
+        <div style={{ color: '#64748b', fontSize: 13 }}>
+          {modeLower === 'retail' ? 'Create retail A4 invoices and reprint invoice records.' : modeLower === 'wholesale' ? 'Create wholesale A4 invoices using wholesale pricing defaults.' : 'Create warehouse A4 invoices using warehouse issue pricing defaults.'}
+        </div>
+      </div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
         {showNewTab && (<button className={`btn ${tab === 'new' ? 'btn-primary' : ''}`} onClick={() => setTab('new')}>New Invoice</button>)}
         {showRecordsTab && (<button className={`btn ${tab === 'records' ? 'btn-primary' : ''}`} onClick={() => setTab('records')}>Invoice Records</button>)}
@@ -344,11 +373,14 @@ function InvoicesPage() {
         <h2 className="section-title" style={{ margin: '8px 0' }}>Invoice Records</h2>
         <div className="toolbar" style={{ marginBottom: 8, display: 'flex', gap: 8 }}>
           <input className="input" placeholder="Search by number, customer, order no., supplier/other refs" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ width: '100%' }} />
-          <div style={{ display: 'inline-flex', gap: 4 }}>
-            <button className={invoiceKind === 'all' ? 'btn btn-primary' : 'btn'} onClick={() => setInvoiceKind('all')}>All</button>
-            <button className={invoiceKind === 'retail' ? 'btn btn-primary' : 'btn'} onClick={() => setInvoiceKind('retail')}>Retail</button>
-            <button className={invoiceKind === 'wholesale' ? 'btn btn-primary' : 'btn'} onClick={() => setInvoiceKind('wholesale')}>Wholesale</button>
-          </div>
+          {modeLower === 'retail' && (
+            <div style={{ display: 'inline-flex', gap: 4 }}>
+              <button className={invoiceKind === 'all' ? 'btn btn-primary' : 'btn'} onClick={() => setInvoiceKind('all')}>All</button>
+              <button className={invoiceKind === 'retail' ? 'btn btn-primary' : 'btn'} onClick={() => setInvoiceKind('retail')}>Retail</button>
+              <button className={invoiceKind === 'wholesale' ? 'btn btn-primary' : 'btn'} onClick={() => setInvoiceKind('wholesale')}>Wholesale</button>
+              <button className={invoiceKind === 'warehouse' ? 'btn btn-primary' : 'btn'} onClick={() => setInvoiceKind('warehouse')}>Warehouse</button>
+            </div>
+          )}
         </div>
         <table className="table">
           <thead>
@@ -366,9 +398,11 @@ function InvoicesPage() {
             {invoices
               .filter(inv => {
                 if (invoiceKind === 'retail') {
-                  if (inv.source && inv.source !== 'pos') return false;
+                  if (inv.source && !['manual', 'pos'].includes(inv.source)) return false;
                 } else if (invoiceKind === 'wholesale') {
-                  if (inv.source && inv.source !== 'wholesale-pos') return false;
+                  if (inv.source && !['wholesale-pos', 'wholesale-manual'].includes(inv.source)) return false;
+                } else if (invoiceKind === 'warehouse') {
+                  if (inv.source && !['warehouse-manual'].includes(inv.source)) return false;
                 }
                 const q = searchTerm.trim().toLowerCase();
                 if (!q) return true;

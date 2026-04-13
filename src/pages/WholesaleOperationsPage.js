@@ -260,6 +260,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
             variantId: item.variantId || '',
             qty: Number(item.qty || 0),
             unitIds: Array.isArray(item.unitIds) ? item.unitIds.map(String) : [],
+            selectedUnits: Array.isArray(item.selectedUnits) ? item.selectedUnits.map(unit => ({ unitId: unit?.unitId || '', imei: unit?.imei || '', serialNumber: unit?.serialNumber || '' })) : [],
             serializedEntries: Array.isArray(item.serializedEntries) ? item.serializedEntries.map(entry => ({ imei: entry?.imei || '', serialNumber: entry?.serialNumber || '' })) : [],
             cost: Number(item.cost || 0),
             requestedAmount: Number(item.requestedAmount || 0),
@@ -275,6 +276,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
             variantId: row.variantId || '',
             qty: Number(row.qty || 0),
             unitIds: Array.isArray(row.unitIds) ? row.unitIds.map(String) : [],
+            selectedUnits: Array.isArray(row.selectedUnits) ? row.selectedUnits.map(unit => ({ unitId: unit?.unitId || '', imei: unit?.imei || '', serialNumber: unit?.serialNumber || '' })) : [],
             serializedEntries: Array.isArray(row.serializedEntries) ? row.serializedEntries.map(entry => ({ imei: entry?.imei || '', serialNumber: entry?.serialNumber || '' })) : [],
             cost: Number(row.cost || 0),
             requestedAmount: Number(row.requestedAmount || 0),
@@ -338,6 +340,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
       variantId: variantId || '',
       qty: Number(qty),
       unitIds: usesSerializedSelection ? serializedUnits.filter(unit => unit.selected).map(unit => unit._id) : [],
+      selectedUnits: usesSerializedSelection ? serializedUnits.filter(unit => unit.selected).map(unit => ({ unitId: unit._id, imei: unit.imei || '', serialNumber: unit.serialNumber || '' })) : [],
       serializedEntries: selectedTrackType === 'serialized' && !usesSerializedSelection ? serializedEntries : [],
       cost: Number(cost || 0),
       requestedAmount: Number(requestedAmount || 0),
@@ -426,6 +429,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
             variantId: variantId || '',
             qty: Number(qty),
             unitIds: usesSerializedSelection ? serializedUnits.filter(unit => unit.selected).map(unit => unit._id) : [],
+            selectedUnits: usesSerializedSelection ? serializedUnits.filter(unit => unit.selected).map(unit => ({ unitId: unit._id, imei: unit.imei || '', serialNumber: unit.serialNumber || '' })) : [],
             serializedEntries: !usesSerializedSelection ? serializedEntries : [],
             remark: remark.trim(),
             reason: reason.trim(),
@@ -768,7 +772,19 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
                     const product = products.find(row => String(row.id) === String(item.productId));
                     return (
                       <tr key={item.lineId}>
-                        <td>{product?.name || item.productId}</td>
+                        <td>
+                          <div style={{ color: '#111827' }}>{product?.name || item.productId}</div>
+                          {Array.isArray(item.selectedUnits) && item.selectedUnits.length > 0 && (
+                            <div style={{ marginTop: 4, color: '#111827', fontSize: 12 }}>
+                              {item.selectedUnits.map(unit => unit.imei || unit.serialNumber || unit.unitId).filter(Boolean).join(', ')}
+                            </div>
+                          )}
+                          {Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 && (
+                            <div style={{ marginTop: 4, color: '#111827', fontSize: 12 }}>
+                              {item.serializedEntries.map(unit => unit.imei || unit.serialNumber).filter(Boolean).join(', ')}
+                            </div>
+                          )}
+                        </td>
                         <td>{item.qty}</td>
                         <td>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—')}</td>
                         <td>{item.reason || item.remark || '—'}</td>
@@ -837,18 +853,30 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
                     const product = products.find(row => String(row.id) === String(item.productId));
                     return (
                       <tr key={item.lineId || index}>
-                        <td>{product?.name || item.productId}</td>
                         <td>
-                          <input className="input" type="number" min="0" value={item.qty} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, qty: Number(e.target.value) || 0 } : row))} style={{ width: 90 }} disabled={(Array.isArray(item.unitIds) && item.unitIds.length > 0) || (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0) || !((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing} />
+                          <div style={{ color: '#111827' }}>{product?.name || item.productId}</div>
+                          {Array.isArray(item.selectedUnits) && item.selectedUnits.length > 0 && (
+                            <div style={{ marginTop: 4, color: '#111827', fontSize: 12 }}>
+                              {item.selectedUnits.map(unit => unit.imei || unit.serialNumber || unit.unitId).filter(Boolean).join(', ')}
+                            </div>
+                          )}
+                          {Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 && (
+                            <div style={{ marginTop: 4, color: '#111827', fontSize: 12 }}>
+                              {item.serializedEntries.map(unit => unit.imei || unit.serialNumber).filter(Boolean).join(', ')}
+                            </div>
+                          )}
                         </td>
-                        <td>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—')}</td>
                         <td>
-                          <select className="select" value={item.status || 'accepted'} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, status: e.target.value } : row))} disabled={!((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing}>
+                          <input className="input" type="number" min="0" value={item.qty} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, qty: Number(e.target.value) || 0 } : row))} style={{ width: 90, color: '#111827' }} disabled={(Array.isArray(item.unitIds) && item.unitIds.length > 0) || (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0) || !((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing} />
+                        </td>
+                        <td style={{ color: '#111827' }}>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—')}</td>
+                        <td>
+                          <select className="select" value={item.status || 'accepted'} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, status: e.target.value } : row))} style={{ color: '#111827' }} disabled={!((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing}>
                             <option value="accepted">Accepted</option>
                             <option value="cancelled">Cancelled</option>
                           </select>
                         </td>
-                        <td>{item.reason || item.remark || '—'}</td>
+                        <td style={{ color: '#111827' }}>{item.reason || item.remark || '—'}</td>
                       </tr>
                     );
                   })}

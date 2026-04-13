@@ -217,6 +217,8 @@ html, body, #root {
   padding: 10px;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
+  background: #fff;
+  color: #111827;
 }
 .input:focus, .select:focus {
   outline: none;
@@ -303,6 +305,7 @@ html, body, #root {
 .table td {
   padding: 12px;
   border-top: 1px solid #f1f5f9;
+  color: #111827;
 }
 .table tbody tr:nth-child(odd) td {
   background: #fbfdff;

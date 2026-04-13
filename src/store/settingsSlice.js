@@ -17,6 +17,10 @@ const initialState = {
   receiptQrBaseUrl: '',
   invoicePrefix: 'INV',
   nextInvoiceNumber: 1,
+  wholesaleInvoicePrefix: 'WINV',
+  nextWholesaleInvoiceNumber: 1,
+  warehouseInvoicePrefix: 'WHINV',
+  nextWarehouseInvoiceNumber: 1,
   invoiceNumberDigits: 6,
   invoiceTitle: 'Invoice',
   invoiceWordsLabel: 'Amount Chargeable (in words)',
@@ -73,7 +77,11 @@ const settingsSlice = createSlice({
         invoicePaidStampLabel: initialState.invoicePaidStampLabel,
         invoicePaidStampThankYou: initialState.invoicePaidStampThankYou,
         invoicePaidStampShowDate: initialState.invoicePaidStampShowDate,
-        invoicePaidStampColor: initialState.invoicePaidStampColor
+        invoicePaidStampColor: initialState.invoicePaidStampColor,
+        wholesaleInvoicePrefix: initialState.wholesaleInvoicePrefix,
+        nextWholesaleInvoiceNumber: initialState.nextWholesaleInvoiceNumber,
+        warehouseInvoicePrefix: initialState.warehouseInvoicePrefix,
+        nextWarehouseInvoiceNumber: initialState.nextWarehouseInvoiceNumber
       };
       Object.keys(backfill).forEach(k => {
         const v = state[k];
@@ -175,6 +183,22 @@ const settingsSlice = createSlice({
     setNextInvoiceNumber(state, action) {
       state.nextInvoiceNumber = action.payload;
     },
+    setWholesaleInvoicePrefix(state, action) {
+      state.wholesaleInvoicePrefix = String(action.payload || 'WINV');
+    },
+    setNextWholesaleInvoiceNumber(state, action) {
+      let v = Number(action.payload);
+      if (!Number.isFinite(v) || v < 1) v = 1;
+      state.nextWholesaleInvoiceNumber = Math.floor(v);
+    },
+    setWarehouseInvoicePrefix(state, action) {
+      state.warehouseInvoicePrefix = String(action.payload || 'WHINV');
+    },
+    setNextWarehouseInvoiceNumber(state, action) {
+      let v = Number(action.payload);
+      if (!Number.isFinite(v) || v < 1) v = 1;
+      state.nextWarehouseInvoiceNumber = Math.floor(v);
+    },
     setInvoiceNumberDigits(state, action) {
       let v = Number(action.payload);
       if (!Number.isFinite(v) || v < 1) v = 1;
@@ -272,5 +296,5 @@ const settingsSlice = createSlice({
   }
 });
 
-export const { setAllSettings, setUserGrants, setUserGrant, setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setClientAppName, setClientLogoUrl, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, addCurrency, removeCurrency, setActiveCurrency, setRefreshIntervalSec, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent, setInvoiceCompanyAddress, setInvoiceFooter, setInvoiceDeclaration, setInvoiceSignatoryLabel, setInvoiceTitle, setInvoiceWordsLabel, setInvoiceGeneratedNote, setInvoiceNumberDigits, setInvoicePaidStampEnabled, setInvoicePaidStampLabel, setInvoicePaidStampThankYou, setInvoicePaidStampShowDate, setInvoicePaidStampColor, setReceiptBrandName } = settingsSlice.actions;
+export const { setAllSettings, setUserGrants, setUserGrant, setAppName, setFooterText, setCurrentBranch, setReceiptLogoUrl, setReceiptHeader, setReceiptFooter, setClientAppName, setClientLogoUrl, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setWholesaleInvoicePrefix, setNextWholesaleInvoiceNumber, setWarehouseInvoicePrefix, setNextWarehouseInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, addCurrency, removeCurrency, setActiveCurrency, setRefreshIntervalSec, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent, setInvoiceCompanyAddress, setInvoiceFooter, setInvoiceDeclaration, setInvoiceSignatoryLabel, setInvoiceTitle, setInvoiceWordsLabel, setInvoiceGeneratedNote, setInvoiceNumberDigits, setInvoicePaidStampEnabled, setInvoicePaidStampLabel, setInvoicePaidStampThankYou, setInvoicePaidStampShowDate, setInvoicePaidStampColor, setReceiptBrandName } = settingsSlice.actions;
 export default settingsSlice.reducer;

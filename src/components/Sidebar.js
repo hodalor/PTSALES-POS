@@ -9,6 +9,7 @@ import { listOperations } from '../api/wholesale';
 function Sidebar({ collapsed }) {
   const appName = useSelector(s => s.settings.appName);
   const settings = useSelector(s => s.settings);
+  const products = useSelector(s => s.products.products || []);
   const role = useSelector(s => s.auth.role);
   const grants = useSelector(s => s.auth.grants);
   const offlineTotal = useSelector(s => s.offlineQueue.total);
@@ -27,6 +28,16 @@ function Sidebar({ collapsed }) {
   const [easyBuyOverdue, setEasyBuyOverdue] = useState(0);
   const [easyBuyPendingApprovals, setEasyBuyPendingApprovals] = useState(0);
   const [warehousePendingApprovals, setWarehousePendingApprovals] = useState(0);
+  const wholesaleLowStock = products.filter(product => {
+    const stock = Object.values(product?.wholesaleStockByBranch || {}).reduce((sum, qty) => sum + (Number(qty) || 0), 0);
+    const threshold = Number(product?.wholesaleLowStock != null ? product.wholesaleLowStock : (product?.lowStock || 0));
+    return stock <= threshold;
+  }).length;
+  const warehouseLowStock = products.filter(product => {
+    const stock = Object.values(product?.warehouseStockByBranch || {}).reduce((sum, qty) => sum + (Number(qty) || 0), 0);
+    const threshold = Number(product?.warehouseLowStock != null ? product.warehouseLowStock : (product?.lowStock || 0));
+    return stock <= threshold;
+  }).length;
   const can = (list, grant) => {
     if (!Array.isArray(list) || list.length === 0) return true;
     if (rl === 'superadmin') return true;
@@ -154,17 +165,32 @@ function Sidebar({ collapsed }) {
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M4 6h16v12H4z" stroke="currentColor" strokeWidth="2"/><path d="M8 10h8M8 14h8M8 18h5" stroke="currentColor" strokeWidth="2"/></svg>
               <span className="sidebar-text">Wholesale Ops</span>
             </span>
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" style={{ transform: wholesaleOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
-              <path d="M7 10l5 5 5-5" stroke="currentColor" strokeWidth="2" />
-            </svg>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              {wholesaleLowStock > 0 && (
+                <span style={{ minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+                  {wholesaleLowStock}
+                </span>
+              )}
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" style={{ transform: wholesaleOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+                <path d="M7 10l5 5 5-5" stroke="currentColor" strokeWidth="2" />
+              </svg>
+            </span>
           </button>
           {wholesaleOpen && (
           <div className="sidebar-subgroup">
-            <NavLink to="/wholesale-goods" className="sidebar-link" title="Wholesale Goods">
+            <NavLink to="/wholesale-goods" className="sidebar-link" title="Wholesale Goods" style={{ display: 'flex', alignItems: 'center' }}>
               <span className="sidebar-text">Wholesale Goods</span>
+              {wholesaleLowStock > 0 && (
+                <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+                  {wholesaleLowStock}
+                </span>
+              )}
             </NavLink>
             <NavLink to="/wholesale-pos" className="sidebar-link" title="Wholesale POS">
               <span className="sidebar-text">Wholesale POS</span>
+            </NavLink>
+            <NavLink to="/wholesale-invoices" className="sidebar-link" title="Wholesale Invoices">
+              <span className="sidebar-text">Wholesale Invoices</span>
             </NavLink>
             <NavLink to="/wholesale-purchase" className="sidebar-link" title="Wholesale Purchase">
               <span className="sidebar-text">Wholesale Purchase</span>
@@ -190,6 +216,11 @@ function Sidebar({ collapsed }) {
               <span className="sidebar-text">Warehouse</span>
             </span>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              {warehouseLowStock > 0 && (
+                <span style={{ minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+                  {warehouseLowStock}
+                </span>
+              )}
               {warehousePendingApprovals > 0 && (
                 <span style={{ minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
                   {warehousePendingApprovals}
@@ -202,8 +233,16 @@ function Sidebar({ collapsed }) {
           </button>
           {warehouseOpen && (
           <div className="sidebar-subgroup">
-            <NavLink to="/warehouse-goods" className="sidebar-link" title="Warehouse Goods">
+            <NavLink to="/warehouse-goods" className="sidebar-link" title="Warehouse Goods" style={{ display: 'flex', alignItems: 'center' }}>
               <span className="sidebar-text">Warehouse Goods</span>
+              {warehouseLowStock > 0 && (
+                <span style={{ marginLeft: 'auto', minWidth: 22, height: 20, borderRadius: 999, padding: '0 8px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: '#ef4444', color: '#fff', fontWeight: 800, fontSize: 12 }}>
+                  {warehouseLowStock}
+                </span>
+              )}
+            </NavLink>
+            <NavLink to="/warehouse-invoices" className="sidebar-link" title="Warehouse Invoices">
+              <span className="sidebar-text">Warehouse Invoices</span>
             </NavLink>
             <NavLink to="/warehouse-purchase" className="sidebar-link" title="Warehouse Purchase">
               <span className="sidebar-text">Warehouse Purchase</span>

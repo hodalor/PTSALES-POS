@@ -19,17 +19,19 @@ function WarehouseGoodsPage() {
     return products
       .map(product => {
         const warehouseStock = Object.values(product.warehouseStockByBranch || {}).reduce((sum, qty) => sum + (Number(qty) || 0), 0);
-        return { ...product, warehouseStock };
+        const warehouseLowStock = Number(product.warehouseLowStock != null ? product.warehouseLowStock : (product.lowStock || 0));
+        return { ...product, warehouseStock, warehouseLowStock };
       })
       .filter(product => !q || [product.name, product.sku, product.barcode].some(value => String(value || '').toLowerCase().includes(q)))
       .sort((a, b) => b.warehouseStock - a.warehouseStock || String(a.name || '').localeCompare(String(b.name || '')));
   }, [products, query]);
   const summary = useMemo(() => ({
     totalProducts: rows.length,
-    availableProducts: rows.filter(product => product.warehouseStock > Number(product.lowStock || 0)).length,
-    lowStockProducts: rows.filter(product => product.warehouseStock <= Number(product.lowStock || 0)).length,
+    availableProducts: rows.filter(product => product.warehouseStock > Number(product.warehouseLowStock || 0)).length,
+    lowStockProducts: rows.filter(product => product.warehouseStock <= Number(product.warehouseLowStock || 0)).length,
     totalUnits: rows.reduce((sum, product) => sum + Number(product.warehouseStock || 0), 0)
   }), [rows]);
+  const lowStockRows = useMemo(() => rows.filter(product => product.warehouseStock <= Number(product.warehouseLowStock || 0)).slice(0, 8), [rows]);
 
   return (
     <div style={{ padding: 16, display: 'grid', gap: 12 }}>
@@ -68,6 +70,29 @@ function WarehouseGoodsPage() {
         </div>
       </div>
 
+      {summary.lowStockProducts > 0 && (
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <div style={{ fontWeight: 700, color: '#b91c1c' }}>Warehouse Low Stock Notifications</div>
+            <div style={{ color: '#64748b', fontSize: 12 }}>{summary.lowStockProducts} product(s) need attention</div>
+          </div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {lowStockRows.map(product => (
+              <div key={product.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: 10, borderRadius: 10, background: '#fff7ed' }}>
+                <div>
+                  <div style={{ fontWeight: 700 }}>{product.name}</div>
+                  <div style={{ color: '#64748b', fontSize: 12 }}>{product.sku || 'No SKU'}</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ color: '#b91c1c', fontWeight: 700 }}>{product.warehouseStock} left</div>
+                  <div style={{ color: '#64748b', fontSize: 12 }}>Threshold {product.warehouseLowStock}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {viewMode === 'card' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
           {rows.map(product => (
@@ -85,8 +110,9 @@ function WarehouseGoodsPage() {
               <div><strong>Wholesale Price:</strong> {formatCurrency(Number(product.wholesalePrice != null ? product.wholesalePrice : product.price || 0), settings)}</div>
               <div><strong>Agent Price:</strong> {formatCurrency(Number(product.agentPrice != null ? product.agentPrice : (product.wholesalePrice != null ? product.wholesalePrice : (product.price || 0))), settings)}</div>
               <div><strong>Retail Price:</strong> {formatCurrency(Number(product.retailPrice != null ? product.retailPrice : product.price || 0), settings)}</div>
-              <div style={{ display: 'inline-flex', width: 'fit-content', padding: '4px 10px', borderRadius: 999, background: product.warehouseStock <= Number(product.lowStock || 0) ? '#fee2e2' : '#dcfce7', color: product.warehouseStock <= Number(product.lowStock || 0) ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
-                {product.warehouseStock <= Number(product.lowStock || 0) ? 'Low stock' : 'Available'}
+              <div><strong>Low Stock Threshold:</strong> {product.warehouseLowStock}</div>
+              <div style={{ display: 'inline-flex', width: 'fit-content', padding: '4px 10px', borderRadius: 999, background: product.warehouseStock <= Number(product.warehouseLowStock || 0) ? '#fee2e2' : '#dcfce7', color: product.warehouseStock <= Number(product.warehouseLowStock || 0) ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
+                {product.warehouseStock <= Number(product.warehouseLowStock || 0) ? 'Low stock' : 'Available'}
               </div>
             </div>
           ))}
@@ -101,6 +127,7 @@ function WarehouseGoodsPage() {
                 <th align="left">Product</th>
                 <th align="left">SKU</th>
                 <th align="left">Warehouse Stock</th>
+                <th align="left">Low Stock At</th>
                 <th align="left">Retail Price</th>
                 <th align="left">Wholesale Price</th>
                 <th align="left">Agent Price</th>
@@ -114,17 +141,18 @@ function WarehouseGoodsPage() {
                   <td>{product.name}</td>
                   <td>{product.sku || '—'}</td>
                   <td>{product.warehouseStock}</td>
+                  <td>{product.warehouseLowStock}</td>
                   <td>{formatCurrency(Number(product.retailPrice != null ? product.retailPrice : product.price || 0), settings)}</td>
                   <td>{formatCurrency(Number(product.wholesalePrice != null ? product.wholesalePrice : product.price || 0), settings)}</td>
                   <td>{formatCurrency(Number(product.agentPrice != null ? product.agentPrice : (product.wholesalePrice != null ? product.wholesalePrice : (product.price || 0))), settings)}</td>
                   <td>
-                    <span style={{ display: 'inline-flex', padding: '4px 10px', borderRadius: 999, background: product.warehouseStock <= Number(product.lowStock || 0) ? '#fee2e2' : '#dcfce7', color: product.warehouseStock <= Number(product.lowStock || 0) ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
-                      {product.warehouseStock <= Number(product.lowStock || 0) ? 'Low stock' : 'Available'}
+                    <span style={{ display: 'inline-flex', padding: '4px 10px', borderRadius: 999, background: product.warehouseStock <= Number(product.warehouseLowStock || 0) ? '#fee2e2' : '#dcfce7', color: product.warehouseStock <= Number(product.warehouseLowStock || 0) ? '#b91c1c' : '#15803d', fontWeight: 700 }}>
+                      {product.warehouseStock <= Number(product.warehouseLowStock || 0) ? 'Low stock' : 'Available'}
                     </span>
                   </td>
                 </tr>
               ))}
-              {rows.length === 0 && <tr><td colSpan="8" style={{ padding: 12, color: '#64748b' }}>No warehouse goods found</td></tr>}
+              {rows.length === 0 && <tr><td colSpan="9" style={{ padding: 12, color: '#64748b' }}>No warehouse goods found</td></tr>}
             </tbody>
           </table>
         </div>

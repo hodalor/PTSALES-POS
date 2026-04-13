@@ -77,6 +77,7 @@ function TransfersPage() {
   }, [branches]);
   const selectedProduct = useMemo(() => products.find(p => p.id === productId) || null, [productId, products]);
   const selectedTrackType = String(selectedProduct?.trackType || 'quantity');
+  const selectedSerializedUnits = useMemo(() => serializedUnits.filter(unit => unit.selected).map(unit => ({ unitId: unit._id, imei: unit.imei || '', serialNumber: unit.serialNumber || '' })), [serializedUnits]);
   const baseTransfers = useMemo(() => audit.filter(e => e.actionType === 'stock_transfer'), [audit]);
   const actors = useMemo(() => Array.from(new Set(baseTransfers.map(e => e.actor).filter(Boolean))).sort(), [baseTransfers]);
   const transfers = useMemo(() => {
@@ -158,6 +159,7 @@ function TransfersPage() {
             variantId: variantId || '',
             qty: Number(qty),
             unitIds: serializedUnits.filter(unit => unit.selected).map(unit => unit._id),
+            selectedUnits: selectedSerializedUnits,
             remark,
             status: 'accepted'
           }]
@@ -204,6 +206,7 @@ function TransfersPage() {
             variantId: variantId || '',
             qty: Number(qty),
             unitIds: serializedUnits.filter(unit => unit.selected).map(unit => unit._id),
+            selectedUnits: selectedSerializedUnits,
             remark,
             status: 'accepted'
           }]
@@ -233,6 +236,7 @@ function TransfersPage() {
       variantId: variantId || '',
       qty: Number(qty),
       unitIds: selectedTrackType === 'serialized' ? serializedUnits.filter(unit => unit.selected).map(unit => unit._id) : [],
+      selectedUnits: selectedTrackType === 'serialized' ? selectedSerializedUnits : [],
       remark: '',
       status: 'accepted'
     }]);
@@ -718,7 +722,14 @@ function TransfersPage() {
                     const product = products.find(p => p.id === item.productId);
                     return (
                       <tr key={item.lineId || index}>
-                        <td>{product?.name || item.productId}</td>
+                        <td>
+                          <div>{product?.name || item.productId}</div>
+                          {Array.isArray(item.selectedUnits) && item.selectedUnits.length > 0 && (
+                            <div style={{ marginTop: 4, color: '#111827', fontSize: 12 }}>
+                              {item.selectedUnits.map(unit => unit.imei || unit.serialNumber || unit.unitId).filter(Boolean).join(', ')}
+                            </div>
+                          )}
+                        </td>
                         <td>{item.qty}</td>
                         <td>{item.status || 'accepted'}</td>
                       </tr>

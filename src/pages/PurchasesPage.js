@@ -642,7 +642,14 @@ function PurchasesPage() {
                     const product = products.find(p => p.id === item.productId);
                     return (
                       <tr key={item.lineId || index}>
-                        <td>{product?.name || item.productId}</td>
+                        <td>
+                          <div style={{ color: '#111827' }}>{product?.name || item.productId}</div>
+                          {Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 && (
+                            <div style={{ marginTop: 4, color: '#111827', fontSize: 12 }}>
+                              {item.serializedEntries.map(unit => unit.imei || unit.serialNumber).filter(Boolean).join(', ')}
+                            </div>
+                          )}
+                        </td>
                         <td>{item.baseUnits}</td>
                         <td>{Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—'}</td>
                         <td>{item.status || 'accepted'}</td>

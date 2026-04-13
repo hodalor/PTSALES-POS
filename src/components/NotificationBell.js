@@ -1,18 +1,66 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from './ToastProvider';
 
 function NotificationBell() {
   const products = useSelector(s => s.products.products);
   const currentBranchId = useSelector(s => s.settings.currentBranchId);
   const branches = useSelector(s => s.branches.branches);
+  const toast = useToast();
   const [open, setOpen] = useState(false);
   const branchName = branches.find(b => b.id === currentBranchId)?.name || currentBranchId;
-  const lowStock = useMemo(() => {
+  const retailLowStock = useMemo(() => {
     return products.filter(p => (p.lowStock ?? 0) > 0 && ((p.stockByBranch?.[currentBranchId] || 0) <= (p.lowStock ?? 0)));
   }, [products, currentBranchId]);
-  const count = lowStock.length;
+  const wholesaleLowStock = useMemo(() => {
+    return products.filter(p => {
+      const threshold = Number(p.wholesaleLowStock != null ? p.wholesaleLowStock : (p.lowStock || 0));
+      const stock = Object.values(p.wholesaleStockByBranch || {}).reduce((sum, qty) => sum + (Number(qty) || 0), 0);
+      return threshold > 0 && stock <= threshold;
+    });
+  }, [products]);
+  const warehouseLowStock = useMemo(() => {
+    return products.filter(p => {
+      const threshold = Number(p.warehouseLowStock != null ? p.warehouseLowStock : (p.lowStock || 0));
+      const stock = Object.values(p.warehouseStockByBranch || {}).reduce((sum, qty) => sum + (Number(qty) || 0), 0);
+      return threshold > 0 && stock <= threshold;
+    });
+  }, [products]);
+  const count = retailLowStock.length + wholesaleLowStock.length + warehouseLowStock.length;
   const navigate = useNavigate();
+  useEffect(() => {
+    const summary = {
+      retail: retailLowStock.length,
+      wholesale: wholesaleLowStock.length,
+      warehouse: warehouseLowStock.length
+    };
+    const key = JSON.stringify(summary);
+    if (key === JSON.stringify({ retail: 0, wholesale: 0, warehouse: 0 })) return;
+    try {
+      const last = localStorage.getItem('ptsales:lowstock-notify:v1');
+      if (last === key) return;
+      localStorage.setItem('ptsales:lowstock-notify:v1', key);
+    } catch {}
+    const parts = [
+      summary.retail > 0 ? `${summary.retail} retail` : '',
+      summary.wholesale > 0 ? `${summary.wholesale} wholesale` : '',
+      summary.warehouse > 0 ? `${summary.warehouse} warehouse` : ''
+    ].filter(Boolean);
+    const message = `Low stock alerts: ${parts.join(', ')}`;
+    toast.show(message, { type: 'warning' });
+    try {
+      if (typeof Notification !== 'undefined') {
+        if (Notification.permission === 'granted') {
+          new Notification('ptSales Low Stock Alert', { body: message });
+        } else if (Notification.permission !== 'denied') {
+          Notification.requestPermission().then(permission => {
+            if (permission === 'granted') new Notification('ptSales Low Stock Alert', { body: message });
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+  }, [retailLowStock.length, toast, warehouseLowStock.length, wholesaleLowStock.length]);
   return (
     <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', marginRight: 8, verticalAlign: 'middle' }}>
       <button
@@ -35,10 +83,10 @@ function NotificationBell() {
         <div style={{ position: 'absolute', right: 0, top: 40, width: 320, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 8px 30px rgba(0,0,0,0.08)', zIndex: 20 }}>
           <div style={{ padding: 10, borderBottom: '1px solid #e2e8f0', fontWeight: 600 }}>Notifications</div>
           <div style={{ maxHeight: 360, overflowY: 'auto' }}>
-            {lowStock.length === 0 && (
+            {count === 0 && (
               <div style={{ padding: 12, color: '#64748b' }}>No notifications</div>
             )}
-            {lowStock.map(p => {
+            {retailLowStock.map(p => {
               const s = p.stockByBranch?.[currentBranchId] || 0;
               return (
                 <div key={p.id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 10, borderBottom: '1px solid #f1f5f9' }}>
@@ -50,6 +98,34 @@ function NotificationBell() {
                     <div style={{ fontSize: 12, color: '#64748b' }}>{branchName} • {s} ≤ {p.lowStock}</div>
                   </div>
                   <button className="btn" onClick={() => { setOpen(false); navigate('/products'); }}>View</button>
+                </div>
+              );
+            })}
+            {wholesaleLowStock.map(p => {
+              const s = Object.values(p.wholesaleStockByBranch || {}).reduce((sum, qty) => sum + (Number(qty) || 0), 0);
+              const threshold = Number(p.wholesaleLowStock != null ? p.wholesaleLowStock : (p.lowStock || 0));
+              return (
+                <div key={`wh-${p.id}`} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 10, borderBottom: '1px solid #f1f5f9' }}>
+                  <div style={{ width: 32, height: 32, background: '#dbeafe', borderRadius: 6 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>Wholesale low stock: {p.name}</div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>All wholesale branches • {s} ≤ {threshold}</div>
+                  </div>
+                  <button className="btn" onClick={() => { setOpen(false); navigate('/wholesale-goods'); }}>View</button>
+                </div>
+              );
+            })}
+            {warehouseLowStock.map(p => {
+              const s = Object.values(p.warehouseStockByBranch || {}).reduce((sum, qty) => sum + (Number(qty) || 0), 0);
+              const threshold = Number(p.warehouseLowStock != null ? p.warehouseLowStock : (p.lowStock || 0));
+              return (
+                <div key={`wa-${p.id}`} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 10, borderBottom: '1px solid #f1f5f9' }}>
+                  <div style={{ width: 32, height: 32, background: '#ede9fe', borderRadius: 6 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>Warehouse low stock: {p.name}</div>
+                    <div style={{ fontSize: 12, color: '#64748b' }}>All warehouse branches • {s} ≤ {threshold}</div>
+                  </div>
+                  <button className="btn" onClick={() => { setOpen(false); navigate('/warehouse-goods'); }}>View</button>
                 </div>
               );
             })}

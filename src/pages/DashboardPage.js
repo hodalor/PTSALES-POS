@@ -18,6 +18,7 @@ function DashboardPage() {
   const [heatMode, setHeatMode] = useState('week'); // day, week, month
   const [expenses, setExpenses] = useState([]);
   const [warehousePending, setWarehousePending] = useState(0);
+  const [wholesalePending, setWholesalePending] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -53,6 +54,28 @@ function DashboardPage() {
       } catch {
         if (!alive) return;
         setWarehousePending(0);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const groups = await Promise.all([
+          listOperations({ operationArea: 'wholesale', operationType: 'purchase', status: 'pending_director' }).catch(() => []),
+          listOperations({ operationArea: 'wholesale', operationType: 'transfer', status: 'pending_director' }).catch(() => []),
+          listOperations({ operationArea: 'wholesale', operationType: 'adjustment', status: 'pending_director' }).catch(() => []),
+          listOperations({ operationArea: 'wholesale', operationType: 'purchase', status: 'pending_manager' }).catch(() => []),
+          listOperations({ operationArea: 'wholesale', operationType: 'transfer', status: 'pending_manager' }).catch(() => []),
+          listOperations({ operationArea: 'wholesale', operationType: 'adjustment', status: 'pending_manager' }).catch(() => [])
+        ]);
+        if (!alive) return;
+        setWholesalePending(groups.reduce((sum, rows) => sum + (Array.isArray(rows) ? rows.length : 0), 0));
+      } catch {
+        if (!alive) return;
+        setWholesalePending(0);
       }
     })();
     return () => { alive = false; };
@@ -251,7 +274,7 @@ function DashboardPage() {
     const lowStockRows = products
       .map(product => {
         const total = Object.values(product.warehouseStockByBranch || {}).reduce((s, qty) => s + (Number(qty) || 0), 0);
-        return { id: product.id, name: product.name, lowStock: Number(product.lowStock || 0), total };
+        return { id: product.id, name: product.name, lowStock: Number(product.warehouseLowStock != null ? product.warehouseLowStock : (product.lowStock || 0)), total };
       })
       .filter(row => row.lowStock > 0 && row.total <= row.lowStock)
       .sort((a, b) => a.total - b.total)
@@ -259,6 +282,29 @@ function DashboardPage() {
     return {
       warehouseCount: warehouseBranches.length,
       warehouseUnits,
+      lowStockRows
+    };
+  }, [branches, products]);
+  const wholesaleStats = useMemo(() => {
+    const wholesaleBranches = branches.filter(b => String(b.branchType || 'retail').toLowerCase() === 'wholesale');
+    const wholesaleUnits = products.reduce((sum, product) => {
+      const base = Object.values(product.wholesaleStockByBranch || {}).reduce((s, qty) => s + (Number(qty) || 0), 0);
+      const variants = Array.isArray(product.variants)
+        ? product.variants.reduce((s, variant) => s + Object.values(variant.wholesaleStockByBranch || {}).reduce((t, qty) => t + (Number(qty) || 0), 0), 0)
+        : 0;
+      return sum + base + variants;
+    }, 0);
+    const lowStockRows = products
+      .map(product => {
+        const total = Object.values(product.wholesaleStockByBranch || {}).reduce((s, qty) => s + (Number(qty) || 0), 0);
+        return { id: product.id, name: product.name, lowStock: Number(product.wholesaleLowStock != null ? product.wholesaleLowStock : (product.lowStock || 0)), total };
+      })
+      .filter(row => row.lowStock > 0 && row.total <= row.lowStock)
+      .sort((a, b) => a.total - b.total)
+      .slice(0, 8);
+    return {
+      wholesaleCount: wholesaleBranches.length,
+      wholesaleUnits,
       lowStockRows
     };
   }, [branches, products]);
@@ -323,6 +369,39 @@ function DashboardPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Outflow</span><strong>{formatCurrency(finance.expenseTotal, settings)}</strong></div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Net</span><strong>{formatCurrency(finance.net, settings)}</strong></div>
           </div>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 16, marginTop: 16 }}>
+        <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
+          <div style={{ color: '#64748b' }}>Wholesale Locations</div>
+          <div style={{ fontSize: 28, fontWeight: 700 }}>{wholesaleStats.wholesaleCount}</div>
+        </div>
+        <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
+          <div style={{ color: '#64748b' }}>Wholesale Units</div>
+          <div style={{ fontSize: 28, fontWeight: 700 }}>{wholesaleStats.wholesaleUnits}</div>
+          <div style={{ marginTop: 6, color: '#64748b' }}>Pending approvals: {wholesalePending}</div>
+        </div>
+        <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
+          <h2 style={{ marginTop: 0 }}>Wholesale Low Stock Alerts</h2>
+          <table className="table">
+            <thead>
+              <tr>
+                <th align="left">Product</th>
+                <th align="left">Wholesale Stock</th>
+                <th align="left">Threshold</th>
+              </tr>
+            </thead>
+            <tbody>
+              {wholesaleStats.lowStockRows.map(row => (
+                <tr key={row.id}>
+                  <td>{row.name}</td>
+                  <td>{row.total}</td>
+                  <td>{row.lowStock}</td>
+                </tr>
+              ))}
+              {wholesaleStats.lowStockRows.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No wholesale low stock alerts</td></tr>}
+            </tbody>
+          </table>
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 16, marginTop: 16 }}>

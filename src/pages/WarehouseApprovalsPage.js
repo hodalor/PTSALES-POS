@@ -62,6 +62,9 @@ function WarehouseApprovalsPage() {
             lineId: item.lineId || `${index + 1}`,
             productId: item.productId,
             qty: Number(item.qty || 0),
+            unitIds: Array.isArray(item.unitIds) ? item.unitIds.map(String) : [],
+            selectedUnits: Array.isArray(item.selectedUnits) ? item.selectedUnits.map(unit => ({ unitId: unit?.unitId || '', imei: unit?.imei || '', serialNumber: unit?.serialNumber || '' })) : [],
+            serializedEntries: Array.isArray(item.serializedEntries) ? item.serializedEntries.map(entry => ({ imei: entry?.imei || '', serialNumber: entry?.serialNumber || '' })) : [],
             status: item.status || 'accepted',
             reason: item.reason || '',
             remark: item.remark || ''
@@ -70,6 +73,9 @@ function WarehouseApprovalsPage() {
             lineId: '1',
             productId: selectedRow.productId,
             qty: Number(selectedRow.qty || 0),
+            unitIds: Array.isArray(selectedRow.unitIds) ? selectedRow.unitIds.map(String) : [],
+            selectedUnits: Array.isArray(selectedRow.selectedUnits) ? selectedRow.selectedUnits.map(unit => ({ unitId: unit?.unitId || '', imei: unit?.imei || '', serialNumber: unit?.serialNumber || '' })) : [],
+            serializedEntries: Array.isArray(selectedRow.serializedEntries) ? selectedRow.serializedEntries.map(entry => ({ imei: entry?.imei || '', serialNumber: entry?.serialNumber || '' })) : [],
             status: 'accepted',
             reason: selectedRow.reason || '',
             remark: selectedRow.remark || ''
@@ -192,6 +198,7 @@ function WarehouseApprovalsPage() {
                   <tr>
                     <th align="left">Product</th>
                     <th align="left">Qty</th>
+                    <th align="left">Units</th>
                     <th align="left">Status</th>
                   </tr>
                 </thead>
@@ -200,10 +207,23 @@ function WarehouseApprovalsPage() {
                     const product = products.find(row => String(row.id) === String(item.productId));
                     return (
                       <tr key={item.lineId || index}>
-                        <td>{product?.name || item.productId}</td>
-                        <td><input className="input" type="number" min="0" value={item.qty} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, qty: Number(e.target.value) || 0 } : row))} style={{ width: 90 }} disabled={!canAct(selectedRow) || !!workingId} /></td>
                         <td>
-                          <select className="select" value={item.status || 'accepted'} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, status: e.target.value } : row))} disabled={!canAct(selectedRow) || !!workingId}>
+                          <div style={{ color: '#111827' }}>{product?.name || item.productId}</div>
+                          {Array.isArray(item.selectedUnits) && item.selectedUnits.length > 0 && (
+                            <div style={{ marginTop: 4, color: '#111827', fontSize: 12 }}>
+                              {item.selectedUnits.map(unit => unit.imei || unit.serialNumber || unit.unitId).filter(Boolean).join(', ')}
+                            </div>
+                          )}
+                          {Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 && (
+                            <div style={{ marginTop: 4, color: '#111827', fontSize: 12 }}>
+                              {item.serializedEntries.map(unit => unit.imei || unit.serialNumber).filter(Boolean).join(', ')}
+                            </div>
+                          )}
+                        </td>
+                        <td><input className="input" type="number" min="0" value={item.qty} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, qty: Number(e.target.value) || 0 } : row))} style={{ width: 90, color: '#111827' }} disabled={(Array.isArray(item.unitIds) && item.unitIds.length > 0) || (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0) || !canAct(selectedRow) || !!workingId} /></td>
+                        <td style={{ color: '#111827' }}>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—')}</td>
+                        <td>
+                          <select className="select" value={item.status || 'accepted'} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, status: e.target.value } : row))} style={{ color: '#111827' }} disabled={!canAct(selectedRow) || !!workingId}>
                             <option value="accepted">Accepted</option>
                             <option value="cancelled">Cancelled</option>
                           </select>

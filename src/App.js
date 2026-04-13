@@ -66,6 +66,8 @@ import GodHandPage from './pages/GodHandPage';
 import BackupPage from './pages/BackupPage';
 import ImeiConflictsPage from './pages/ImeiConflictsPage';
 import InvoicesPage from './pages/InvoicesPage';
+import WholesaleInvoicesPage from './pages/WholesaleInvoicesPage';
+import WarehouseInvoicesPage from './pages/WarehouseInvoicesPage';
 import * as authApi from './api/auth';
 import { loginSuccess, setGrants, setInitialized, logout } from './store/authSlice';
 import * as settingsApi from './api/settings';
@@ -433,6 +435,7 @@ function App() {
             <Route path="/pos" element={<ProtectedRoute feature="modules.pos" roles={['Admin','Manager','Cashier']} grant={['view_pos','see_pos']}><PosPage mode="retail" /></ProtectedRoute>} />
             <Route path="/wholesale-pos" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','Cashier']} grant={['view_wholesale_pos']}><PosPage mode="wholesale" /></ProtectedRoute>} />
             <Route path="/wholesale-goods" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','Inventory Staff','Cashier']} grant={['view_wholesale_pos']}><WholesaleGoodsPage /></ProtectedRoute>} />
+            <Route path="/wholesale-invoices" element={<ProtectedRoute feature="modules.invoices" roles={['Admin','Manager','Cashier']} grant={['view_invoices','see_invoices','view_wholesale_pos']}><WholesaleInvoicesPage /></ProtectedRoute>} />
             <Route path="/wholesale-purchase" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','Inventory Staff','Cashier']} grant={['view_wholesale_pos']}><WholesalePurchasePage /></ProtectedRoute>} />
             <Route path="/wholesale-transfer" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','Inventory Staff','Cashier']} grant={['view_wholesale_pos']}><WholesaleTransferPage /></ProtectedRoute>} />
             <Route path="/wholesale-adjustment" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','Inventory Staff','Cashier']} grant={['view_wholesale_pos']}><WholesaleAdjustmentPage /></ProtectedRoute>} />
@@ -441,6 +444,7 @@ function App() {
             <Route path="/warehouse-transfer" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','Inventory Staff','Cashier']} grant={['view_wholesale_pos']}><WarehouseTransferPage /></ProtectedRoute>} />
             <Route path="/warehouse-adjustment" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','Inventory Staff','Cashier']} grant={['view_wholesale_pos']}><WarehouseAdjustmentPage /></ProtectedRoute>} />
             <Route path="/warehouse-goods" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','Inventory Staff','Cashier']} grant={['view_wholesale_pos']}><WarehouseGoodsPage /></ProtectedRoute>} />
+            <Route path="/warehouse-invoices" element={<ProtectedRoute feature="modules.invoices" roles={['Admin','Manager','Cashier']} grant={['view_invoices','see_invoices','view_wholesale_pos']}><WarehouseInvoicesPage /></ProtectedRoute>} />
             <Route path="/warehouse-approvals" element={<ProtectedRoute feature="modules.wholesalePos" roles={['Admin','Manager','SuperAdmin']} grant={['approve_wholesale_director','approve_wholesale_manager','view_wholesale_pos']}><WarehouseApprovalsPage /></ProtectedRoute>} />
             <Route path="/sales" element={<ProtectedRoute feature="modules.sales" roles={['Admin','Manager','Cashier']} grant={['view_sales','see_sales']}><SalesPage /></ProtectedRoute>} />
             <Route path="/invoices" element={<ProtectedRoute feature="modules.invoices" roles={['Admin','Manager','Cashier']} grant={['view_invoices','see_invoices']}><InvoicesPage /></ProtectedRoute>} />

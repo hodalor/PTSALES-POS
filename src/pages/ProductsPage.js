@@ -53,6 +53,8 @@ function ProductsPage() {
   const [initialStock, setInitialStock] = useState(0);
   const [editStockQty, setEditStockQty] = useState(0);
   const [lowStock, setLowStock] = useState(0);
+  const [wholesaleLowStock, setWholesaleLowStock] = useState(0);
+  const [warehouseLowStock, setWarehouseLowStock] = useState(0);
   const [imagePreview, setImagePreview] = useState('');
   const [costPrice, setCostPrice] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
@@ -94,7 +96,7 @@ function ProductsPage() {
   function resetForm() {
     setName(''); setSku(''); setPrice(''); setWholesalePrice(''); setAgentPrice('');
     setCategory(categories[0] || ''); setNewCategory('');
-    setInitialStock(0); setEditStockQty(0); setLowStock(0); setImagePreview('');
+    setInitialStock(0); setEditStockQty(0); setLowStock(0); setWholesaleLowStock(0); setWarehouseLowStock(0); setImagePreview('');
     setCostPrice(''); setExpiryDate('');
     setUnitKind('none'); setUnitValue(''); setUnitSymbol('');
     setSizeLabel(''); setShoeSize('');
@@ -125,6 +127,8 @@ function ProductsPage() {
     setExpiryDate(p.expiryDate ? String(p.expiryDate).slice(0, 10) : '');
     setCategory(p.category || '');
     setLowStock(p.lowStock || 0);
+    setWholesaleLowStock(p.wholesaleLowStock != null ? p.wholesaleLowStock : (p.lowStock || 0));
+    setWarehouseLowStock(p.warehouseLowStock != null ? p.warehouseLowStock : (p.lowStock || 0));
     setImagePreview(p.image || '');
     setUnitKind(p.unitKind || 'none');
     setUnitValue(p.unitValue != null ? String(p.unitValue) : '');
@@ -326,6 +330,8 @@ function ProductsPage() {
             expiryDate: expiryDate ? new Date(expiryDate).toISOString() : null,
             category,
             lowStock: Number(lowStock) || 0,
+            wholesaleLowStock: Number(wholesaleLowStock) || 0,
+            warehouseLowStock: Number(warehouseLowStock) || 0,
             image: imagePreview || null,
             allowCredit,
             minimumCreditPercentage: Math.max(0, Number(minimumCreditPercentage) || 0),
@@ -434,6 +440,8 @@ function ProductsPage() {
             expiryDate: expiryDate ? new Date(expiryDate).toISOString() : null,
             category,
             lowStock: Number(lowStock) || 0,
+            wholesaleLowStock: Number(wholesaleLowStock) || 0,
+            warehouseLowStock: Number(warehouseLowStock) || 0,
             image: imagePreview || null,
             allowCredit,
             minimumCreditPercentage: Math.max(0, Number(minimumCreditPercentage) || 0),
@@ -524,6 +532,8 @@ function ProductsPage() {
             if (Number(original.agentPrice || original.price || 0) !== (Number(agentPrice || wholesalePrice || price) || 0)) changed.agentPrice = { from: Number(original.agentPrice || original.price || 0), to: Number(agentPrice || wholesalePrice || price) || 0 };
             if ((original.category || '') !== category) changed.category = { from: original.category || '', to: category };
             if ((original.lowStock || 0) !== Number(lowStock)) changed.lowStock = { from: original.lowStock || 0, to: Number(lowStock) };
+            if ((original.wholesaleLowStock ?? original.lowStock ?? 0) !== Number(wholesaleLowStock)) changed.wholesaleLowStock = { from: original.wholesaleLowStock ?? original.lowStock ?? 0, to: Number(wholesaleLowStock) };
+            if ((original.warehouseLowStock ?? original.lowStock ?? 0) !== Number(warehouseLowStock)) changed.warehouseLowStock = { from: original.warehouseLowStock ?? original.lowStock ?? 0, to: Number(warehouseLowStock) };
             if (Number(original.costPrice || 0) !== (Number(costPrice) || 0)) changed.costPrice = { from: Number(original.costPrice || 0), to: Number(costPrice) || 0 };
             if ((original.allowCredit !== false) !== allowCredit) changed.allowCredit = { from: original.allowCredit !== false, to: allowCredit };
             if (Number(original.minimumCreditPercentage || 0) !== (Number(minimumCreditPercentage) || 0)) changed.minimumCreditPercentage = { from: Number(original.minimumCreditPercentage || 0), to: Number(minimumCreditPercentage) || 0 };
@@ -982,6 +992,14 @@ function ProductsPage() {
               <div>
                 <label className="label">Low Stock Alert</label>
                 <input className="input" type="number" min="0" value={lowStock} onChange={e => setLowStock(Number(e.target.value))} style={{ display: 'block', width: '100%' }} />
+              </div>
+              <div>
+                <label className="label">Wholesale Low Stock Alert</label>
+                <input className="input" type="number" min="0" value={wholesaleLowStock} onChange={e => setWholesaleLowStock(Number(e.target.value))} style={{ display: 'block', width: '100%' }} />
+              </div>
+              <div>
+                <label className="label">Warehouse Low Stock Alert</label>
+                <input className="input" type="number" min="0" value={warehouseLowStock} onChange={e => setWarehouseLowStock(Number(e.target.value))} style={{ display: 'block', width: '100%' }} />
               </div>
             </div>
             <div>

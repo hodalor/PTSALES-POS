@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent, setClientAppName, setClientLogoUrl, setInvoiceCompanyAddress, setInvoiceFooter, setInvoiceDeclaration, setInvoiceSignatoryLabel, setInvoiceTitle, setInvoiceWordsLabel, setInvoiceGeneratedNote, setInvoiceNumberDigits, setInvoicePaidStampEnabled, setInvoicePaidStampLabel, setInvoicePaidStampThankYou, setInvoicePaidStampShowDate, setInvoicePaidStampColor, setReceiptBrandName, setAllSettings } from '../store/settingsSlice';
+import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setWholesaleInvoicePrefix, setNextWholesaleInvoiceNumber, setWarehouseInvoicePrefix, setNextWarehouseInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent, setClientAppName, setClientLogoUrl, setInvoiceCompanyAddress, setInvoiceFooter, setInvoiceDeclaration, setInvoiceSignatoryLabel, setInvoiceTitle, setInvoiceWordsLabel, setInvoiceGeneratedNote, setInvoiceNumberDigits, setInvoicePaidStampEnabled, setInvoicePaidStampLabel, setInvoicePaidStampThankYou, setInvoicePaidStampShowDate, setInvoicePaidStampColor, setReceiptBrandName, setAllSettings } from '../store/settingsSlice';
 import { addBranch, removeBranch, updateBranch } from '../store/branchesSlice';
 import * as branchesApi from '../api/branches';
 import { useRef, useState } from 'react';
@@ -375,12 +375,32 @@ function ConfigSettingsPage() {
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 12 }}>
               <label>
-                Invoice Prefix
+                Retail Invoice Prefix
                 <input className="input" value={settings.invoicePrefix || ''} onChange={e => dispatch(setInvoicePrefix(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
               </label>
               <label>
                 Number Digits (padding)
                 <input className="input" type="number" min="1" max="12" value={settings.invoiceNumberDigits || 6} onChange={e => dispatch(setInvoiceNumberDigits(Number(e.target.value)))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 12 }}>
+              <label>
+                Wholesale Invoice Prefix
+                <input className="input" value={settings.wholesaleInvoicePrefix || 'WINV'} onChange={e => dispatch(setWholesaleInvoicePrefix(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+              <label>
+                Next Wholesale Invoice Number
+                <input className="input" type="number" min="1" value={settings.nextWholesaleInvoiceNumber || 1} onChange={e => dispatch(setNextWholesaleInvoiceNumber(Number(e.target.value)))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 12 }}>
+              <label>
+                Warehouse Invoice Prefix
+                <input className="input" value={settings.warehouseInvoicePrefix || 'WHINV'} onChange={e => dispatch(setWarehouseInvoicePrefix(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
+              </label>
+              <label>
+                Next Warehouse Invoice Number
+                <input className="input" type="number" min="1" value={settings.nextWarehouseInvoiceNumber || 1} onChange={e => dispatch(setNextWarehouseInvoiceNumber(Number(e.target.value)))} style={{ display: 'block', width: '100%', marginTop: 6 }} />
               </label>
             </div>
             <div className="card" style={{ marginTop: 12, padding: 12 }}>
