@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { useToast } from '../components/ToastProvider';
 import { formatCurrency } from '../utils/currency';
 import * as wholesaleApi from '../api/wholesale';
@@ -8,15 +8,21 @@ import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import Modal from '../components/Modal';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
+import { refreshProductCatalog } from '../utils/inventoryRefresh';
 
 function labelForArea(area, op) {
-  const prefix = String(area || 'wholesale').toLowerCase() === 'warehouse' ? 'Warehouse' : 'Wholesale';
+  const prefix = String(area || 'wholesale').toLowerCase() === 'warehouse' ? 'Warehouse' : 'Distribution';
   const suffix = op === 'purchase' ? 'Purchase' : op === 'transfer' ? 'Transfer' : op === 'adjustment' ? 'Adjustment' : 'Refund';
   return `${prefix} ${suffix}`;
 }
 
+function normalizeReviewStatus(value) {
+  return String(value || '').toLowerCase() === 'cancelled' ? 'cancelled' : 'accepted';
+}
+
 function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' }) {
   const toast = useToast();
+  const dispatch = useDispatch();
   const products = useSelector(s => s.products.products);
   const branches = useSelector(s => s.branches.branches);
   const settings = useSelector(s => s.settings);
@@ -193,10 +199,10 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
     run();
   }, [adjustmentType, branchId, fromBranchId, fromInventoryType, normalizedArea, operationType, productId, selectedTrackType, serializedUnitsQuery, toast, variantId]);
 
-  const loadOperations = useCallback(async () => {
+  const loadOperations = useCallback(async (options = {}) => {
     setLoading(true);
     try {
-      const rows = await wholesaleApi.listOperations({ operationType, status: statusFilter, operationArea: normalizedArea });
+      const rows = await wholesaleApi.listOperations({ operationType, status: statusFilter, operationArea: normalizedArea, force: !!options.force });
       setOperations(Array.isArray(rows) ? rows : []);
     } catch (e) {
       const msg = String(e?.message || '');
@@ -268,7 +274,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
             supplier: item.supplier || '',
             reason: item.reason || '',
             remark: item.remark || '',
-            status: item.status || 'accepted'
+            status: normalizeReviewStatus(item.status)
           }))
         : [{
             lineId: '1',
@@ -304,14 +310,25 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
         approverName: auth.user?.name || auth.user?.username || 'unknown',
         approverRole: auth.role || ''
       };
-      if (type === 'approve') await wholesaleApi.approveOperation(selectedRow, { ...payload, items: reviewItems });
+      if (type === 'approve') await wholesaleApi.approveOperation(selectedRow, { ...payload, items: reviewItems.map(item => ({ ...item, status: normalizeReviewStatus(item.status) })) });
       else await wholesaleApi.rejectOperation(selectedRow, payload);
+      if (type === 'approve' && String(selectedRow.status || '').toLowerCase() === 'pending_manager') {
+        await refreshProductCatalog(dispatch);
+      }
       toast.show(type === 'approve' ? 'Request updated' : 'Request rejected', { type: 'success' });
       setSelectedRow(null);
       setDecisionRemark('');
-      await loadOperations();
+      await loadOperations({ force: true });
     } catch (e) {
-      toast.show(String(e?.message || `Failed to ${type} request`), { type: 'error' });
+      const msg = String(e?.message || '');
+      if (/404|not found/i.test(msg)) {
+        await loadOperations({ force: true });
+        setSelectedRow(null);
+        setDecisionRemark('');
+        toast.show('Request was already processed. List refreshed.', { type: 'warning' });
+      } else {
+        toast.show(msg || `Failed to ${type} request`, { type: 'error' });
+      }
     } finally {
       setReviewing(false);
     }
@@ -476,7 +493,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
       setOperations(prev => [response?.operation || optimistic, ...prev]);
       resetForm();
       setIsCreateOpen(false);
-      toast.show('Wholesale request submitted for director approval', { type: 'success' });
+      toast.show(`${normalizedArea === 'warehouse' ? 'Warehouse' : 'Distribution'} request submitted for director approval`, { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to submit wholesale request'), { type: 'error' });
     } finally {
@@ -488,11 +505,11 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
     <div style={{ padding: 16, display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div>
-          <h1 style={{ margin: 0 }}>{normalizedArea === 'warehouse' ? 'Warehouse Operations' : 'Wholesale Operations'}</h1>
+          <h1 style={{ margin: 0 }}>{normalizedArea === 'warehouse' ? 'Warehouse Operations' : 'Distribution Operations'}</h1>
           <div style={{ color: '#64748b', fontSize: 13 }}>Initiate {normalizedArea} purchases, transfers, adjustments, and refund restocks through the 2-step approval workflow.</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <OfflineQueueIndicator collection="wholesaleoperations" label={`${normalizedArea === 'warehouse' ? 'Warehouse' : 'Wholesale'} queued`} />
+          <OfflineQueueIndicator collection="wholesaleoperations" label={`${normalizedArea === 'warehouse' ? 'Warehouse' : 'Distribution'} queued`} />
           <button className="btn btn-primary" onClick={() => setIsCreateOpen(true)}>
             New Request
           </button>
@@ -576,7 +593,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
                 Retail: <strong>{formatCurrency(Number((selectedVariant || selectedProduct).retailPrice || selectedProduct.retailPrice || selectedProduct.price || 0), settings)}</strong>
               </div>
               <div>
-                Wholesale: <strong>{formatCurrency(Number((selectedVariant || selectedProduct).wholesalePrice || selectedProduct.wholesalePrice || selectedProduct.price || 0), settings)}</strong>
+                Distribution: <strong>{formatCurrency(Number((selectedVariant || selectedProduct).wholesalePrice || selectedProduct.wholesalePrice || selectedProduct.price || 0), settings)}</strong>
               </div>
               <div>
                 Agent: <strong>{formatCurrency(Number((selectedVariant || selectedProduct).agentPrice || selectedProduct.agentPrice || selectedProduct.price || 0), settings)}</strong>
@@ -613,7 +630,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
                   <div style={{ marginBottom: 6, color: '#94a3b8' }}>Source Inventory</div>
                   <select className="select" value={fromInventoryType} onChange={e => setFromInventoryType(e.target.value)} style={{ width: '100%' }}>
                     <option value="retail">Retail Inventory</option>
-                    <option value="wholesale">Wholesale Inventory</option>
+                    <option value="wholesale">Distribution Inventory</option>
                     <option value="warehouse">Warehouse Inventory</option>
                   </select>
                 </label>
@@ -626,7 +643,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
                 <label>
                   <div style={{ marginBottom: 6, color: '#94a3b8' }}>Destination Inventory</div>
                   <select className="select" value={toInventoryType} onChange={e => setToInventoryType(e.target.value)} style={{ width: '100%' }}>
-                    <option value="wholesale">Wholesale Inventory</option>
+                    <option value="wholesale">Distribution Inventory</option>
                     <option value="retail">Retail Inventory</option>
                     <option value="warehouse">Warehouse Inventory</option>
                   </select>
@@ -871,7 +888,7 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
                         </td>
                         <td style={{ color: '#111827' }}>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—')}</td>
                         <td>
-                          <select className="select" value={item.status || 'accepted'} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, status: e.target.value } : row))} style={{ color: '#111827' }} disabled={!((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing}>
+                          <select className="select" value={normalizeReviewStatus(item.status)} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, status: e.target.value } : row))} style={{ color: '#111827' }} disabled={!((selectedRow.status === 'pending_director' && canDirectorApprove) || (selectedRow.status === 'pending_manager' && canManagerApprove)) || reviewing}>
                             <option value="accepted">Accepted</option>
                             <option value="cancelled">Cancelled</option>
                           </select>

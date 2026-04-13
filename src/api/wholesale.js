@@ -3,6 +3,7 @@ import * as purchasesApi from './purchases';
 import * as transfersApi from './transfers';
 import * as adjustmentsApi from './adjustments';
 import * as refundsApi from './refunds';
+import { findApprovalByReference } from './approvals';
 
 const operationsCache = new Map();
 const OPERATIONS_TTL_MS = 5000;
@@ -49,8 +50,8 @@ export function listOperations(params = {}) {
   const qs = operationsKey(params);
   const now = Date.now();
   const cached = operationsCache.get(qs);
-  if (cached?.data && cached.expiresAt > now) return Promise.resolve(cached.data);
-  if (cached?.promise) return cached.promise;
+  if (!params.force && cached?.data && cached.expiresAt > now) return Promise.resolve(cached.data);
+  if (!params.force && cached?.promise) return cached.promise;
   const promise = fetchJson(`/api/wholesale/operations${qs}`).then(rows => {
     const normalized = (Array.isArray(rows) ? rows : []).map(row => normalizeModernOperation(row, row?.operationType || params.operationType));
     operationsCache.set(qs, { data: normalized, expiresAt: Date.now() + OPERATIONS_TTL_MS });
@@ -162,10 +163,21 @@ export function createOperation(body) {
 
 export function approveOperation(row, body = {}) {
   const mode = String(row?.approvalMode || '');
-  if (mode === 'workflow' && row?.approvalId) {
-    return fetchJson(`/api/approvals/${encodeURIComponent(row.approvalId)}/approve`, {
-      method: 'POST',
-      body: JSON.stringify(body)
+  if (mode === 'workflow') {
+    const approvalPromise = row?.approvalId
+      ? Promise.resolve({ _id: row.approvalId })
+      : findApprovalByReference('WholesaleOperation', row?._id || row?.clientId);
+    return approvalPromise.then(approval => {
+      if (!approval?._id) {
+        const err = new Error('Approval not found');
+        err.status = 404;
+        throw err;
+      }
+      return fetchJson(`/api/approvals/${encodeURIComponent(approval._id)}/approve`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        timeoutMs: 0
+      });
     }).finally(() => invalidateOperationsCache());
   }
   const payloadBase = {
@@ -191,10 +203,21 @@ export function approveOperation(row, body = {}) {
 
 export function rejectOperation(row, body = {}) {
   const mode = String(row?.approvalMode || '');
-  if (mode === 'workflow' && row?.approvalId) {
-    return fetchJson(`/api/approvals/${encodeURIComponent(row.approvalId)}/reject`, {
-      method: 'POST',
-      body: JSON.stringify(body)
+  if (mode === 'workflow') {
+    const approvalPromise = row?.approvalId
+      ? Promise.resolve({ _id: row.approvalId })
+      : findApprovalByReference('WholesaleOperation', row?._id || row?.clientId);
+    return approvalPromise.then(approval => {
+      if (!approval?._id) {
+        const err = new Error('Approval not found');
+        err.status = 404;
+        throw err;
+      }
+      return fetchJson(`/api/approvals/${encodeURIComponent(approval._id)}/reject`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+        timeoutMs: 0
+      });
     }).finally(() => invalidateOperationsCache());
   }
   const payloadBase = {
@@ -215,4 +238,11 @@ export function rejectOperation(row, body = {}) {
     }).finally(() => invalidateOperationsCache());
   }
   throw new Error('Unsupported operation');
+}
+
+export function deleteOperation(id) {
+  return fetchJson(`/api/wholesale/operations/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    timeoutMs: 0
+  }).finally(() => invalidateOperationsCache());
 }

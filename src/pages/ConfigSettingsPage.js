@@ -484,7 +484,7 @@ function ConfigSettingsPage() {
           </label>
           </div>
           <div className="card">
-            <h3 className="section-title" style={{ margin: '8px 0' }}>EasyBuy Rules</h3>
+            <h3 className="section-title" style={{ margin: '8px 0' }}>Credit Sale Rules</h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <label>
                 Minimum upfront (%)
@@ -740,7 +740,7 @@ function ConfigSettingsPage() {
                 <div style={{ fontSize: 28, fontWeight: 800 }}>{branches.filter(b => String(b.branchType || 'retail').toLowerCase() === 'retail').length}</div>
               </div>
               <div className="card" style={{ padding: 16 }}>
-                <div style={{ color: '#64748b', fontSize: 12 }}>Wholesale Shops</div>
+                <div style={{ color: '#64748b', fontSize: 12 }}>Distribution Shops</div>
                 <div style={{ fontSize: 28, fontWeight: 800, color: '#1d4ed8' }}>{branches.filter(b => String(b.branchType || 'retail').toLowerCase() === 'wholesale').length}</div>
               </div>
               <div className="card" style={{ padding: 16 }}>

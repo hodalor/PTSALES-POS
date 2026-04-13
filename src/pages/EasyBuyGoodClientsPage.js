@@ -5,8 +5,8 @@ function EasyBuyGoodClientsPage() {
     <CreditControlPage
       initialSection="clients"
       clientFilter="good"
-      title="EasyBuy Good Clients"
-      description="Customers with good repayment behaviour, low risk, and strong EasyBuy history."
+      title="Credit Sale Good Clients"
+      description="Customers with good repayment behaviour, low risk, and strong credit sale history."
     />
   );
 }

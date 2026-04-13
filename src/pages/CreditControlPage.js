@@ -4,11 +4,13 @@ import { useToast } from '../components/ToastProvider';
 import { formatCurrency } from '../utils/currency';
 import { promptDialog } from '../utils/dialogs';
 import { useSelector } from 'react-redux';
+import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 
-function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', title = 'Credit Control', description = 'EasyBuy balances, overdue tracking, customer rank, and repayment initiation.' }) {
+function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', title = 'Credit Sale Control', description = 'Credit sale balances, overdue tracking, customer rank, and repayment initiation.' }) {
   const settings = useSelector(s => s.settings);
   const saleRows = useSelector(s => s.sales.sales || []);
   const toast = useToast();
+  const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const [customers, setCustomers] = useState([]);
   const [sales, setSales] = useState([]);
   const [repayments, setRepayments] = useState([]);
@@ -118,8 +120,14 @@ function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', t
     const remark = await promptDialog('Repayment remark');
     setWorkingId(row._id || '');
     try {
-      await createRepayment({ creditSaleId: row._id, amount: Number(amount), remark: String(remark || '') });
-      toast.show('Repayment submitted for approval', { type: 'success' });
+      const payload = { creditSaleId: row._id, amount: Number(amount), remark: String(remark || '') };
+      if (!navigator.onLine && offlineBackupAllowed) {
+        await enqueueHttp({ collection: 'creditrepayments', label: 'Credit repayment', path: '/api/credits/repayments', method: 'POST', body: payload });
+        toast.show('Repayment saved offline. It will sync when online.', { type: 'success' });
+      } else {
+        await createRepayment(payload);
+        toast.show('Repayment submitted for approval', { type: 'success' });
+      }
       await loadAll();
       if (selectedCustomerId) {
         const next = await getCustomerCreditSummary(selectedCustomerId);
@@ -141,6 +149,13 @@ function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', t
         </div>
         <button className="btn" onClick={loadAll} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
       </div>
+      {loading && (
+        <div className="card" style={{ padding: 12 }}>
+          <div className="loading-bar" style={{ width: '42%', marginBottom: 10 }} />
+          <div className="loading-bar" style={{ width: '78%', marginBottom: 10 }} />
+          <div className="loading-bar" style={{ width: '60%' }} />
+        </div>
+      )}
 
       <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
         <div>

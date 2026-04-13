@@ -102,7 +102,7 @@ function InventoryPage() {
           )}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
             <button className={viewInventoryType === 'retail' ? 'btn btn-primary' : 'btn'} onClick={() => setViewInventoryType('retail')}>Retail</button>
-            <button className={viewInventoryType === 'wholesale' ? 'btn btn-primary' : 'btn'} onClick={() => setViewInventoryType('wholesale')}>Wholesale</button>
+            <button className={viewInventoryType === 'wholesale' ? 'btn btn-primary' : 'btn'} onClick={() => setViewInventoryType('wholesale')}>Distribution</button>
             <button className={viewInventoryType === 'warehouse' ? 'btn btn-primary' : 'btn'} onClick={() => setViewInventoryType('warehouse')}>Warehouse</button>
           </div>
         </div>
@@ -114,7 +114,7 @@ function InventoryPage() {
               <th align="left">Product</th>
               <th align="left">Price</th>
               <th align="left">Barcode</th>
-              <th align="left">Stock ({viewInventoryType === 'wholesale' ? 'Wholesale' : viewInventoryType === 'warehouse' ? 'Warehouse' : 'Retail'} – {branch?.code || branch?.name})</th>
+              <th align="left">Stock ({viewInventoryType === 'wholesale' ? 'Distribution' : viewInventoryType === 'warehouse' ? 'Warehouse' : 'Retail'} – {branch?.code || branch?.name})</th>
             </tr>
           </thead>
           <tbody>
@@ -216,7 +216,7 @@ function InventoryPage() {
                 <div><strong>Barcode:</strong> <code style={{ fontSize: 12 }}>{selected.barcode || '—'}</code></div>
                 <div><strong>Low Stock:</strong> {selected.lowStock ?? 0}</div>
                 <div><strong>{String(selected.trackType || 'quantity') === 'serialized' ? 'Serialized Retail Units' : 'Total Retail Across Branches'}:</strong> {Object.values(selected.stockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
-                <div><strong>{String(selected.trackType || 'quantity') === 'serialized' ? 'Serialized Wholesale Units' : 'Total Wholesale Across Branches'}:</strong> {Object.values(selected.wholesaleStockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
+                <div><strong>{String(selected.trackType || 'quantity') === 'serialized' ? 'Serialized Distribution Units' : 'Total Distribution Across Branches'}:</strong> {Object.values(selected.wholesaleStockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
                 <div><strong>{String(selected.trackType || 'quantity') === 'serialized' ? 'Serialized Warehouse Units' : 'Total Warehouse Across Branches'}:</strong> {Object.values(selected.warehouseStockByBranch || {}).reduce((a, b) => a + (b || 0), 0)}</div>
                 <div style={{ gridColumn: '1 / -1', marginTop: 8 }}>
                   <strong>Branch Breakdown</strong>

@@ -2,19 +2,26 @@ import { isFeatureEnabled } from '../utils/featureFlags';
 import { enqueue, getAll } from './queue';
 
 export const COLLECTIONS = [
+  { key: 'adjustmentrequests', label: 'adjustmentrequests' },
+  { key: 'approvals', label: 'approvals' },
   { key: 'audits', label: 'audits' },
   { key: 'branches', label: 'branches' },
   { key: 'cashsessions', label: 'cashsessions' },
+  { key: 'creditrepayments', label: 'creditrepayments' },
   { key: 'customers', label: 'customers' },
   { key: 'expenses', label: 'expenses' },
+  { key: 'expenserequests', label: 'expenserequests' },
   { key: 'invoices', label: 'invoices' },
+  { key: 'purchaserequests', label: 'purchaserequests' },
   { key: 'products', label: 'products' },
   { key: 'refundrequests', label: 'refundrequests' },
   { key: 'sales', label: 'sales' },
   { key: 'serverlogs', label: 'serverlogs' },
   { key: 'settings', label: 'settings' },
   { key: 'suppliers', label: 'suppliers' },
-  { key: 'users', label: 'users' }
+  { key: 'transferrequests', label: 'transferrequests' },
+  { key: 'users', label: 'users' },
+  { key: 'wholesaleoperations', label: 'wholesaleoperations' }
 ];
 
 export function isOfflineBackupEnabled(settings) {

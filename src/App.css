@@ -226,6 +226,17 @@ html, body, #root {
   opacity: 1;
   background: #f8fafc;
 }
+.loading-bar {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e2e8f0 25%, #f8fafc 50%, #e2e8f0 75%);
+  background-size: 200% 100%;
+  animation: loadingBarShift 1.2s ease-in-out infinite;
+}
+@keyframes loadingBarShift {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 .input:focus, .select:focus {
   outline: none;
   border-color: #cbd5e1;

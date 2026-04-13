@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { useToast } from '../components/ToastProvider';
-import { approveOperation, listOperations, rejectOperation } from '../api/wholesale';
+import { approveOperation, deleteOperation, listOperations, rejectOperation } from '../api/wholesale';
+import { findApprovalByReference } from '../api/approvals';
 import { formatCurrency } from '../utils/currency';
 import Modal from '../components/Modal';
 import { promptDialog } from '../utils/dialogs';
+import { refreshProductCatalog } from '../utils/inventoryRefresh';
 
 function WarehouseApprovalsPage() {
   const toast = useToast();
+  const dispatch = useDispatch();
   const products = useSelector(s => s.products.products);
   const branches = useSelector(s => s.branches.branches);
   const settings = useSelector(s => s.settings);
@@ -18,11 +21,15 @@ function WarehouseApprovalsPage() {
   const [workingId, setWorkingId] = useState('');
   const [selectedRow, setSelectedRow] = useState(null);
   const [reviewItems, setReviewItems] = useState([]);
+  const [syncing, setSyncing] = useState(false);
 
   const roleLower = String(auth.role || '').toLowerCase();
   const grants = Array.isArray(auth.grants) ? auth.grants : [];
   const canDirectorApprove = roleLower === 'superadmin' || roleLower === 'admin' || roleLower === 'director' || grants.includes('approve_wholesale_director');
   const canManagerApprove = roleLower === 'superadmin' || roleLower === 'admin' || roleLower === 'manager' || grants.includes('approve_wholesale_manager');
+  function normalizeReviewStatus(value) {
+    return String(value || '').toLowerCase() === 'cancelled' ? 'cancelled' : 'accepted';
+  }
 
   const branchNameById = useMemo(() => {
     const map = new Map();
@@ -30,10 +37,10 @@ function WarehouseApprovalsPage() {
     return map;
   }, [branches]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options = {}) => {
     setLoading(true);
     try {
-      const merged = (await listOperations({ operationArea: 'warehouse', status }))
+      const merged = (await listOperations({ operationArea: 'warehouse', status, force: !!options.force }))
         .filter(row => ['purchase', 'transfer', 'adjustment'].includes(String(row.operationType || '').toLowerCase()))
         .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       setRows(merged);
@@ -61,7 +68,7 @@ function WarehouseApprovalsPage() {
             unitIds: Array.isArray(item.unitIds) ? item.unitIds.map(String) : [],
             selectedUnits: Array.isArray(item.selectedUnits) ? item.selectedUnits.map(unit => ({ unitId: unit?.unitId || '', imei: unit?.imei || '', serialNumber: unit?.serialNumber || '' })) : [],
             serializedEntries: Array.isArray(item.serializedEntries) ? item.serializedEntries.map(entry => ({ imei: entry?.imei || '', serialNumber: entry?.serialNumber || '' })) : [],
-            status: item.status || 'accepted',
+            status: normalizeReviewStatus(item.status),
             reason: item.reason || '',
             remark: item.remark || ''
           }))
@@ -84,21 +91,56 @@ function WarehouseApprovalsPage() {
     const remark = await promptDialog(promptText);
     if (!remark || !String(remark).trim()) return;
     setWorkingId(row._id || '');
+    const nextStatus = action === 'approve'
+      ? (String(row.status || '').toLowerCase() === 'pending_director' ? 'pending_manager' : 'approved')
+      : 'rejected';
     try {
+      const normalizedItems = reviewItems.map(item => ({ ...item, status: normalizeReviewStatus(item.status) }));
       const payload = {
         approverName: auth.user?.name || 'unknown',
         approverRole: auth.role || '',
         remark,
-        reason: remark
+        reason: remark,
+        items: normalizedItems
       };
-      if (action === 'approve') await approveOperation(row, { ...payload, items: reviewItems });
+      if (action === 'approve') await approveOperation(row, payload);
       else await rejectOperation(row, payload);
       setRows(prev => prev.filter(item => String(item._id || item.clientId) !== String(row._id || row.clientId)));
       setSelectedRow(null);
-      toast.show(action === 'approve' ? 'Warehouse request approved' : 'Warehouse request rejected', { type: 'success' });
-      void load();
+      toast.show(
+        action === 'approve'
+          ? (nextStatus === 'pending_manager' ? 'Warehouse request moved to manager approval' : 'Warehouse request approved')
+          : 'Warehouse request rejected',
+        { type: 'success' }
+      );
+      setSyncing(true);
+      void Promise.allSettled([
+        load({ force: true }),
+        action === 'approve' && nextStatus === 'approved' ? refreshProductCatalog(dispatch) : Promise.resolve()
+      ]).finally(() => setSyncing(false));
     } catch (e) {
-      toast.show(String(e?.message || `Failed to ${action} request`), { type: 'error' });
+      const msg = String(e?.message || '');
+      if (/404|not found|timed out/i.test(msg)) {
+        try {
+          const approval = await findApprovalByReference('WholesaleOperation', row._id || row.clientId);
+          if (approval && String(approval.status || '').toLowerCase() !== String(row.status || '').toLowerCase()) {
+            setRows(prev => prev.filter(item => String(item._id || item.clientId) !== String(row._id || row.clientId)));
+            setSelectedRow(null);
+            setSyncing(true);
+            void Promise.allSettled([
+              load({ force: true }),
+              action === 'approve' && String(approval.status || '').toLowerCase() === 'approved' ? refreshProductCatalog(dispatch) : Promise.resolve()
+            ]).finally(() => setSyncing(false));
+            toast.show('Warehouse request was processed. List refreshed.', { type: 'success' });
+            return;
+          }
+        } catch {}
+        void load({ force: true });
+        setSelectedRow(null);
+        toast.show('Warehouse request state could not be confirmed. List refreshed.', { type: 'warning' });
+      } else {
+        toast.show(msg || `Failed to ${action} request`, { type: 'error' });
+      }
     } finally {
       setWorkingId('');
     }
@@ -107,6 +149,23 @@ function WarehouseApprovalsPage() {
   function canAct(row) {
     return (String(row.status || '') === 'pending_director' && canDirectorApprove)
       || (String(row.status || '') === 'pending_manager' && canManagerApprove);
+  }
+
+  async function removeRequest(row) {
+    const confirmation = await promptDialog('Type DELETE to remove this stuck request');
+    if (String(confirmation || '').trim().toUpperCase() !== 'DELETE') return;
+    setWorkingId(row._id || row.clientId || '');
+    try {
+      await deleteOperation(row._id || row.clientId);
+      setRows(prev => prev.filter(item => String(item._id || item.clientId) !== String(row._id || row.clientId)));
+      setSelectedRow(null);
+      toast.show('Warehouse request deleted', { type: 'success' });
+      void load({ force: true });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to delete request'), { type: 'error' });
+    } finally {
+      setWorkingId('');
+    }
   }
 
   return (
@@ -124,6 +183,12 @@ function WarehouseApprovalsPage() {
           <button className="btn" onClick={load} disabled={loading}>{loading ? 'Loading…' : 'Refresh'}</button>
         </div>
       </div>
+      {syncing && (
+        <div className="card" style={{ padding: 12 }}>
+          <div className="loading-bar" style={{ width: '48%', marginBottom: 8 }} />
+          <div style={{ color: '#64748b', fontSize: 13 }}>Synchronizing warehouse approval and stock updates…</div>
+        </div>
+      )}
 
       <div className="card">
         <div style={{ overflowX: 'auto' }}>
@@ -171,6 +236,9 @@ function WarehouseApprovalsPage() {
           footer={(
             <>
               <button className="btn" onClick={() => setSelectedRow(null)} disabled={!!workingId}>Close</button>
+              {roleLower === 'superadmin' && String(selectedRow.status || '').toLowerCase() !== 'approved' && (
+                <button className="btn" onClick={() => removeRequest(selectedRow)} disabled={workingId === (selectedRow._id || selectedRow.clientId)}>Delete Request</button>
+              )}
               {canAct(selectedRow) && (
                 <>
                   <button className="btn" onClick={() => act(selectedRow, 'reject')} disabled={workingId === (selectedRow._id || selectedRow.clientId)}>{workingId === (selectedRow._id || selectedRow.clientId) ? 'Working…' : 'Reject'}</button>
@@ -219,7 +287,7 @@ function WarehouseApprovalsPage() {
                         <td><input className="input" type="number" min="0" value={item.qty} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, qty: Number(e.target.value) || 0 } : row))} style={{ width: 90, color: '#111827' }} disabled={(Array.isArray(item.unitIds) && item.unitIds.length > 0) || (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0) || !canAct(selectedRow) || !!workingId} /></td>
                         <td style={{ color: '#111827' }}>{Array.isArray(item.unitIds) && item.unitIds.length > 0 ? item.unitIds.length : (Array.isArray(item.serializedEntries) && item.serializedEntries.length > 0 ? item.serializedEntries.length : '—')}</td>
                         <td>
-                          <select className="select" value={item.status || 'accepted'} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, status: e.target.value } : row))} style={{ color: '#111827' }} disabled={!canAct(selectedRow) || !!workingId}>
+                          <select className="select" value={normalizeReviewStatus(item.status)} onChange={e => setReviewItems(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, status: e.target.value } : row))} style={{ color: '#111827' }} disabled={!canAct(selectedRow) || !!workingId}>
                             <option value="accepted">Accepted</option>
                             <option value="cancelled">Cancelled</option>
                           </select>

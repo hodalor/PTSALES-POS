@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useEffect, useState } from 'react';
 import { isFeatureEnabled } from '../utils/featureFlags';
@@ -7,6 +7,7 @@ import { listApprovals } from '../api/approvals';
 import { listOperations } from '../api/wholesale';
 
 function Sidebar({ collapsed }) {
+  const location = useLocation();
   const appName = useSelector(s => s.settings.appName);
   const settings = useSelector(s => s.settings);
   const products = useSelector(s => s.products.products || []);
@@ -53,28 +54,47 @@ function Sidebar({ collapsed }) {
     const okGrant = Array.isArray(grant) ? grant.some(has) : has(grant);
     return okRole || okGrant;
   };
+  function toggleGroup(group) {
+    setRetailOpen(group === 'retail' ? !retailOpen : false);
+    setWholesaleOpen(group === 'wholesale' ? !wholesaleOpen : false);
+    setWarehouseOpen(group === 'warehouse' ? !warehouseOpen : false);
+    setEasyBuyOpen(group === 'credit' ? !easyBuyOpen : false);
+    setExpenseOpen(group === 'expense' ? !expenseOpen : false);
+    setPartnersOpen(group === 'partners' ? !partnersOpen : false);
+  }
+  useEffect(() => {
+    const path = String(location.pathname || '');
+    const isRetail = ['/pos','/purchases','/transfers','/adjustments','/refunds'].some(prefix => path.startsWith(prefix));
+    const isDistribution = ['/wholesale-goods','/wholesale-pos','/wholesale-invoices','/wholesale-purchase','/wholesale-transfer','/wholesale-adjustment','/wholesale-refund'].some(prefix => path.startsWith(prefix));
+    const isWarehouse = ['/warehouse-goods','/warehouse-invoices','/warehouse-purchase','/warehouse-transfer','/warehouse-adjustment','/warehouse-approvals'].some(prefix => path.startsWith(prefix));
+    const isCredit = ['/credit-control','/easybuy/'].some(prefix => path.startsWith(prefix));
+    const isExpense = ['/expenses','/expense-approvals'].some(prefix => path.startsWith(prefix));
+    const isPartners = ['/suppliers','/customers'].some(prefix => path.startsWith(prefix));
+    setRetailOpen(isRetail);
+    setWholesaleOpen(isDistribution);
+    setWarehouseOpen(isWarehouse);
+    setEasyBuyOpen(isCredit);
+    setExpenseOpen(isExpense);
+    setPartnersOpen(isPartners);
+  }, [location.pathname]);
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [overdueRows, directorRows, managerRows, warehouseRows] = await Promise.all([
+          const [overdueRows, directorRows, managerRows, warehouseRows] = await Promise.all([
           listCreditSales({ status: 'overdue' }).catch(() => []),
           listApprovals({ actionType: 'credit_repayment', status: 'pending_director' }).catch(() => []),
           listApprovals({ actionType: 'credit_repayment', status: 'pending_manager' }).catch(() => []),
-          Promise.all([
-            listOperations({ operationArea: 'warehouse', operationType: 'purchase', status: 'pending_director' }).catch(() => []),
-            listOperations({ operationArea: 'warehouse', operationType: 'transfer', status: 'pending_director' }).catch(() => []),
-            listOperations({ operationArea: 'warehouse', operationType: 'adjustment', status: 'pending_director' }).catch(() => []),
-            listOperations({ operationArea: 'warehouse', operationType: 'purchase', status: 'pending_manager' }).catch(() => []),
-            listOperations({ operationArea: 'warehouse', operationType: 'transfer', status: 'pending_manager' }).catch(() => []),
-            listOperations({ operationArea: 'warehouse', operationType: 'adjustment', status: 'pending_manager' }).catch(() => [])
-          ]).catch(() => [[], [], [], [], [], []])
+            Promise.all([
+              listOperations({ operationArea: 'warehouse', status: 'pending_director' }).catch(() => []),
+              listOperations({ operationArea: 'warehouse', status: 'pending_manager' }).catch(() => [])
+            ]).catch(() => [[], []])
         ]);
         if (!alive) return;
         setEasyBuyOverdue(Array.isArray(overdueRows) ? overdueRows.length : 0);
         setEasyBuyPendingApprovals((Array.isArray(directorRows) ? directorRows.length : 0) + (Array.isArray(managerRows) ? managerRows.length : 0));
         const totalWarehousePending = Array.isArray(warehouseRows)
-          ? warehouseRows.reduce((sum, group) => sum + (Array.isArray(group) ? group.length : 0), 0)
+          ? warehouseRows.reduce((sum, group) => sum + (Array.isArray(group) ? group.filter(row => ['purchase','transfer','adjustment'].includes(String(row?.operationType || '').toLowerCase())).length : 0), 0)
           : 0;
         setWarehousePendingApprovals(totalWarehousePending);
       } catch {}
@@ -103,7 +123,7 @@ function Sidebar({ collapsed }) {
           (isFeatureEnabled(settings, 'modules.refunds') && can(['Admin','Manager','Cashier','SuperAdmin'],['view_refunds','see_refunds']))
         ) && (
         <div>
-          <button className="sidebar-group-toggle" onClick={() => setRetailOpen(o => !o)}>
+          <button className="sidebar-group-toggle" onClick={() => toggleGroup('retail')}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M7 4h10a2 2 0 012 2v4H5V6a2 2 0 012-2zm-2 8h14l-1 7a2 2 0 01-2 1H8a2 2 0 01-2-1l-1-7z" stroke="currentColor" strokeWidth="2"/></svg>
               <span className="sidebar-text">Retail</span>
@@ -160,7 +180,7 @@ function Sidebar({ collapsed }) {
         )}
         {isFeatureEnabled(settings, 'modules.wholesalePos') && can(['Admin','Manager','Inventory Staff','Cashier','SuperAdmin'],['view_wholesale_pos']) && (
         <div>
-          <button className="sidebar-group-toggle" onClick={() => setWholesaleOpen(o => !o)}>
+          <button className="sidebar-group-toggle" onClick={() => toggleGroup('wholesale')}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M4 6h16v12H4z" stroke="currentColor" strokeWidth="2"/><path d="M8 10h8M8 14h8M8 18h5" stroke="currentColor" strokeWidth="2"/></svg>
               <span className="sidebar-text">Distribution</span>
@@ -210,7 +230,7 @@ function Sidebar({ collapsed }) {
         )}
         {isFeatureEnabled(settings, 'modules.wholesalePos') && can(['Admin','Manager','Inventory Staff','Cashier','SuperAdmin'],['view_wholesale_pos']) && (
         <div>
-          <button className="sidebar-group-toggle" onClick={() => setWarehouseOpen(o => !o)}>
+          <button className="sidebar-group-toggle" onClick={() => toggleGroup('warehouse')}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M3 7h18v13H3V7z" stroke="currentColor" strokeWidth="2"/><path d="M8 7V4h8v3" stroke="currentColor" strokeWidth="2"/></svg>
               <span className="sidebar-text">Warehouse</span>
@@ -305,7 +325,7 @@ function Sidebar({ collapsed }) {
           (isFeatureEnabled(settings, 'modules.creditControl') && can(['Admin','Manager','Cashier','SuperAdmin'],['view_credit_control']))
         ) && (
         <div>
-          <button className="sidebar-group-toggle" onClick={() => setEasyBuyOpen(o => !o)}>
+          <button className="sidebar-group-toggle" onClick={() => toggleGroup('credit')}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M3 7h18v10H3z" stroke="currentColor" strokeWidth="2"/><path d="M7 11h10M7 15h6" stroke="currentColor" strokeWidth="2"/></svg>
               <span className="sidebar-text">Credit Sale</span>
@@ -359,7 +379,7 @@ function Sidebar({ collapsed }) {
           (isFeatureEnabled(settings, 'modules.expenseApprovals') && can(['Admin','Manager','SuperAdmin'],['approve_expenses']))
         ) && (
         <div>
-          <button className="sidebar-group-toggle" onClick={() => setExpenseOpen(o => !o)}>
+          <button className="sidebar-group-toggle" onClick={() => toggleGroup('expense')}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M6 3h12v18H6z" stroke="currentColor" strokeWidth="2"/><path d="M9 7h6M9 11h6M9 15h4" stroke="currentColor" strokeWidth="2"/></svg>
               <span className="sidebar-text">Expense</span>
@@ -399,7 +419,7 @@ function Sidebar({ collapsed }) {
           (isFeatureEnabled(settings, 'modules.customers') && can(['Admin','Manager','Cashier','SuperAdmin'],['view_customers','see_customers']))
         ) && (
         <div>
-          <button className="sidebar-group-toggle" onClick={() => setPartnersOpen(o => !o)}>
+          <button className="sidebar-group-toggle" onClick={() => toggleGroup('partners')}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M16 11a4 4 0 10-8 0 4 4 0 008 0z" stroke="currentColor" strokeWidth="2"/><path d="M6 21a6 6 0 0112 0" stroke="currentColor" strokeWidth="2"/></svg>
               <span className="sidebar-text">Partners</span>

@@ -19,19 +19,34 @@ function SalesPage() {
   const [tab, setTab] = useState('sales'); // sales, leaderboard, branches
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [selectedBranchId, setSelectedBranchId] = useState('all');
   function branchLabel(sale) {
     return sale.branchName || (branches.find(b => b.id === sale.branchId)?.name || sale.branchId || '-');
   }
-  const filteredByBranch = (canSeeAll && showAll) ? sales : sales.filter(sale => sale.branchId === currentBranchId);
+  const filteredByBranch = useMemo(() => {
+    let list = (canSeeAll && showAll) ? sales : sales.filter(sale => sale.branchId === currentBranchId);
+    if (selectedBranchId !== 'all') list = list.filter(sale => String(sale.branchId || '') === String(selectedBranchId));
+    return list;
+  }, [canSeeAll, currentBranchId, sales, selectedBranchId, showAll]);
   const filteredSales = useMemo(() => {
     let list = filteredByBranch;
+    if (dateFrom) {
+      const start = new Date(`${dateFrom}T00:00:00`);
+      list = list.filter(s => new Date(s.created_at || s.createdAt || 0) >= start);
+    }
+    if (dateTo) {
+      const end = new Date(`${dateTo}T23:59:59.999`);
+      list = list.filter(s => new Date(s.created_at || s.createdAt || 0) <= end);
+    }
     if (saleKind === 'retail') {
       list = list.filter(s => String(s.posType || 'retail') === 'retail');
     } else if (saleKind === 'wholesale') {
       list = list.filter(s => String(s.posType || 'retail') === 'wholesale');
     }
     return list;
-  }, [filteredByBranch, saleKind]);
+  }, [dateFrom, dateTo, filteredByBranch, saleKind]);
 
   const leaderboard = useMemo(() => {
     const map = new Map();
@@ -127,6 +142,25 @@ function SalesPage() {
         </span>
         )}
       </div>
+      {(tab === 'leaderboard' || tab === 'branches') && (
+        <div className="card" style={{ marginTop: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+          <label>
+            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 6 }}>Date From</div>
+            <input className="input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+          </label>
+          <label>
+            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 6 }}>Date To</div>
+            <input className="input" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+          </label>
+          <label>
+            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 6 }}>Branch</div>
+            <select className="select" value={selectedBranchId} onChange={e => setSelectedBranchId(e.target.value)}>
+              <option value="all">All Branches</option>
+              {branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name || branch.code || branch.id}</option>)}
+            </select>
+          </label>
+        </div>
+      )}
       {tab === 'sales' && (
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, margin: '8px 0' }}>
         <button className="btn" onClick={onExportCsv}>Export CSV</button>

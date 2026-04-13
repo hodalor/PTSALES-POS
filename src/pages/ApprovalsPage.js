@@ -1,19 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useDispatch } from 'react-redux';
 import { approveApproval, listApprovals, rejectApproval } from '../api/approvals';
 import { useToast } from '../components/ToastProvider';
 import { promptDialog } from '../utils/dialogs';
+import { refreshProductCatalog } from '../utils/inventoryRefresh';
 
 function ApprovalsPage() {
   const toast = useToast();
+  const dispatch = useDispatch();
   const [rows, setRows] = useState([]);
   const [status, setStatus] = useState('pending_director');
   const [loading, setLoading] = useState(false);
   const [workingId, setWorkingId] = useState('');
 
-  const load = useCallback(async (nextStatus = status) => {
+  const load = useCallback(async (nextStatus = status, options = {}) => {
     setLoading(true);
     try {
-      const data = await listApprovals(nextStatus === 'all' ? {} : { status: nextStatus });
+      const data = await listApprovals(nextStatus === 'all' ? { force: !!options.force } : { status: nextStatus, force: !!options.force });
       setRows(Array.isArray(data) ? data : []);
     } catch (e) {
       toast.show(String(e?.message || 'Failed to load approvals'), { type: 'error' });
@@ -33,10 +36,19 @@ function ApprovalsPage() {
     setWorkingId(row._id || '');
     try {
       await approveApproval(row._id, { remark: String(remark || '') });
+      if (String(row.referenceModel || '') === 'WholesaleOperation' && String(row.status || '').toLowerCase() === 'pending_manager') {
+        await refreshProductCatalog(dispatch);
+      }
       toast.show('Approval updated', { type: 'success' });
-      await load(status);
+      await load(status, { force: true });
     } catch (e) {
-      toast.show(String(e?.message || 'Failed to approve'), { type: 'error' });
+      const msg = String(e?.message || '');
+      if (/404|not found/i.test(msg)) {
+        await load(status, { force: true });
+        toast.show('Approval was already processed. List refreshed.', { type: 'warning' });
+      } else {
+        toast.show(msg || 'Failed to approve', { type: 'error' });
+      }
     } finally {
       setWorkingId('');
     }
@@ -52,9 +64,15 @@ function ApprovalsPage() {
     try {
       await rejectApproval(row._id, { reason: String(reason || '') });
       toast.show('Approval rejected', { type: 'success' });
-      await load(status);
+      await load(status, { force: true });
     } catch (e) {
-      toast.show(String(e?.message || 'Failed to reject'), { type: 'error' });
+      const msg = String(e?.message || '');
+      if (/404|not found/i.test(msg)) {
+        await load(status, { force: true });
+        toast.show('Approval was already processed. List refreshed.', { type: 'warning' });
+      } else {
+        toast.show(msg || 'Failed to reject', { type: 'error' });
+      }
     } finally {
       setWorkingId('');
     }

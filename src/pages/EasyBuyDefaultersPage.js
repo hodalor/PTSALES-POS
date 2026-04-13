@@ -5,8 +5,8 @@ function EasyBuyDefaultersPage() {
     <CreditControlPage
       initialSection="clients"
       clientFilter="risky"
-      title="EasyBuy Defaulters"
-      description="Customers with overdue balances, late payments, or risky EasyBuy repayment behaviour."
+      title="Credit Sale Defaulters"
+      description="Customers with overdue balances, late payments, or risky credit sale repayment behaviour."
     />
   );
 }
