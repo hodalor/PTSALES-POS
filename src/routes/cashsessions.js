@@ -9,7 +9,7 @@ r.use(requireAuth);
 r.get('/me', async (req, res) => {
   const name = req.user?.name || '';
   if (!name) return res.json(null);
-  const sess = await CashSession.findOne({ cashierName: name, isOpen: true }).sort({ openedAt: -1 }).lean();
+  const sess = await CashSession.findOne({ cashierName: name, isOpen: true }, { branchId: 1, cashierName: 1, cashierRole: 1, openingFloat: 1, isOpen: 1, openedAt: 1, closedAt: 1, movements: { $slice: -200 } }).sort({ openedAt: -1 }).lean();
   res.json(sess || null);
 });
 
@@ -26,13 +26,13 @@ r.post('/open', requireRoleOrPerm(['Admin','Manager','Cashier'], 'open_cashdrawe
     openedAt: new Date(),
     movements: []
   });
-  await Audit.create({
+  res.json(doc);
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'cashdrawer_open',
     details: { openingFloat },
     branchId: req.user?.branchId || 'main'
-  });
-  res.json(doc);
+  }).catch(() => {});
 });
 
 r.post('/move', requireRoleOrPerm(['Admin','Manager','Cashier'], 'open_cashdrawer'), async (req, res) => {
@@ -41,13 +41,13 @@ r.post('/move', requireRoleOrPerm(['Admin','Manager','Cashier'], 'open_cashdrawe
   if (!doc) return res.status(404).json({ error: 'No open session' });
   doc.movements.push({ time: new Date(), type, amount: Number(amount), note });
   await doc.save();
-  await Audit.create({
+  res.json(doc);
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'cashdrawer_movement',
     details: { type, amount: Number(amount), note },
     branchId: req.user?.branchId || 'main'
-  });
-  res.json(doc);
+  }).catch(() => {});
 });
 
 r.post('/close', requireRoleOrPerm(['Admin','Manager','Cashier'], 'open_cashdrawer'), async (req, res) => {
@@ -56,13 +56,13 @@ r.post('/close', requireRoleOrPerm(['Admin','Manager','Cashier'], 'open_cashdraw
   doc.isOpen = false;
   doc.closedAt = new Date();
   await doc.save();
-  await Audit.create({
+  res.json(doc);
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'cashdrawer_close',
     details: {},
     branchId: req.user?.branchId || 'main'
-  });
-  res.json(doc);
+  }).catch(() => {});
 });
 
 export default r;

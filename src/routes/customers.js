@@ -77,21 +77,21 @@ r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_customers'), a
     }
   }
   if (!c) return res.status(500).json({ error: 'Failed to generate customer id' });
-  await Audit.create({
+  res.json(c);
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'customer_create',
     details: { customerCode: c.customerCode || '', name: c.name, phone: c.phone || '', email: c.email || '' },
     branchId: req.user?.branchId || ''
-  });
-  await ServerLog.create({
+  }).catch(() => {});
+  void ServerLog.create({
     level: 'info',
     actor: req.user?.name || 'unknown',
     route: req.originalUrl || req.url || '',
     method: req.method || 'POST',
     status: 200,
     message: `Customer created: ${c.name}`
-  });
-  res.json(c);
+  }).catch(() => {});
 });
 
 r.put('/:id', requireRoleOrPerm(['Admin','Manager','Cashier'], 'edit_customers'), async (req, res) => {
@@ -128,13 +128,14 @@ r.put('/:id', requireRoleOrPerm(['Admin','Manager','Cashier'], 'edit_customers')
       changed.push(k);
     }
   });
-  await Audit.create({
+  res.json(c);
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'customer_update',
     details: { id, name: c?.name || before?.name || '', changedKeys: changed },
     branchId: req.user?.branchId || ''
-  });
-  await ServerLog.create({
+  }).catch(() => {});
+  void ServerLog.create({
     level: 'info',
     actor: req.user?.name || 'unknown',
     route: req.originalUrl || req.url || '',
@@ -142,8 +143,7 @@ r.put('/:id', requireRoleOrPerm(['Admin','Manager','Cashier'], 'edit_customers')
     status: 200,
     message: `Customer updated: ${c?.name || id}`,
     details: { changedKeys: changed }
-  });
-  res.json(c);
+  }).catch(() => {});
 });
 
 r.delete('/:id', requireAdmin, async (req, res) => {
@@ -154,21 +154,50 @@ r.delete('/:id', requireAdmin, async (req, res) => {
   const doc = await Customer.findOne({ $or: or });
   if (!doc) return res.status(404).json({ error: 'Not found' });
   await Customer.findOneAndDelete({ $or: or });
-  await Audit.create({
+  res.json({ ok: true });
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'customer_delete',
     details: { id, customerCode: doc?.customerCode || '', name: doc?.name || '' },
     branchId: req.user?.branchId || ''
-  });
-  await ServerLog.create({
+  }).catch(() => {});
+  void ServerLog.create({
     level: 'info',
     actor: req.user?.name || 'unknown',
     route: req.originalUrl || req.url || '',
     method: req.method || 'DELETE',
     status: 200,
     message: `Customer deleted: ${doc?.name || id}`
-  });
-  res.json({ ok: true });
+  }).catch(() => {});
+});
+
+r.post('/bulk-delete', requireAdmin, async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).filter(Boolean) : [];
+  if (ids.length === 0) return res.json({ ok: true, count: 0 });
+  const objectIds = ids.filter(id => mongoose.isValidObjectId(id));
+  const query = {
+    $or: [
+      { clientId: { $in: ids } },
+      ...(objectIds.length > 0 ? [{ _id: { $in: objectIds } }] : [])
+    ]
+  };
+  const rows = await Customer.find(query, { _id: 1, customerCode: 1, name: 1 }).lean();
+  const result = await Customer.deleteMany(query);
+  void Audit.create({
+    actor: req.user?.name || 'unknown',
+    actionType: 'customer_bulk_delete',
+    details: { count: Number(result?.deletedCount || 0), ids, names: rows.map(r => r.name).filter(Boolean).slice(0, 50) },
+    branchId: req.user?.branchId || ''
+  }).catch(() => {});
+  void ServerLog.create({
+    level: 'info',
+    actor: req.user?.name || 'unknown',
+    route: req.originalUrl || req.url || '',
+    method: req.method || 'POST',
+    status: 200,
+    message: `Customers bulk deleted: ${Number(result?.deletedCount || 0)}`
+  }).catch(() => {});
+  res.json({ ok: true, count: Number(result?.deletedCount || 0) });
 });
 
 export default r;

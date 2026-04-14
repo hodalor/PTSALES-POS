@@ -55,13 +55,13 @@ r.post('/requests', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), asyn
     initiatorName: req.user?.name || '',
     initiatorRole: req.user?.role || ''
   });
-  await Audit.create({
+  res.json(row);
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'expense_request_create',
     details: { id: String(row._id), branchId: row.branchId, category: row.category, amount: row.amount },
     branchId: row.branchId
-  });
-  res.json(row);
+  }).catch(() => {});
 });
 
 r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_expenses'), async (req, res) => {
@@ -83,14 +83,14 @@ r.post('/approve', requireRoleOrPerm(['Admin','Manager'], 'approve_expenses'), a
   row.approvalRemark = String(remark || '');
   row.approved_at = new Date();
   await row.save();
-  await Audit.create({
+  res.json({ ok: true, expense: exp, request: row });
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'expense_approve',
     details: { id: String(row._id), expenseId: String(exp._id), branchId: row.branchId, category: row.category, amount: row.amount },
     remark: String(remark || ''),
     branchId: row.branchId
-  });
-  res.json({ ok: true, expense: exp, request: row });
+  }).catch(() => {});
 });
 
 r.post('/reject', requireRoleOrPerm(['Admin','Manager'], 'approve_expenses'), async (req, res) => {
@@ -104,14 +104,14 @@ r.post('/reject', requireRoleOrPerm(['Admin','Manager'], 'approve_expenses'), as
   row.rejectionRemark = String(remark || '');
   row.rejected_at = new Date();
   await row.save();
-  await Audit.create({
+  res.json({ ok: true, request: row });
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'expense_reject',
     details: { id: String(row._id), branchId: row.branchId, category: row.category, amount: row.amount },
     remark: String(remark || ''),
     branchId: row.branchId
-  });
-  res.json({ ok: true, request: row });
+  }).catch(() => {});
 });
 
 r.post('/', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (req, res) => {
@@ -133,21 +133,21 @@ r.post('/', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (req, 
     note: String(note || ''),
     createdBy: req.user?.name || ''
   });
-  await Audit.create({
+  res.json(row);
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'expense_create',
     details: { id: String(row._id), branchId: row.branchId, category: row.category, amount: row.amount },
     branchId: row.branchId
-  });
-  await ServerLog.create({
+  }).catch(() => {});
+  void ServerLog.create({
     level: 'info',
     actor: req.user?.name || 'unknown',
     route: req.originalUrl || req.url || '',
     method: req.method || 'POST',
     status: 200,
     message: `Expense created: ${row.category} ${row.amount} @ ${row.branchId}`
-  });
-  res.json(row);
+  }).catch(() => {});
 });
 
 r.put('/:id', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (req, res) => {
@@ -168,13 +168,13 @@ r.put('/:id', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (req
   if (note != null) patch.note = String(note || '');
   const row = await Expense.findOneAndUpdate({ $or: or }, patch, { new: true });
   if (!row) return res.status(404).json({ error: 'Not found' });
-  await Audit.create({
+  res.json(row);
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'expense_update',
     details: { id: String(row._id), branchId: row.branchId, category: row.category, amount: row.amount },
     branchId: row.branchId
-  });
-  res.json(row);
+  }).catch(() => {});
 });
 
 r.delete('/:id', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (req, res) => {
@@ -184,13 +184,13 @@ r.delete('/:id', requireRoleOrPerm(['Admin','Manager'], 'add_expenses'), async (
   or.push({ clientId: id });
   const row = await Expense.findOneAndDelete({ $or: or });
   if (!row) return res.status(404).json({ error: 'Not found' });
-  await Audit.create({
+  res.json({ ok: true });
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'expense_delete',
     details: { id: String(row._id), branchId: row.branchId, category: row.category, amount: row.amount },
     branchId: row.branchId
-  });
-  res.json({ ok: true });
+  }).catch(() => {});
 });
 
 export default r;

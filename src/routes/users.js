@@ -45,21 +45,6 @@ r.post('/', requireAdmin, async (req, res) => {
     branchId: Array.isArray(assigned) ? (assigned[0] || branchId || 'main') : (branchId || 'main'),
     active: true
   });
-  await Audit.create({
-    actor: (req.user && req.user.name) || 'unknown',
-    actionType: 'user_create',
-    details: { name: doc.name, role: doc.role, assignedBranches: doc.assignedBranches },
-    branchId: req.user?.branchId || ''
-  });
-  await ServerLog.create({
-    level: 'info',
-    actor: (req.user && req.user.name) || 'unknown',
-    route: req.originalUrl || req.url || '',
-    method: req.method || 'POST',
-    status: 200,
-    message: `User created: ${doc.name}`,
-    details: { role: doc.role }
-  });
   res.json({
     id: String(doc._id),
     name: doc.name,
@@ -68,6 +53,21 @@ r.post('/', requireAdmin, async (req, res) => {
     assignedBranches: doc.assignedBranches,
     active: doc.active !== false
   });
+  void Audit.create({
+    actor: (req.user && req.user.name) || 'unknown',
+    actionType: 'user_create',
+    details: { name: doc.name, role: doc.role, assignedBranches: doc.assignedBranches },
+    branchId: req.user?.branchId || ''
+  }).catch(() => {});
+  void ServerLog.create({
+    level: 'info',
+    actor: (req.user && req.user.name) || 'unknown',
+    route: req.originalUrl || req.url || '',
+    method: req.method || 'POST',
+    status: 200,
+    message: `User created: ${doc.name}`,
+    details: { role: doc.role }
+  }).catch(() => {});
 });
 
 r.put('/:name', requireAdmin, async (req, res) => {
@@ -111,21 +111,6 @@ r.put('/:name', requireAdmin, async (req, res) => {
   Object.keys(payload).forEach(k => {
     if (payload[k] !== undefined) changed.push(k);
   });
-  await Audit.create({
-    actor: (req.user && req.user.name) || 'unknown',
-    actionType: 'user_update',
-    details: { id: String(u._id), name: u.name, changedKeys: changed },
-    branchId: req.user?.branchId || ''
-  });
-  await ServerLog.create({
-    level: 'info',
-    actor: (req.user && req.user.name) || 'unknown',
-    route: req.originalUrl || req.url || '',
-    method: req.method || 'PUT',
-    status: 200,
-    message: `User updated: ${u.name}`,
-    details: { changedKeys: changed }
-  });
   res.json({
     id: String(u._id),
     name: u.name,
@@ -134,6 +119,21 @@ r.put('/:name', requireAdmin, async (req, res) => {
     assignedBranches: u.assignedBranches,
     active: u.active !== false
   });
+  void Audit.create({
+    actor: (req.user && req.user.name) || 'unknown',
+    actionType: 'user_update',
+    details: { id: String(u._id), name: u.name, changedKeys: changed },
+    branchId: req.user?.branchId || ''
+  }).catch(() => {});
+  void ServerLog.create({
+    level: 'info',
+    actor: (req.user && req.user.name) || 'unknown',
+    route: req.originalUrl || req.url || '',
+    method: req.method || 'PUT',
+    status: 200,
+    message: `User updated: ${u.name}`,
+    details: { changedKeys: changed }
+  }).catch(() => {});
 });
 
 r.delete('/:name', requireAdmin, async (req, res) => {
@@ -141,21 +141,21 @@ r.delete('/:name', requireAdmin, async (req, res) => {
   const u = await User.findOne({ name });
   if (!u) return res.json({ ok: true });
   await User.deleteOne({ _id: u._id });
-  await Audit.create({
+  res.json({ ok: true });
+  void Audit.create({
     actor: (req.user && req.user.name) || 'unknown',
     actionType: 'user_delete',
     details: { id: String(u._id), name: u.name },
     branchId: req.user?.branchId || ''
-  });
-  await ServerLog.create({
+  }).catch(() => {});
+  void ServerLog.create({
     level: 'info',
     actor: (req.user && req.user.name) || 'unknown',
     route: req.originalUrl || req.url || '',
     method: req.method || 'DELETE',
     status: 200,
     message: `User deleted: ${u.name}`
-  });
-  res.json({ ok: true });
+  }).catch(() => {});
 });
 
 export default r;
