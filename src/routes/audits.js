@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import Audit from '../models/Audit.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
+import mongoose from 'mongoose';
 
 const r = Router();
 r.use(requireAuth);
@@ -10,6 +11,16 @@ r.get('/', requireAdmin, async (req, res) => {
   const rows = await Audit.find().sort({ ts: -1 }).limit(limit).lean();
   res.set('Cache-Control', 'no-store');
   res.json(rows);
+});
+
+r.delete('/:id', requireAdmin, async (req, res) => {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role !== 'superadmin') return res.status(403).json({ error: 'Forbidden' });
+  const rawId = String(req.params.id || '');
+  const query = mongoose.isValidObjectId(rawId) ? { _id: rawId } : { id: rawId };
+  const removed = await Audit.findOneAndDelete(query);
+  if (!removed) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
 });
 
 export default r;

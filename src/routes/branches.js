@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import mongoose from 'mongoose';
 import Branch from '../models/Branch.js';
 import Product from '../models/Product.js';
 import Audit from '../models/Audit.js';
@@ -134,7 +135,8 @@ r.put('/:id', requireAdmin, async (req, res) => {
 
 r.delete('/:id', requireAdmin, async (req, res) => {
   const id = req.params.id;
-  const query = { $or: [{ _id: id }, { id }] };
+  const query = { $or: [{ id }] };
+  if (mongoose.isValidObjectId(id)) query.$or.unshift({ _id: id });
   const b = await Branch.findOne(query);
   await Branch.findOneAndDelete(query);
   await removeBranchProducts(b);
