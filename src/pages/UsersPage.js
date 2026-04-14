@@ -10,6 +10,7 @@ import { setAllSettings } from '../store/settingsSlice';
 import { setGrants as setAuthGrants } from '../store/authSlice';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
+import InlineSpinner from '../components/InlineSpinner';
 
 const ALL_GRANTS = [
   { key: 'view_dashboard', label: 'Dashboard' },
@@ -73,6 +74,8 @@ function UsersPage() {
   const [editBranchId, setEditBranchId] = useState(branches[0]?.id || 'main');
   const [editActive, setEditActive] = useState(true);
   const [editRemark, setEditRemark] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [workingUserName, setWorkingUserName] = useState('');
   const isSuper = String(auth.role || '').toLowerCase() === 'superadmin';
   const superAdminsCount = users.filter(u => u.role === 'SuperAdmin' && u.active !== false).length;
   const toast = useToast();
@@ -289,23 +292,31 @@ function UsersPage() {
       return;
     }
     try {
+      setSavingEdit(true);
       await usersApi.update(prevName, payload);
       const map = { ...(existingGrants || {}) };
       if (target && target.name && target.name !== editName) {
         delete map[target.name];
       }
       map[editName] = editGrants.slice();
-      const next = { ...(settings || {}), userGrants: map };
-      const saved = await settingsApi.save(next);
+      const saved = await settingsApi.save({ userGrants: map });
       dispatch(setAllSettings(saved));
+      dispatch(updateUser({
+        id: editingId,
+        name: fields.name,
+        role: fields.role,
+        branchId: fields.branchId,
+        assignedBranches: fields.assignedBranches,
+        active: fields.active
+      }));
       if ((auth.user?.name || '') === editName) {
         dispatch(setAuthGrants(saved?.userGrants?.[editName] || []));
       }
-      const latest = await usersApi.list().catch(() => null);
-      if (Array.isArray(latest)) dispatch(setUsers(latest));
     } catch {
       toast.show('Failed to update user on server', { type: 'error' });
       return;
+    } finally {
+      setSavingEdit(false);
     }
     dispatch(addAudit({
       actor: auth.user?.name || 'unknown',
@@ -350,9 +361,9 @@ function UsersPage() {
       return;
     }
     try {
+      setWorkingUserName(String(u.name || ''));
       await usersApi.update(u.name, { active });
-      const latest = await usersApi.list().catch(() => null);
-      if (Array.isArray(latest)) dispatch(setUsers(latest));
+      dispatch(updateUser({ id: u.id, active }));
       dispatch(addAudit({
         actor: auth.user?.name || 'unknown',
         actionType: 'user_status',
@@ -361,6 +372,8 @@ function UsersPage() {
       }));
     } catch {
       toast.show('Failed to update status on server', { type: 'error' });
+    } finally {
+      setWorkingUserName('');
     }
   }
 
@@ -468,8 +481,8 @@ function UsersPage() {
                       <button className="btn" onClick={() => startEdit(u)} disabled={!isSuper && u.role === 'SuperAdmin'}>Edit</button>
                       {(isSuper || u.name !== 'superadmin') && (
                         active
-                          ? <button className="btn" onClick={() => toggleActive(u, false)}>Disable</button>
-                          : <button className="btn" onClick={() => toggleActive(u, true)}>Enable</button>
+                          ? <button className="btn" onClick={() => toggleActive(u, false)} disabled={workingUserName === String(u.name || '')}>{workingUserName === String(u.name || '') ? 'Working…' : 'Disable'}</button>
+                          : <button className="btn" onClick={() => toggleActive(u, true)} disabled={workingUserName === String(u.name || '')}>{workingUserName === String(u.name || '') ? 'Working…' : 'Enable'}</button>
                       )}
                       <button
                         className="btn"
@@ -502,23 +515,27 @@ function UsersPage() {
                               return;
                             }
                             try {
+                              setWorkingUserName(String(u.name || ''));
                               await usersApi.remove(u.name);
+                              dispatch(removeUser(u.id));
                               const map = { ...(existingGrants || {}) };
                               delete map[u.name];
-                              const next = { ...(settings || {}), userGrants: map };
-                              const saved = await settingsApi.save(next);
+                              const saved = await settingsApi.save({ userGrants: map });
                               dispatch(setAllSettings(saved));
-                              const latest = await usersApi.list().catch(() => null);
-                              if (Array.isArray(latest)) dispatch(setUsers(latest));
                               dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'user_remove', details: { id: u.id, name: u.name }, remark: r }));
                             } catch {
                               toast.show('Failed to remove user on server', { type: 'error' });
+                            } finally {
+                              setWorkingUserName('');
                             }
                           })();
                         }}
-                        disabled={!canRemoveUser(u)}
+                        disabled={!canRemoveUser(u) || workingUserName === String(u.name || '')}
                       >
-                        Remove
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {workingUserName === String(u.name || '') && <InlineSpinner />}
+                          {workingUserName === String(u.name || '') ? 'Working…' : 'Remove'}
+                        </span>
                       </button>
                     </td>
                   </tr>
@@ -616,8 +633,13 @@ function UsersPage() {
                 <label>Remark (required)</label>
                 <input className="input" value={editRemark} onChange={e => setEditRemark(e.target.value)} style={{ display: 'block', width: '100%', marginBottom: 8 }} />
                 <div>
-                  <button className="btn btn-primary" onClick={saveEdit} style={{ marginRight: 8 }}>Save</button>
-                  <button className="btn" onClick={() => setEditingId(null)}>Cancel</button>
+                  <button className="btn btn-primary" onClick={saveEdit} style={{ marginRight: 8 }} disabled={savingEdit}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {savingEdit && <InlineSpinner />}
+                      {savingEdit ? 'Saving…' : 'Save'}
+                    </span>
+                  </button>
+                  <button className="btn" onClick={() => setEditingId(null)} disabled={savingEdit}>Cancel</button>
                 </div>
               </div>
               </div>

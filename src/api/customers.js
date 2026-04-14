@@ -16,3 +16,11 @@ export function update(id, payload) {
 export function remove(id) {
   return fetchJson(`/api/customers/${id}`, { method: 'DELETE' });
 }
+
+export function removeMany(ids = []) {
+  return fetchJson('/api/customers/bulk-delete', {
+    method: 'POST',
+    body: JSON.stringify({ ids: Array.isArray(ids) ? ids : [] }),
+    timeoutMs: 0
+  });
+}

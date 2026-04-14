@@ -1,5 +1,9 @@
 import { useMemo, useState } from 'react';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
+import * as auditsApi from '../api/audits';
+import { removeEntries as removeAuditEntries } from '../store/auditSlice';
+import InlineSpinner from '../components/InlineSpinner';
+import { confirmDialog } from '../utils/dialogs';
 
 function toCsv(rows) {
   const headers = ['Timestamp','Actor','Action','Branch','Remark','Details'];
@@ -14,13 +18,18 @@ function toCsv(rows) {
 }
 
 function AuditLogPage() {
+  const dispatch = useDispatch();
   const entries = useSelector(s => s.audit.entries);
   const branches = useSelector(s => s.branches.branches);
+  const isSuper = String(useSelector(s => s.auth.role || '') || '').toLowerCase() === 'superadmin';
   const [qActor, setQActor] = useState('');
   const [qAction, setQAction] = useState('');
   const [qBranch, setQBranch] = useState('');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkAction, setBulkAction] = useState('');
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const actors = useMemo(() => Array.from(new Set(entries.map(e => e.actor).filter(Boolean))).sort(), [entries]);
   const actions = useMemo(() => Array.from(new Set(entries.map(e => e.actionType).filter(Boolean))).sort(), [entries]);
@@ -53,6 +62,23 @@ function AuditLogPage() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  }
+
+  async function deleteSelected() {
+    if (!isSuper) return;
+    const ids = selectedIds.filter(Boolean);
+    if (ids.length === 0) return;
+    const ok = await confirmDialog(`Delete ${ids.length} selected audit record(s)?`);
+    if (!ok) return;
+    try {
+      setBulkDeleting(true);
+      await auditsApi.removeMany(ids);
+      dispatch(removeAuditEntries(ids));
+      setSelectedIds([]);
+      setBulkAction('');
+    } finally {
+      setBulkDeleting(false);
+    }
   }
 
   return (
@@ -89,8 +115,22 @@ function AuditLogPage() {
               {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </label>
-          <div style={{ alignSelf: 'end' }}>
+          <div style={{ alignSelf: 'end', display: 'inline-flex', gap: 6 }}>
             <button className="btn" onClick={exportCsv}>Export CSV</button>
+            {isSuper && (
+              <>
+                <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} disabled={bulkDeleting}>
+                  <option value="">Actions</option>
+                  <option value="delete">Delete Selected</option>
+                </select>
+                <button className="btn" disabled={bulkDeleting || bulkAction !== 'delete' || selectedIds.length === 0} onClick={() => void deleteSelected()}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {bulkDeleting && <InlineSpinner />}
+                    {bulkDeleting ? 'Deleting…' : 'Apply'}
+                  </span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -98,6 +138,16 @@ function AuditLogPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
+              {isSuper && (
+                <th align="left">
+                  <input
+                    type="checkbox"
+                    disabled={bulkDeleting}
+                    checked={filtered.length > 0 && filtered.every(e => selectedIds.includes(String(e._id || e.id || '')))}
+                    onChange={e => setSelectedIds(e.target.checked ? filtered.map(x => String(x._id || x.id || '')).filter(Boolean) : [])}
+                  />
+                </th>
+              )}
               <th align="left">Timestamp</th>
               <th align="left">Actor</th>
               <th align="left">Action</th>
@@ -108,7 +158,17 @@ function AuditLogPage() {
           </thead>
           <tbody>
             {filtered.map(e => (
-              <tr key={e.id} style={{ borderTop: '1px solid #e2e8f0' }}>
+              <tr key={e.id} style={{ borderTop: '1px solid #e2e8f0', opacity: bulkDeleting && selectedIds.includes(String(e._id || e.id || '')) ? 0.55 : 1 }}>
+                {isSuper && (
+                  <td>
+                    <input
+                      type="checkbox"
+                      disabled={bulkDeleting}
+                      checked={selectedIds.includes(String(e._id || e.id || ''))}
+                      onChange={evt => setSelectedIds(prev => evt.target.checked ? [...new Set([...prev, String(e._id || e.id || '')])] : prev.filter(id => id !== String(e._id || e.id || '')))}
+                    />
+                  </td>
+                )}
                 <td>{new Date(e.ts).toLocaleString()}</td>
                 <td>{e.actor}</td>
                 <td>{e.actionType}</td>
@@ -118,7 +178,7 @@ function AuditLogPage() {
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan="6" style={{ padding: 12, color: '#64748b' }}>No entries</td></tr>
+              <tr><td colSpan={isSuper ? 7 : 6} style={{ padding: 12, color: '#64748b' }}>No entries</td></tr>
             )}
           </tbody>
         </table>

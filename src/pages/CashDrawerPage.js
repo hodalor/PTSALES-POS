@@ -7,6 +7,7 @@ import { formatCurrency } from '../utils/currency';
 import { useToast } from '../components/ToastProvider';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
+import InlineSpinner from '../components/InlineSpinner';
 
 function CashDrawerPage() {
   const dispatch = useDispatch();
@@ -17,20 +18,27 @@ function CashDrawerPage() {
   const [floatAmount, setFloatAmount] = useState(0);
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [loadingSession, setLoadingSession] = useState(false);
+  const [workingAction, setWorkingAction] = useState('');
 
   useEffect(() => {
     let alive = true;
     (async () => {
+      setLoadingSession(true);
       try {
         const me = await cashApi.me();
         if (alive && me && typeof me === 'object') dispatch(setSession(me));
       } catch {}
+      finally {
+        if (alive) setLoadingSession(false);
+      }
     })();
     return () => { alive = false; };
   }, [dispatch]);
 
   function openDrawer() {
     (async () => {
+      setWorkingAction('open');
       if (!navigator.onLine) {
         if (!offlineBackupAllowed) {
           toast.show('Offline: connect internet and try again.', { type: 'error' });
@@ -50,6 +58,8 @@ function CashDrawerPage() {
         dispatch(setSession(doc));
       } catch {
         toast.show('Failed to open session on server', { type: 'error' });
+      } finally {
+        setWorkingAction('');
       }
     })();
   }
@@ -60,6 +70,7 @@ function CashDrawerPage() {
   function record(type) {
     if (!amount) return;
     (async () => {
+      setWorkingAction(type);
       if (!navigator.onLine) {
         if (!offlineBackupAllowed) {
           toast.show('Offline: connect internet and try again.', { type: 'error' });
@@ -85,6 +96,7 @@ function CashDrawerPage() {
       } finally {
         setAmount('');
         setNote('');
+        setWorkingAction('');
       }
     })();
   }
@@ -98,6 +110,12 @@ function CashDrawerPage() {
         <h1 style={{ margin: 0 }}>Cash Drawer</h1>
         <OfflineQueueIndicator collection="cashsessions" label="Cash queued" />
       </div>
+      {loadingSession && (
+        <div className="card" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <InlineSpinner />
+          <span style={{ color: '#64748b' }}>Loading cash session…</span>
+        </div>
+      )}
       {session.isOpen ? (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 16 }}>
@@ -117,8 +135,12 @@ function CashDrawerPage() {
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <input placeholder="amount" type="number" value={amount} onChange={e => setAmount(e.target.value)} />
             <input placeholder="note" value={note} onChange={e => setNote(e.target.value)} />
-            <button onClick={() => record('in')}>Cash In</button>
-            <button onClick={() => record('out')}>Cash Out</button>
+            <button onClick={() => record('in')} disabled={workingAction === 'in' || workingAction === 'out' || workingAction === 'close'}>
+              {workingAction === 'in' ? 'Processing…' : 'Cash In'}
+            </button>
+            <button onClick={() => record('out')} disabled={workingAction === 'in' || workingAction === 'out' || workingAction === 'close'}>
+              {workingAction === 'out' ? 'Processing…' : 'Cash Out'}
+            </button>
             <button onClick={openDrawerNow}>Open Drawer Now</button>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -144,6 +166,7 @@ function CashDrawerPage() {
           <div style={{ marginTop: 12 }}>
             <button onClick={() => {
               (async () => {
+                setWorkingAction('close');
                 if (!navigator.onLine) {
                   if (!offlineBackupAllowed) {
                     toast.show('Offline: connect internet and try again.', { type: 'error' });
@@ -163,16 +186,25 @@ function CashDrawerPage() {
                   dispatch(setSession(doc));
                 } catch {
                   toast.show('Failed to close session on server', { type: 'error' });
+                } finally {
+                  setWorkingAction('');
                 }
               })();
-            }}>Close Session</button>
+            }} disabled={workingAction === 'in' || workingAction === 'out' || workingAction === 'close'}>
+              {workingAction === 'close' ? 'Closing…' : 'Close Session'}
+            </button>
           </div>
         </>
       ) : (
         <div style={{ background: '#fff', padding: 16, borderRadius: 12, width: 360 }}>
           <h2>Open Cash Drawer</h2>
           <input placeholder="Opening float" type="number" value={floatAmount} onChange={e => setFloatAmount(e.target.value)} style={{ display: 'block', width: '100%', marginBottom: 8 }} />
-          <button onClick={openDrawer}>Open Session</button>
+          <button onClick={openDrawer} disabled={workingAction === 'open'}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {workingAction === 'open' && <InlineSpinner />}
+              {workingAction === 'open' ? 'Opening…' : 'Open Session'}
+            </span>
+          </button>
           <div style={{ marginTop: 8 }}>
             <button onClick={openDrawerNow}>Open Drawer Now</button>
           </div>

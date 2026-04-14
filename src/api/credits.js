@@ -31,3 +31,33 @@ export function createRepayment(body) {
     timeoutMs: 0
   });
 }
+
+export function removeRepayment(id) {
+  return fetchJson(`/api/credits/repayments/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    timeoutMs: 0
+  });
+}
+
+export function removeCreditSale(id) {
+  return fetchJson(`/api/credits/sales/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    timeoutMs: 0
+  });
+}
+
+export function removeManyRepayments(ids = []) {
+  return fetchJson('/api/credits/repayments/bulk-delete', {
+    method: 'POST',
+    body: JSON.stringify({ ids: Array.isArray(ids) ? ids : [] }),
+    timeoutMs: 0
+  });
+}
+
+export function removeManyCreditSales(ids = []) {
+  return fetchJson('/api/credits/sales/bulk-delete', {
+    method: 'POST',
+    body: JSON.stringify({ ids: Array.isArray(ids) ? ids : [] }),
+    timeoutMs: 0
+  });
+}

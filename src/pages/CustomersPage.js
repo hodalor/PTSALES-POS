@@ -10,6 +10,7 @@ import { isFeatureEnabled } from '../utils/featureFlags';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import Modal from '../components/Modal';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
+import InlineSpinner from '../components/InlineSpinner';
 
 function CustomersPage() {
   const customers = useSelector(s => s.customers.customers);
@@ -35,6 +36,10 @@ function CustomersPage() {
   const [selectedTab, setSelectedTab] = useState('profile'); // profile, history
   const [savingCreate, setSavingCreate] = useState(false);
   const [savingUpdate, setSavingUpdate] = useState(false);
+  const [removingId, setRemovingId] = useState('');
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkAction, setBulkAction] = useState('');
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const purchaseHistoryEnabled = isFeatureEnabled(settings, 'tabs.customerPurchaseHistory');
 
   useEffect(() => {
@@ -259,10 +264,6 @@ function CustomersPage() {
         dispatch(updateCustomer({ id: selected.id, ...updated }));
         dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'customer_update', details: { id: selected.id } }));
         toast.show('Customer updated', { type: 'success' });
-        try {
-          const list = await customersApi.list({ limit: 2000 });
-          dispatch(setCustomers(list));
-        } catch {}
       }
     } catch (e) {
       toast.show(String(e?.message || 'Failed to update customer'), { type: 'error' });
@@ -275,6 +276,7 @@ function CustomersPage() {
     const ok = await confirmDialog('Remove this customer?');
     if (!ok) return;
     try {
+      setRemovingId(String(id));
       if (!navigator.onLine) {
         if (!offlineBackupAllowed) {
           toast.show('Offline: connect internet and try again.', { type: 'error' });
@@ -291,13 +293,32 @@ function CustomersPage() {
         dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'customer_remove', details: { id } }));
         if (String(selectedId) === String(id)) setSelectedId(null);
         toast.show('Customer removed', { type: 'success' });
-        try {
-          const list = await customersApi.list({ limit: 2000 });
-          dispatch(setCustomers(list));
-        } catch {}
       }
     } catch (e) {
       toast.show(String(e?.message || 'Failed to remove customer'), { type: 'error' });
+    } finally {
+      setRemovingId('');
+    }
+  }
+
+  async function removeSelected() {
+    if (!canRemoveCustomers) { toast.show('Only Admin can remove customers', { type: 'error' }); return; }
+    const ids = selectedIds.filter(Boolean);
+    if (ids.length === 0) return;
+    const ok = await confirmDialog(`Remove ${ids.length} selected customer(s)?`);
+    if (!ok) return;
+    try {
+      setBulkDeleting(true);
+      await customersApi.removeMany(ids);
+      ids.forEach(id => dispatch(removeCustomer(id)));
+      if (selectedId && ids.includes(String(selectedId))) setSelectedId(null);
+      setSelectedIds([]);
+      setBulkAction('');
+      toast.show('Customers removed', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to remove selected customers'), { type: 'error' });
+    } finally {
+      setBulkDeleting(false);
     }
   }
 
@@ -320,10 +341,34 @@ function CustomersPage() {
       <div className="card">
         <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           <input className="input" placeholder="Search by name, phone, email, ID" value={query} onChange={e => setQuery(e.target.value)} style={{ width: '100%' }} />
+          {canRemoveCustomers && (
+            <>
+              <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} disabled={bulkDeleting}>
+                <option value="">Actions</option>
+                <option value="delete">Delete Selected</option>
+              </select>
+              <button className="btn" disabled={bulkDeleting || bulkAction !== 'delete' || selectedIds.length === 0} onClick={() => void removeSelected()}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {bulkDeleting && <InlineSpinner />}
+                  {bulkDeleting ? 'Deleting…' : 'Apply'}
+                </span>
+              </button>
+            </>
+          )}
         </div>
         <table className="table">
           <thead>
             <tr>
+              {canRemoveCustomers && (
+                <th align="left">
+                  <input
+                    type="checkbox"
+                    disabled={bulkDeleting}
+                    checked={filtered.length > 0 && filtered.every(c => selectedIds.includes(String(c.id)))}
+                    onChange={e => setSelectedIds(e.target.checked ? filtered.map(c => String(c.id)).filter(Boolean) : [])}
+                  />
+                </th>
+              )}
               <th align="left">Customer</th>
               <th align="left">Customer ID</th>
               <th align="left">Phone</th>
@@ -334,7 +379,17 @@ function CustomersPage() {
           </thead>
           <tbody>
             {filtered.map(c => (
-              <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => openCustomer(c)}>
+              <tr key={c.id} style={{ cursor: bulkDeleting ? 'default' : 'pointer', opacity: bulkDeleting && selectedIds.includes(String(c.id)) ? 0.55 : 1 }} onClick={() => { if (!bulkDeleting) openCustomer(c); }}>
+                {canRemoveCustomers && (
+                  <td onClick={e => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      disabled={bulkDeleting}
+                      checked={selectedIds.includes(String(c.id))}
+                      onChange={e => setSelectedIds(prev => e.target.checked ? [...new Set([...prev, String(c.id)])] : prev.filter(id => id !== String(c.id)))}
+                    />
+                  </td>
+                )}
                 <td style={{ fontWeight: 700 }}>{c.name}</td>
                 <td>{c.customerCode || '—'}</td>
                 <td>{c.phone || '—'}</td>
@@ -343,8 +398,8 @@ function CustomersPage() {
                 <td>{c.vip ? 'Yes' : 'No'}</td>
               </tr>
             ))}
-            {loading && <tr><td colSpan="6" style={{ padding: 12, color: '#64748b' }}>Loading…</td></tr>}
-            {!loading && filtered.length === 0 && <tr><td colSpan="6" style={{ padding: 12, color: '#64748b' }}>No customers</td></tr>}
+            {loading && <tr><td colSpan={canRemoveCustomers ? 7 : 6} style={{ padding: 12, color: '#64748b' }}>Loading…</td></tr>}
+            {!loading && filtered.length === 0 && <tr><td colSpan={canRemoveCustomers ? 7 : 6} style={{ padding: 12, color: '#64748b' }}>No customers</td></tr>}
           </tbody>
         </table>
       </div>
@@ -364,7 +419,12 @@ function CustomersPage() {
             ) : (
               <>
                 {selected && canRemoveCustomers && (
-                  <button className="btn" onClick={() => remove(selected.id)}>Remove</button>
+                  <button className="btn" onClick={() => remove(selected.id)} disabled={removingId === String(selected.id)}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {removingId === String(selected.id) && <InlineSpinner />}
+                      {removingId === String(selected.id) ? 'Removing…' : 'Remove'}
+                    </span>
+                  </button>
                 )}
                 <button className="btn" onClick={() => setModalOpen(false)}>Close</button>
                 {selected && (

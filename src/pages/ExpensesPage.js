@@ -7,6 +7,7 @@ import * as expensesApi from '../api/expenses';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import Modal from '../components/Modal';
+import InlineSpinner from '../components/InlineSpinner';
 
 function ExpensesPage() {
   const settings = useSelector(s => s.settings);
@@ -33,6 +34,7 @@ function ExpensesPage() {
   const [expenseNote, setExpenseNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [openModal, setOpenModal] = useState(false);
+  const [removingId, setRemovingId] = useState('');
 
   useEffect(() => setBranchId(currentBranchId), [currentBranchId]);
   useEffect(() => setExpenseBranchId(currentBranchId), [currentBranchId]);
@@ -114,11 +116,14 @@ function ExpensesPage() {
       return;
     }
     try {
+      setRemovingId(String(id));
       await expensesApi.remove(id);
       setRows(prev => prev.filter(r => String(r._id || r.id) !== String(id)));
       toast.show('Expense deleted', { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to delete expense'), { type: 'error' });
+    } finally {
+      setRemovingId('');
     }
   }
 
@@ -167,7 +172,10 @@ function ExpensesPage() {
           <>
             <button className="btn" onClick={() => setOpenModal(false)}>Cancel</button>
             <button className="btn btn-primary" onClick={async () => { await addExpense(); setOpenModal(false); }} disabled={saving || !canManage}>
-              {saving ? 'Saving…' : 'Submit For Approval'}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {saving && <InlineSpinner />}
+                {saving ? 'Saving…' : 'Submit For Approval'}
+              </span>
             </button>
           </>
         }>
@@ -219,8 +227,11 @@ function ExpensesPage() {
                 <td>{formatCurrency(Number(r.amount) || 0, settings)}</td>
                 <td>
                   {canManage && (
-                    <button className="btn" onClick={() => deleteExpense(String(r._id || r.id))} disabled={loading}>
-                      Delete
+                    <button className="btn" onClick={() => deleteExpense(String(r._id || r.id))} disabled={loading || removingId === String(r._id || r.id)}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {removingId === String(r._id || r.id) && <InlineSpinner />}
+                        {removingId === String(r._id || r.id) ? 'Deleting…' : 'Delete'}
+                      </span>
                     </button>
                   )}
                 </td>

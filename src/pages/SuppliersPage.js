@@ -7,6 +7,7 @@ import { confirmDialog } from '../utils/dialogs';
 import * as suppliersApi from '../api/suppliers';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
+import InlineSpinner from '../components/InlineSpinner';
 
 function SuppliersPage() {
   const suppliers = useSelector(s => s.suppliers.suppliers);
@@ -31,6 +32,9 @@ function SuppliersPage() {
   const [notes, setNotes] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [edit, setEdit] = useState({ name: '', contact: '', phone: '', email: '', address: '', notes: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [removingId, setRemovingId] = useState('');
+  const [savingCreate, setSavingCreate] = useState(false);
   const dispatch = useDispatch();
   const toast = useToast();
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
@@ -66,6 +70,7 @@ function SuppliersPage() {
       return;
     }
     try {
+      setSavingCreate(true);
       const created = await suppliersApi.create({ ...payload, clientId: crypto.randomUUID() });
       dispatch(addSupplier(created));
       dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_add', details: { id: created.id || created._id, name: created.name } }));
@@ -73,6 +78,8 @@ function SuppliersPage() {
       toast.show('Supplier added', { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to save supplier'), { type: 'error' });
+    } finally {
+      setSavingCreate(false);
     }
   }
 
@@ -99,6 +106,7 @@ function SuppliersPage() {
       return;
     }
     try {
+      setSavingEdit(true);
       const updated = await suppliersApi.update(editingId, edit);
       dispatch(updateSupplier({ id: editingId, ...(updated || edit), offline: false }));
       dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_update', details: { id: editingId } }));
@@ -106,6 +114,8 @@ function SuppliersPage() {
       toast.show('Supplier updated', { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to update supplier'), { type: 'error' });
+    } finally {
+      setSavingEdit(false);
     }
   }
   async function remove(id) {
@@ -126,12 +136,15 @@ function SuppliersPage() {
       return;
     }
     try {
+      setRemovingId(String(id));
       await suppliersApi.remove(id);
       dispatch(removeSupplier(id));
       dispatch(addAudit({ actor: auth.user?.name || 'unknown', actionType: 'supplier_remove', details: { id } }));
       toast.show('Supplier removed', { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to remove supplier'), { type: 'error' });
+    } finally {
+      setRemovingId('');
     }
   }
 
@@ -152,9 +165,12 @@ function SuppliersPage() {
           <input className="input" placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} style={{ gridColumn: '1 / span 2' }} />
           <input className="input" placeholder="Notes" value={notes} onChange={e => setNotes(e.target.value)} style={{ gridColumn: '3 / span 2' }} />
           <div style={{ gridColumn: '1 / span 4' }}>
-            <button className="btn btn-primary" onClick={addNew}>
-              <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2"/></svg>
-              Add Supplier
+            <button className="btn btn-primary" onClick={addNew} disabled={savingCreate}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {savingCreate && <InlineSpinner />}
+                <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2"/></svg>
+                {savingCreate ? 'Saving…' : 'Add Supplier'}
+              </span>
             </button>
           </div>
         </div>
@@ -211,8 +227,13 @@ function SuppliersPage() {
                   {editingId === s.id ? (
                     canEditSuppliers ? (
                       <>
-                        <button className="btn btn-primary" onClick={saveEdit}>Save</button>
-                        <button className="btn" onClick={() => setEditingId(null)} style={{ marginLeft: 6 }}>Cancel</button>
+                        <button className="btn btn-primary" onClick={saveEdit} disabled={savingEdit}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                            {savingEdit && <InlineSpinner />}
+                            {savingEdit ? 'Saving…' : 'Save'}
+                          </span>
+                        </button>
+                        <button className="btn" onClick={() => setEditingId(null)} style={{ marginLeft: 6 }} disabled={savingEdit}>Cancel</button>
                       </>
                     ) : (
                       <button className="btn" onClick={() => setEditingId(null)}>Cancel</button>
@@ -220,7 +241,12 @@ function SuppliersPage() {
                   ) : (
                     <>
                       {canEditSuppliers && <button className="btn" onClick={() => startEdit(s)}>Edit</button>}
-                      {canRemoveSuppliers && <button className="btn" onClick={() => remove(s.id)} style={{ marginLeft: 6 }}>Remove</button>}
+                      {canRemoveSuppliers && <button className="btn" onClick={() => remove(s.id)} style={{ marginLeft: 6 }} disabled={removingId === String(s.id)}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {removingId === String(s.id) && <InlineSpinner />}
+                          {removingId === String(s.id) ? 'Removing…' : 'Remove'}
+                        </span>
+                      </button>}
                     </>
                   )}
                 </td>

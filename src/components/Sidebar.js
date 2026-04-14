@@ -550,7 +550,7 @@ function AdminGroup() {
             <span className="sidebar-text">Docs</span>
           </NavLink>
           )}
-          {isFeatureEnabled(settings, 'admin.audit') && ((Array.isArray(grants) && (grants.includes('view_audit') || grants.includes('see_audit'))) || ['Admin','SuperAdmin'].includes(role)) && (
+          {isFeatureEnabled(settings, 'admin.audit') && role === 'SuperAdmin' && (
           <NavLink to="/audit" className="sidebar-link" title="Audit Log">
             <svg viewBox="0 0 24 24" fill="none"><path d="M5 3h14v18H5z" stroke="currentColor" strokeWidth="2"/><path d="M9 17V9M13 17v-7M17 17v-4" stroke="currentColor" strokeWidth="2"/></svg>
             <span className="sidebar-text">Audit Log</span>

@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { createRepayment, getCustomerCreditSummary, listCreditCustomers, listCreditSales, listRepayments } from '../api/credits';
+import { createRepayment, getCustomerCreditSummary, listCreditCustomers, listCreditSales, listRepayments, removeCreditSale, removeManyCreditSales, removeManyRepayments, removeRepayment } from '../api/credits';
 import { useToast } from '../components/ToastProvider';
 import { formatCurrency } from '../utils/currency';
-import { promptDialog } from '../utils/dialogs';
+import { confirmDialog, promptDialog } from '../utils/dialogs';
 import { useSelector } from 'react-redux';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
+import InlineSpinner from '../components/InlineSpinner';
 
 function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', title = 'Credit Sale Control', description = 'Credit sale balances, overdue tracking, customer rank, and repayment initiation.' }) {
   const settings = useSelector(s => s.settings);
   const saleRows = useSelector(s => s.sales.sales || []);
   const toast = useToast();
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
+  const roleLower = String(useSelector(s => s.auth.role || '') || '').toLowerCase();
+  const canDeleteCredit = roleLower === 'superadmin';
   const [customers, setCustomers] = useState([]);
   const [sales, setSales] = useState([]);
   const [repayments, setRepayments] = useState([]);
@@ -18,7 +21,13 @@ function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', t
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
   const [workingId, setWorkingId] = useState('');
+  const [deletingId, setDeletingId] = useState('');
   const [section, setSection] = useState(initialSection);
+  const [selectedSaleIds, setSelectedSaleIds] = useState([]);
+  const [selectedRepaymentIds, setSelectedRepaymentIds] = useState([]);
+  const [bulkActionSales, setBulkActionSales] = useState('');
+  const [bulkActionRepayments, setBulkActionRepayments] = useState('');
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   useEffect(() => {
     setSection(initialSection);
@@ -140,6 +149,85 @@ function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', t
     }
   }
 
+  async function deleteCreditSaleRow(row) {
+    if (!canDeleteCredit) return;
+    const id = String(row?._id || row?.saleId || '');
+    if (!id) return;
+    const ok = await confirmDialog('Delete this credit sale record?');
+    if (!ok) return;
+    setDeletingId(id);
+    try {
+      await removeCreditSale(id);
+      setSales(prev => prev.filter(item => String(item._id || item.saleId || '') !== id));
+      setSummary(null);
+      toast.show('Credit sale deleted', { type: 'success' });
+      void loadAll();
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to delete credit sale'), { type: 'error' });
+    } finally {
+      setDeletingId('');
+    }
+  }
+
+  async function deleteRepaymentRow(row) {
+    if (!canDeleteCredit) return;
+    const id = String(row?._id || '');
+    if (!id) return;
+    const ok = await confirmDialog('Delete this repayment record?');
+    if (!ok) return;
+    setDeletingId(id);
+    try {
+      await removeRepayment(id);
+      setRepayments(prev => prev.filter(item => String(item._id || '') !== id));
+      toast.show('Repayment deleted', { type: 'success' });
+      void loadAll();
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to delete repayment'), { type: 'error' });
+    } finally {
+      setDeletingId('');
+    }
+  }
+
+  async function deleteSelectedSales() {
+    const ids = selectedSaleIds.filter(Boolean);
+    if (ids.length === 0) return;
+    const ok = await confirmDialog(`Delete ${ids.length} selected credit sale record(s)?`);
+    if (!ok) return;
+    setBulkDeleting(true);
+    try {
+      await removeManyCreditSales(ids);
+      setSales(prev => prev.filter(item => !ids.includes(String(item._id || item.saleId || ''))));
+      setSelectedSaleIds([]);
+      setBulkActionSales('');
+      toast.show('Selected credit sales deleted', { type: 'success' });
+      void loadAll();
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to delete selected credit sales'), { type: 'error' });
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
+  async function deleteSelectedRepayments() {
+    const ids = selectedRepaymentIds.filter(Boolean);
+    if (ids.length === 0) return;
+    const ok = await confirmDialog(`Delete ${ids.length} selected repayment record(s)?`);
+    if (!ok) return;
+    setBulkDeleting(true);
+    try {
+      await removeManyRepayments(ids);
+      setRepayments(prev => prev.filter(item => !ids.includes(String(item._id || ''))));
+      setSelectedRepaymentIds([]);
+      setBulkActionRepayments('');
+      toast.show('Selected repayments deleted', { type: 'success' });
+      void loadAll();
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to delete selected repayments'), { type: 'error' });
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
   return (
     <div style={{ padding: 16, display: 'grid', gap: 12 }}>
       <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -249,10 +337,34 @@ function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', t
 
       {section === 'sales' && <div className="card">
         <h2 className="section-title">Active Credit Sales</h2>
+        {canDeleteCredit && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select className="select" value={bulkActionSales} onChange={e => setBulkActionSales(e.target.value)} disabled={bulkDeleting}>
+              <option value="">Actions</option>
+              <option value="delete">Delete Selected</option>
+            </select>
+            <button className="btn" disabled={bulkDeleting || bulkActionSales !== 'delete' || selectedSaleIds.length === 0} onClick={() => void deleteSelectedSales()}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {bulkDeleting && <InlineSpinner />}
+                {bulkDeleting ? 'Deleting…' : 'Apply'}
+              </span>
+            </button>
+          </div>
+        )}
         <div style={{ overflowX: 'auto' }}>
         <table className="table">
           <thead>
             <tr>
+              {canDeleteCredit && (
+                <th align="left">
+                  <input
+                    type="checkbox"
+                    disabled={bulkDeleting}
+                    checked={shownActiveSales.length > 0 && shownActiveSales.every(row => selectedSaleIds.includes(String(row._id || row.saleId || '')))}
+                    onChange={e => setSelectedSaleIds(e.target.checked ? shownActiveSales.map(row => String(row._id || row.saleId || '')).filter(Boolean) : [])}
+                  />
+                </th>
+              )}
               <th align="left">Customer</th>
               <th align="left">Type</th>
               <th align="left">Items</th>
@@ -263,11 +375,22 @@ function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', t
               <th align="left">Due Date</th>
               <th align="left">Status</th>
               <th align="left"></th>
+              {canDeleteCredit && <th align="left"></th>}
             </tr>
           </thead>
           <tbody>
             {shownActiveSales.map(row => (
-              <tr key={row._id}>
+              <tr key={row._id} style={(deletingId === String(row._id || row.saleId || '') || (bulkDeleting && selectedSaleIds.includes(String(row._id || row.saleId || '')))) ? { opacity: 0.55 } : undefined}>
+                {canDeleteCredit && (
+                  <td>
+                    <input
+                      type="checkbox"
+                      disabled={bulkDeleting}
+                      checked={selectedSaleIds.includes(String(row._id || row.saleId || ''))}
+                      onChange={e => setSelectedSaleIds(prev => e.target.checked ? [...new Set([...prev, String(row._id || row.saleId || '')])] : prev.filter(id => id !== String(row._id || row.saleId || '')))}
+                    />
+                  </td>
+                )}
                 <td>{customerMap.get(String(row.customer_id))?.name || row.customer_id}</td>
                 <td>{String(row.posType || 'retail') === 'wholesale' ? 'Wholesale' : 'Retail'}</td>
                 <td>{Array.isArray(row.items) ? row.items.map(item => `${item.name} × ${item.qty}`).join(', ') : '—'}</td>
@@ -282,9 +405,19 @@ function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', t
                   </span>
                 </td>
                 <td><button className="btn btn-primary" onClick={() => startRepayment(row)} disabled={workingId === row._id}>{workingId === row._id ? 'Working…' : 'Repayment'}</button></td>
+                {canDeleteCredit && (
+                  <td>
+                    <button className="btn" onClick={() => void deleteCreditSaleRow(row)} disabled={deletingId === String(row._id || row.saleId || '')}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {deletingId === String(row._id || row.saleId || '') && <InlineSpinner />}
+                        {deletingId === String(row._id || row.saleId || '') ? 'Deleting…' : 'Delete'}
+                      </span>
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
-            {!loading && shownActiveSales.length === 0 && <tr><td colSpan="10" style={{ padding: 12, color: '#64748b' }}>No active credit sales</td></tr>}
+            {!loading && shownActiveSales.length === 0 && <tr><td colSpan={canDeleteCredit ? 12 : 10} style={{ padding: 12, color: '#64748b' }}>No active credit sales</td></tr>}
           </tbody>
         </table>
         </div>
@@ -292,28 +425,73 @@ function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', t
 
       {section === 'repayments' && <div className="card">
         <h2 className="section-title">Repayment History</h2>
+        {canDeleteCredit && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select className="select" value={bulkActionRepayments} onChange={e => setBulkActionRepayments(e.target.value)} disabled={bulkDeleting}>
+              <option value="">Actions</option>
+              <option value="delete">Delete Selected</option>
+            </select>
+            <button className="btn" disabled={bulkDeleting || bulkActionRepayments !== 'delete' || selectedRepaymentIds.length === 0} onClick={() => void deleteSelectedRepayments()}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {bulkDeleting && <InlineSpinner />}
+                {bulkDeleting ? 'Deleting…' : 'Apply'}
+              </span>
+            </button>
+          </div>
+        )}
         <div style={{ overflowX: 'auto' }}>
         <table className="table">
           <thead>
             <tr>
+              {canDeleteCredit && (
+                <th align="left">
+                  <input
+                    type="checkbox"
+                    disabled={bulkDeleting}
+                    checked={repayments.length > 0 && repayments.every(row => selectedRepaymentIds.includes(String(row._id || '')))}
+                    onChange={e => setSelectedRepaymentIds(e.target.checked ? repayments.map(row => String(row._id || '')).filter(Boolean) : [])}
+                  />
+                </th>
+              )}
               <th align="left">Customer</th>
               <th align="left">Amount</th>
               <th align="left">Status</th>
               <th align="left">Remark</th>
               <th align="left">Created</th>
+              {canDeleteCredit && <th align="left"></th>}
             </tr>
           </thead>
           <tbody>
             {repayments.map(row => (
-              <tr key={row._id}>
+              <tr key={row._id} style={(deletingId === String(row._id || '') || (bulkDeleting && selectedRepaymentIds.includes(String(row._id || '')))) ? { opacity: 0.55 } : undefined}>
+                {canDeleteCredit && (
+                  <td>
+                    <input
+                      type="checkbox"
+                      disabled={bulkDeleting}
+                      checked={selectedRepaymentIds.includes(String(row._id || ''))}
+                      onChange={e => setSelectedRepaymentIds(prev => e.target.checked ? [...new Set([...prev, String(row._id || '')])] : prev.filter(id => id !== String(row._id || '')))}
+                    />
+                  </td>
+                )}
                 <td>{customerMap.get(String(row.customerId))?.name || row.customerId}</td>
                 <td>{formatCurrency(Number(row.amount || 0), settings)}</td>
                 <td>{row.status}</td>
                 <td>{row.remark || '—'}</td>
                 <td>{row.createdAt ? new Date(row.createdAt).toLocaleString() : '—'}</td>
+                {canDeleteCredit && (
+                  <td>
+                    <button className="btn" onClick={() => void deleteRepaymentRow(row)} disabled={deletingId === String(row._id || '')}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {deletingId === String(row._id || '') && <InlineSpinner />}
+                        {deletingId === String(row._id || '') ? 'Deleting…' : 'Delete'}
+                      </span>
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
-            {!loading && repayments.length === 0 && <tr><td colSpan="5" style={{ padding: 12, color: '#64748b' }}>No repayments recorded yet</td></tr>}
+            {!loading && repayments.length === 0 && <tr><td colSpan={canDeleteCredit ? 7 : 5} style={{ padding: 12, color: '#64748b' }}>No repayments recorded yet</td></tr>}
           </tbody>
         </table>
         </div>

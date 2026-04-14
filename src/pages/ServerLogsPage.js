@@ -9,6 +9,9 @@ function ServerLogsPage() {
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkAction, setBulkAction] = useState('');
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const isSuper = String(useSelector(s => s.auth.role) || '').toLowerCase() === 'superadmin';
   useEffect(() => {
     let alive = true;
@@ -69,6 +72,20 @@ function ServerLogsPage() {
     ];
     exportTablePdf('Server Logs', headers, filtered);
   }
+  async function deleteSelected() {
+    const ids = selectedIds.filter(Boolean);
+    if (ids.length === 0) return;
+    try {
+      setBulkDeleting(true);
+      await serverLogsApi.removeMany(ids);
+      setLogs(prev => prev.filter(l => !ids.includes(String(l._id || ''))));
+      setSelectedIds([]);
+      setBulkAction('');
+      setPage(1);
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
   if (!isSuper) return <div style={{ padding: 16 }}>Forbidden</div>;
   return (
     <div style={{ padding: 16 }}>
@@ -91,6 +108,13 @@ function ServerLogsPage() {
           <div style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6 }}>
             <button className="btn" onClick={onExportCsv}>Export CSV</button>
             <button className="btn" onClick={onExportPdf}>Export PDF</button>
+            <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} disabled={bulkDeleting}>
+              <option value="">Actions</option>
+              <option value="delete">Delete Selected</option>
+            </select>
+            <button className="btn" disabled={bulkDeleting || bulkAction !== 'delete' || selectedIds.length === 0} onClick={() => void deleteSelected()}>
+              {bulkDeleting ? 'Deleting…' : 'Apply'}
+            </button>
           </div>
         </div>
       </div>
@@ -98,6 +122,17 @@ function ServerLogsPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
+              <th align="left">
+                <input
+                  type="checkbox"
+                  disabled={bulkDeleting}
+                  checked={filtered.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).length > 0 && filtered.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).every(l => selectedIds.includes(String(l._id || '')))}
+                  onChange={e => {
+                    const pageIds = filtered.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map(l => String(l._id || '')).filter(Boolean);
+                    setSelectedIds(prev => e.target.checked ? [...new Set([...prev, ...pageIds])] : prev.filter(id => !pageIds.includes(id)));
+                  }}
+                />
+              </th>
               <th align="left">Timestamp</th>
               <th align="left">Level</th>
               <th align="left">Actor</th>
@@ -110,7 +145,15 @@ function ServerLogsPage() {
           </thead>
           <tbody>
             {filtered.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map(l => (
-              <tr key={l._id || `${l.ts}-${l.message}`} style={{ borderTop: '1px solid #e2e8f0' }}>
+              <tr key={l._id || `${l.ts}-${l.message}`} style={{ borderTop: '1px solid #e2e8f0', opacity: bulkDeleting && selectedIds.includes(String(l._id || '')) ? 0.55 : 1 }}>
+                <td>
+                  <input
+                    type="checkbox"
+                    disabled={bulkDeleting}
+                    checked={selectedIds.includes(String(l._id || ''))}
+                    onChange={e => setSelectedIds(prev => e.target.checked ? [...new Set([...prev, String(l._id || '')])] : prev.filter(id => id !== String(l._id || '')))}
+                  />
+                </td>
                 <td>{new Date(l.ts || l.createdAt).toLocaleString()}</td>
                 <td>{l.level || 'info'}</td>
                 <td>{l.actor || '—'}</td>
@@ -122,7 +165,7 @@ function ServerLogsPage() {
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan="8" style={{ padding: 12, color: '#64748b' }}>No logs</td></tr>
+              <tr><td colSpan="9" style={{ padding: 12, color: '#64748b' }}>No logs</td></tr>
             )}
           </tbody>
         </table>

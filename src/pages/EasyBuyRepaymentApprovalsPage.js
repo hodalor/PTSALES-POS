@@ -1,20 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
 import { approveApproval, listApprovals, rejectApproval } from '../api/approvals';
-import { listRepayments } from '../api/credits';
+import { listRepayments, removeRepayment } from '../api/credits';
 import { useToast } from '../components/ToastProvider';
-import { promptDialog } from '../utils/dialogs';
+import { confirmDialog, promptDialog } from '../utils/dialogs';
 import Modal from '../components/Modal';
+import InlineSpinner from '../components/InlineSpinner';
 
 function EasyBuyRepaymentApprovalsPage() {
   const toast = useToast();
   const auth = useSelector(s => s.auth);
+  const canDeleteRepayments = String(auth.role || '').toLowerCase() === 'superadmin';
   const [rows, setRows] = useState([]);
   const [status, setStatus] = useState('pending_director');
   const [loading, setLoading] = useState(false);
   const [workingId, setWorkingId] = useState('');
   const [repaymentsById, setRepaymentsById] = useState({});
   const [selectedRow, setSelectedRow] = useState(null);
+  const [deletingId, setDeletingId] = useState('');
 
   const loadRepayments = useCallback(async () => {
     try {
@@ -87,6 +90,28 @@ function EasyBuyRepaymentApprovalsPage() {
     }
   }
 
+  async function onDelete(row) {
+    const repaymentId = String(row.referenceId || '');
+    if (!repaymentId) return;
+    const ok = await confirmDialog('Delete this repayment request?');
+    if (!ok) return;
+    setDeletingId(repaymentId);
+    try {
+      await removeRepayment(repaymentId);
+      setRows(prev => prev.filter(item => String(item._id) !== String(row._id)));
+      setRepaymentsById(prev => {
+        const next = { ...prev };
+        delete next[repaymentId];
+        return next;
+      });
+      toast.show('Repayment request deleted', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to delete repayment request'), { type: 'error' });
+    } finally {
+      setDeletingId('');
+    }
+  }
+
   return (
     <div style={{ padding: 16, display: 'grid', gap: 12 }}>
       <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -114,13 +139,14 @@ function EasyBuyRepaymentApprovalsPage() {
                 <th align="left">Initiated By</th>
                 <th align="left">Created</th>
                 <th align="left"></th>
+                {canDeleteRepayments && <th align="left"></th>}
               </tr>
             </thead>
             <tbody>
               {rows.map(row => {
                 const repayment = repaymentsById[String(row.referenceId)] || null;
                 return (
-                <tr key={row._id} onClick={() => setSelectedRow(row)} style={{ cursor: 'pointer' }}>
+                <tr key={row._id} onClick={() => setSelectedRow(row)} style={{ cursor: 'pointer', opacity: deletingId === String(row.referenceId || '') ? 0.55 : 1 }}>
                   <td>{row.actionType}</td>
                   <td>{row.status}</td>
                   <td>{repayment ? `K${Number(repayment.amount || 0).toFixed(2)}` : '—'}</td>
@@ -135,9 +161,19 @@ function EasyBuyRepaymentApprovalsPage() {
                       </>
                     ) : '—'}
                   </td>
+                  {canDeleteRepayments && (
+                    <td>
+                      <button className="btn" onClick={e => { e.stopPropagation(); void onDelete(row); }} disabled={deletingId === String(row.referenceId || '')}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {deletingId === String(row.referenceId || '') && <InlineSpinner />}
+                          {deletingId === String(row.referenceId || '') ? 'Deleting…' : 'Delete'}
+                        </span>
+                      </button>
+                    </td>
+                  )}
                 </tr>
               )})}
-              {!loading && rows.length === 0 && <tr><td colSpan="7" style={{ padding: 12, color: '#64748b' }}>No repayment approvals found</td></tr>}
+              {!loading && rows.length === 0 && <tr><td colSpan={canDeleteRepayments ? 8 : 7} style={{ padding: 12, color: '#64748b' }}>No repayment approvals found</td></tr>}
             </tbody>
           </table>
         </div>

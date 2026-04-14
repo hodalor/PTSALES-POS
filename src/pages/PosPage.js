@@ -20,6 +20,7 @@ import * as productUnitsApi from '../api/productUnits';
 import Modal from '../components/Modal';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
 import { getAllowedPriceTiers, getDisplayPrice, getPreferredPriceTier, getPriceTierLabel } from '../utils/priceVisibility';
+import InlineSpinner from '../components/InlineSpinner';
 
 function PosPage({ mode = 'retail' }) {
   const cart = useSelector(state => state.cart);
@@ -63,6 +64,7 @@ function PosPage({ mode = 'retail' }) {
   const [serializedScanInput, setSerializedScanInput] = useState('');
   const [serializedCameraOpen, setSerializedCameraOpen] = useState(false);
   const [reservingSerializedKeys, setReservingSerializedKeys] = useState([]);
+  const [deletingHeldId, setDeletingHeldId] = useState('');
   const serializedScanInputRef = useRef(null);
   const serializedLoadSeqRef = useRef(0);
   const serializedPickerKeyRef = useRef('');
@@ -504,9 +506,11 @@ function PosPage({ mode = 'retail' }) {
     if (!h) return;
     const ok = await confirmDialog('Delete this held sale?');
     if (!ok) return;
+    setDeletingHeldId(String(h.id || ''));
     void releaseSerializedCartItems(h.items || []);
     dispatch(removeHeld(h.id));
     toast.show('Held sale removed', { type: 'success' });
+    setDeletingHeldId('');
   }
   async function renameHeld(h) {
     if (!h) return;
@@ -920,14 +924,19 @@ function PosPage({ mode = 'retail' }) {
                 </div>
                 <div style={{ maxHeight: 320, overflow: 'auto' }}>
                   {heldList.map(h => (
-                    <div key={h.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', alignItems: 'center', gap: 8, padding: 10, borderTop: '1px solid #f1f5f9' }}>
+                    <div key={h.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', alignItems: 'center', gap: 8, padding: 10, borderTop: '1px solid #f1f5f9', opacity: deletingHeldId === String(h.id || '') ? 0.55 : 1 }}>
                       <div>
                         <div style={{ fontWeight: 700 }}>{h.label || 'Held sale'}</div>
                         <div style={{ color: '#64748b', fontSize: 12 }}>{new Date(h.createdAt).toLocaleString()} • Items: {Array.isArray(h.items) ? h.items.length : 0}</div>
                       </div>
-                      <button className="btn" onClick={() => renameHeld(h)}>Rename</button>
-                      <button className="btn" onClick={() => resumeHeld(h)}>Resume</button>
-                      <button className="btn" onClick={() => deleteHeld(h)}>Delete</button>
+                      <button className="btn" onClick={() => renameHeld(h)} disabled={deletingHeldId === String(h.id || '')}>Rename</button>
+                      <button className="btn" onClick={() => resumeHeld(h)} disabled={deletingHeldId === String(h.id || '')}>Resume</button>
+                      <button className="btn" onClick={() => deleteHeld(h)} disabled={deletingHeldId === String(h.id || '')}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          {deletingHeldId === String(h.id || '') && <InlineSpinner />}
+                          {deletingHeldId === String(h.id || '') ? 'Deleting…' : 'Delete'}
+                        </span>
+                      </button>
                     </div>
                   ))}
                   {heldList.length === 0 && <div style={{ padding: 12, color: '#64748b' }}>No held sales</div>}
