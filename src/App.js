@@ -473,7 +473,7 @@ function App() {
             <Route path="/users" element={<ProtectedRoute feature="admin.users" roles={['Admin','SuperAdmin']} grant={['view_users','see_users']}><UsersPage /></ProtectedRoute>} />
             <Route path="/cashdrawer" element={<ProtectedRoute feature="admin.cashDrawer" roles={['Admin','Manager','Cashier']} grant={['view_cashdrawer','see_cashdrawer']}><CashDrawerPage /></ProtectedRoute>} />
             <Route path="/config" element={<ProtectedRoute feature="admin.config" roles={['Admin','Manager']} grant={['view_config','see_config']}><ConfigSettingsPage /></ProtectedRoute>} />
-            <Route path="/audit" element={<ProtectedRoute feature="admin.audit" roles={['SuperAdmin']}><AuditLogPage /></ProtectedRoute>} />
+            <Route path="/audit" element={<ProtectedRoute feature="admin.audit" roles={['SuperAdmin']} grant={['view_audit','see_audit']}><AuditLogPage /></ProtectedRoute>} />
             <Route path="/manual" element={<ProtectedRoute feature="admin.manual" roles={['Admin','SuperAdmin']}><AdminManualPage /></ProtectedRoute>} />
             <Route path="/docs" element={<ProtectedRoute feature="admin.docs" roles={['SuperAdmin']}><DocsPage /></ProtectedRoute>} />
             <Route path="/server-logs" element={<ProtectedRoute feature="admin.serverLogs" roles={['SuperAdmin']}><ServerLogsPage /></ProtectedRoute>} />
