@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux';
 import BranchSelect from '../components/BranchSelect';
 import * as productUnitsApi from '../api/productUnits';
 import { useToast } from '../components/ToastProvider';
+import InlineSpinner from '../components/InlineSpinner';
 
 function SerializedInventoryPage() {
   const toast = useToast();
@@ -24,6 +25,7 @@ function SerializedInventoryPage() {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkAction, setBulkAction] = useState('');
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const productNameById = useMemo(() => new Map(products.map(product => [String(product.id), product.name])), [products]);
   const branchNameById = useMemo(() => new Map(branches.map(branch => [String(branch.id), branch.name])), [branches]);
@@ -83,6 +85,7 @@ function SerializedInventoryPage() {
     const ok = await confirmDialog(`Delete ${ids.length} selected serialized unit(s)?`);
     if (!ok) return;
     try {
+      setBulkDeleting(true);
       await productUnitsApi.removeManyProductUnits(ids);
       setRows(prev => prev.filter(row => !ids.includes(String(row._id))));
       setSelectedIds([]);
@@ -91,6 +94,8 @@ function SerializedInventoryPage() {
       toast.show('Serialized units deleted', { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to delete serialized units'), { type: 'error' });
+    } finally {
+      setBulkDeleting(false);
     }
   }
 
@@ -141,11 +146,16 @@ function SerializedInventoryPage() {
       </div>
       {canDeleteUnits && (
         <div className="card" style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }}>
+          <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }} disabled={bulkDeleting}>
             <option value="">Actions</option>
             <option value="delete">Delete Selected</option>
           </select>
-          <button className="btn" disabled={bulkAction !== 'delete' || selectedIds.length === 0} onClick={() => void deleteSelectedUnits()}>Apply</button>
+          <button className="btn" disabled={bulkDeleting || bulkAction !== 'delete' || selectedIds.length === 0} onClick={() => void deleteSelectedUnits()}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {bulkDeleting && <InlineSpinner />}
+              {bulkDeleting ? 'Deleting…' : 'Apply'}
+            </span>
+          </button>
         </div>
       )}
       <div className="card">
@@ -158,6 +168,7 @@ function SerializedInventoryPage() {
                   <th>
                     <input
                       type="checkbox"
+                      disabled={bulkDeleting}
                       checked={rows.length > 0 && rows.every(row => selectedIds.includes(String(row._id)))}
                       onChange={e => setSelectedIds(e.target.checked ? rows.map(row => String(row._id)).filter(Boolean) : [])}
                     />
@@ -174,11 +185,12 @@ function SerializedInventoryPage() {
             </thead>
             <tbody>
               {rows.map(row => (
-                <tr key={row._id}>
+                <tr key={row._id} style={bulkDeleting && selectedIds.includes(String(row._id)) ? { opacity: 0.55 } : undefined}>
                   {canDeleteUnits && (
                     <td>
                       <input
                         type="checkbox"
+                        disabled={bulkDeleting}
                         checked={selectedIds.includes(String(row._id))}
                         onChange={e => setSelectedIds(prev => e.target.checked ? [...new Set([...prev, String(row._id)])] : prev.filter(id => id !== String(row._id)))}
                       />

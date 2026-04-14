@@ -8,6 +8,7 @@ import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import * as salesApi from '../api/sales';
 import { removeSales } from '../store/salesSlice';
 import { useToast } from '../components/ToastProvider';
+import InlineSpinner from '../components/InlineSpinner';
 
 function SalesPage() {
   const dispatch = useDispatch();
@@ -30,6 +31,7 @@ function SalesPage() {
   const [selectedBranchId, setSelectedBranchId] = useState('all');
   const [selectedSaleIds, setSelectedSaleIds] = useState([]);
   const [bulkAction, setBulkAction] = useState('');
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   function branchLabel(sale) {
     return sale.branchName || (branches.find(b => b.id === sale.branchId)?.name || sale.branchId || '-');
   }
@@ -110,6 +112,7 @@ function SalesPage() {
     const ok = await confirmDialog(`Delete ${ids.length} selected sale record(s)?`);
     if (!ok) return;
     try {
+      setBulkDeleting(true);
       await salesApi.removeMany(ids);
       dispatch(removeSales(ids));
       setSelectedSaleIds([]);
@@ -117,6 +120,8 @@ function SalesPage() {
       toast.show('Sale records deleted', { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to delete sale records'), { type: 'error' });
+    } finally {
+      setBulkDeleting(false);
     }
   }
   function onExportCsv() {
@@ -252,11 +257,16 @@ function SalesPage() {
       <>
       {canDeleteSales && (
         <div className="card" style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }}>
+          <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }} disabled={bulkDeleting}>
             <option value="">Actions</option>
             <option value="delete">Delete Selected</option>
           </select>
-          <button className="btn" disabled={bulkAction !== 'delete' || selectedSaleIds.length === 0} onClick={() => void deleteSelectedSales()}>Apply</button>
+          <button className="btn" disabled={bulkDeleting || bulkAction !== 'delete' || selectedSaleIds.length === 0} onClick={() => void deleteSelectedSales()}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {bulkDeleting && <InlineSpinner />}
+              {bulkDeleting ? 'Deleting…' : 'Apply'}
+            </span>
+          </button>
         </div>
       )}
       <table className="table">
@@ -266,6 +276,7 @@ function SalesPage() {
               <th>
                 <input
                   type="checkbox"
+                  disabled={bulkDeleting}
                   checked={filteredSales.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).length > 0 && filteredSales.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).every(sale => selectedSaleIds.includes(String(sale.id || sale._id || sale.clientId || '')))}
                   onChange={e => {
                     const pageIds = filteredSales.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map(sale => String(sale.id || sale._id || sale.clientId || '')).filter(Boolean);
@@ -286,11 +297,12 @@ function SalesPage() {
         </thead>
         <tbody>
           {filteredSales.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map(sale => (
-            <tr key={sale.id}>
+            <tr key={sale.id} style={bulkDeleting && selectedSaleIds.includes(String(sale.id || sale._id || sale.clientId || '')) ? { opacity: 0.55 } : undefined}>
               {canDeleteSales && (
                 <td>
                   <input
                     type="checkbox"
+                    disabled={bulkDeleting}
                     checked={selectedSaleIds.includes(String(sale.id || sale._id || sale.clientId || ''))}
                     onChange={e => setSelectedSaleIds(prev => e.target.checked ? [...new Set([...prev, String(sale.id || sale._id || sale.clientId || '')])] : prev.filter(id => id !== String(sale.id || sale._id || sale.clientId || '')))}
                   />
@@ -304,11 +316,11 @@ function SalesPage() {
               <td>{sale.items.map(i => `${i.name}${i.spec ? ' ['+i.spec+']' : ''}x${i.qty}`).join(', ')}</td>
               <td>{formatCurrency(sale.total, settings)}</td>
               <td>
-                <button className="btn btn-primary" onClick={() => reprint(sale, false)}>
+                <button className="btn btn-primary" onClick={() => reprint(sale, false)} disabled={bulkDeleting && selectedSaleIds.includes(String(sale.id || sale._id || sale.clientId || ''))}>
                   <svg viewBox="0 0 24 24" fill="none"><path d="M6 9V3h12v6" stroke="currentColor" strokeWidth="2"/><path d="M6 17h12v4H6z" stroke="currentColor" strokeWidth="2"/><path d="M4 9h16a2 2 0 012 2v2H2v-2a2 2 0 012-2z" stroke="currentColor" strokeWidth="2"/></svg>
                   Reprint
                 </button>
-                <button className="btn" onClick={() => reprint(sale, true)} style={{ marginLeft: 6 }}>
+                <button className="btn" onClick={() => reprint(sale, true)} style={{ marginLeft: 6 }} disabled={bulkDeleting && selectedSaleIds.includes(String(sale.id || sale._id || sale.clientId || ''))}>
                   <svg viewBox="0 0 24 24" fill="none"><path d="M6 9V3h12v6" stroke="currentColor" strokeWidth="2"/><path d="M6 17h12v4H6z" stroke="currentColor" strokeWidth="2"/><path d="M4 9h16a2 2 0 012 2v2H2v-2a2 2 0 012-2z" stroke="currentColor" strokeWidth="2"/></svg>
                   ESC/POS
                 </button>

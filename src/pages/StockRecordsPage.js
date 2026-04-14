@@ -4,6 +4,7 @@ import { exportCsv, exportTablePdf } from '../utils/exporters';
 import * as auditsApi from '../api/audits';
 import { removeEntries as removeAuditEntries } from '../store/auditSlice';
 import { useToast } from '../components/ToastProvider';
+import InlineSpinner from '../components/InlineSpinner';
 
 function StockRecordsPage() {
   const dispatch = useDispatch();
@@ -21,6 +22,7 @@ function StockRecordsPage() {
   const [pageSize, setPageSize] = useState(25);
   const [selectedRecordIds, setSelectedRecordIds] = useState([]);
   const [bulkAction, setBulkAction] = useState('');
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const roleLower = String(auth.role || '').toLowerCase();
   const canDeleteRecords = roleLower === 'superadmin';
   const assigned = auth.user?.assignedBranches || 'all';
@@ -103,6 +105,7 @@ function StockRecordsPage() {
     const ok = await confirmDialog(`Delete ${ids.length} selected stock record(s)?`);
     if (!ok) return;
     try {
+      setBulkDeleting(true);
       await auditsApi.removeMany(ids);
       dispatch(removeAuditEntries(ids));
       setSelectedRecordIds([]);
@@ -110,6 +113,8 @@ function StockRecordsPage() {
       toast.show('Stock records deleted', { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to delete stock records'), { type: 'error' });
+    } finally {
+      setBulkDeleting(false);
     }
   }
 
@@ -157,11 +162,16 @@ function StockRecordsPage() {
           </button>
           {canDeleteRecords && (
             <>
-              <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }}>
+              <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }} disabled={bulkDeleting}>
                 <option value="">Actions</option>
                 <option value="delete">Delete Selected</option>
               </select>
-              <button className="btn" disabled={bulkAction !== 'delete' || selectedRecordIds.length === 0} onClick={() => void deleteSelectedRecords()}>Apply</button>
+              <button className="btn" disabled={bulkDeleting || bulkAction !== 'delete' || selectedRecordIds.length === 0} onClick={() => void deleteSelectedRecords()}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {bulkDeleting && <InlineSpinner />}
+                  {bulkDeleting ? 'Deleting…' : 'Apply'}
+                </span>
+              </button>
             </>
           )}
         </div>
@@ -214,6 +224,7 @@ function StockRecordsPage() {
                 <th align="left">
                   <input
                     type="checkbox"
+                    disabled={bulkDeleting}
                     checked={pageRows.length > 0 && pageRows.every(entry => selectedRecordIds.includes(String(entry._id || entry.id || '')))}
                     onChange={e => setSelectedRecordIds(e.target.checked ? pageRows.map(entry => String(entry._id || entry.id || '')).filter(Boolean) : [])}
                   />
@@ -223,7 +234,7 @@ function StockRecordsPage() {
           </thead>
           <tbody>
             {pageRows.map((r, idx) => (
-              <tr key={r._id || r.id || idx}>
+              <tr key={r._id || r.id || idx} style={bulkDeleting && selectedRecordIds.includes(String(r._id || r.id || '')) ? { opacity: 0.55 } : undefined}>
                 <td>{new Date(r.ts).toLocaleString()}</td>
                 <td>{r.actor}</td>
                 <td>{byBranchId.get(r.branchId) || r.branchId || '—'}</td>
@@ -237,6 +248,7 @@ function StockRecordsPage() {
                   <td>
                     <input
                       type="checkbox"
+                      disabled={bulkDeleting}
                       checked={selectedRecordIds.includes(String(r._id || r.id || ''))}
                       onChange={e => setSelectedRecordIds(prev => e.target.checked ? [...new Set([...prev, String(r._id || r.id || '')])] : prev.filter(id => id !== String(r._id || r.id || '')))}
                     />

@@ -14,6 +14,7 @@ import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import Modal from '../components/Modal';
 import { approveTransfer, createTransferRequest, rejectTransfer, setTransferRequests } from '../store/transfersSlice';
 import { removeEntries as removeAuditEntries } from '../store/auditSlice';
+import InlineSpinner from '../components/InlineSpinner';
 
 function TransfersPage() {
   const products = useSelector(s => s.products.products);
@@ -68,6 +69,7 @@ function TransfersPage() {
   const canDeleteRecords = roleLower === 'superadmin';
   const [selectedRecordIds, setSelectedRecordIds] = useState([]);
   const [bulkAction, setBulkAction] = useState('');
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const assigned = auth.user?.assignedBranches || 'all';
   const branchOptions = useMemo(() => {
     if (roleLower === 'superadmin' || roleLower === 'admin' || assigned === 'all') return branches;
@@ -233,6 +235,7 @@ function TransfersPage() {
     const ok = await confirmDialog(`Delete ${ids.length} selected transfer record(s)?`);
     if (!ok) return;
     try {
+      setBulkDeleting(true);
       await auditsApi.removeMany(ids);
       dispatch(removeAuditEntries(ids));
       setSelectedRecordIds([]);
@@ -240,6 +243,8 @@ function TransfersPage() {
       toast.show('Transfer records deleted', { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Failed to delete transfer records'), { type: 'error' });
+    } finally {
+      setBulkDeleting(false);
     }
   }
 
@@ -643,11 +648,16 @@ function TransfersPage() {
             <button className="btn" onClick={onExportPdf}>Export PDF</button>
             {canDeleteRecords && (
               <>
-                <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }}>
+                <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }} disabled={bulkDeleting}>
                   <option value="">Actions</option>
                   <option value="delete">Delete Selected</option>
                 </select>
-                <button className="btn" disabled={bulkAction !== 'delete' || selectedRecordIds.length === 0} onClick={() => void deleteSelectedRecords()}>Apply</button>
+                <button className="btn" disabled={bulkDeleting || bulkAction !== 'delete' || selectedRecordIds.length === 0} onClick={() => void deleteSelectedRecords()}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {bulkDeleting && <InlineSpinner />}
+                    {bulkDeleting ? 'Deleting…' : 'Apply'}
+                  </span>
+                </button>
               </>
             )}
           </div>
@@ -666,6 +676,7 @@ function TransfersPage() {
                 <th align="left">
                   <input
                     type="checkbox"
+                    disabled={bulkDeleting}
                     checked={transfers.length > 0 && transfers.every(entry => selectedRecordIds.includes(String(entry._id || entry.id || '')))}
                     onChange={e => setSelectedRecordIds(e.target.checked ? transfers.map(entry => String(entry._id || entry.id || '')).filter(Boolean) : [])}
                   />
@@ -679,7 +690,7 @@ function TransfersPage() {
               const fromName = byId.get(d.from) || d.from || '—';
               const toName = byId.get(d.to) || d.to || '—';
               return (
-                <tr key={e.id} style={{ borderTop: '1px solid #e2e8f0', cursor: 'pointer' }} onClick={() => setAuditDetail(e)}>
+                <tr key={e.id} style={{ borderTop: '1px solid #e2e8f0', cursor: bulkDeleting ? 'default' : 'pointer', opacity: bulkDeleting && selectedRecordIds.includes(String(e._id || e.id || '')) ? 0.55 : 1 }} onClick={() => { if (!bulkDeleting) setAuditDetail(e); }}>
                   <td>{new Date(e.ts).toLocaleString()}</td>
                   <td>{e.actor}</td>
                   <td>{d.product || '—'}</td>
@@ -690,6 +701,7 @@ function TransfersPage() {
                     <td>
                       <input
                         type="checkbox"
+                        disabled={bulkDeleting}
                         checked={selectedRecordIds.includes(String(e._id || e.id || ''))}
                         onClick={evt => evt.stopPropagation()}
                         onChange={evt => setSelectedRecordIds(prev => evt.target.checked ? [...new Set([...prev, String(e._id || e.id || '')])] : prev.filter(id => id !== String(e._id || e.id || '')))}
