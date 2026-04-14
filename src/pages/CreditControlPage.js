@@ -28,6 +28,7 @@ function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', t
   const [bulkActionSales, setBulkActionSales] = useState('');
   const [bulkActionRepayments, setBulkActionRepayments] = useState('');
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [deletedSaleKeys, setDeletedSaleKeys] = useState(() => new Set());
 
   useEffect(() => {
     setSection(initialSection);
@@ -105,12 +106,15 @@ function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', t
   const mergedSales = useMemo(() => {
     const byId = new Map();
     [...fallbackCreditSales, ...sales].forEach(row => {
+      const primary = String(row.saleId || row._id || '');
+      const alt = String(row._id || '');
+      if ((primary && deletedSaleKeys.has(primary)) || (alt && deletedSaleKeys.has(alt))) return;
       const key = String(row.saleId || row._id || '');
       if (!key) return;
       byId.set(key, row);
     });
     return Array.from(byId.values());
-  }, [fallbackCreditSales, sales]);
+  }, [deletedSaleKeys, fallbackCreditSales, sales]);
   const shownActiveSales = useMemo(() => mergedSales.filter(row => row.status !== 'completed'), [mergedSales]);
   const overdueSales = useMemo(() => mergedSales.filter(row => row.status === 'overdue'), [mergedSales]);
   const dueTodaySales = useMemo(() => mergedSales.filter(row => {
@@ -158,7 +162,14 @@ function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', t
     setDeletingId(id);
     try {
       await removeCreditSale(id);
-      setSales(prev => prev.filter(item => String(item._id || item.saleId || '') !== id));
+      setSales(prev => prev.filter(item => String(item._id || '') !== id && String(item.saleId || '') !== id));
+      setDeletedSaleKeys(prev => {
+        const next = new Set(prev);
+        next.add(String(id));
+        next.add(String(row?._id || ''));
+        next.add(String(row?.saleId || ''));
+        return next;
+      });
       setSummary(null);
       toast.show('Credit sale deleted', { type: 'success' });
       void loadAll();
@@ -195,11 +206,21 @@ function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', t
     if (!ok) return;
     setBulkDeleting(true);
     try {
-      await removeManyCreditSales(ids);
-      setSales(prev => prev.filter(item => !ids.includes(String(item._id || item.saleId || ''))));
+      const result = await removeManyCreditSales(ids);
+      const deletedCount = Number(result?.count || 0);
+      if (deletedCount <= 0) {
+        toast.show('No matching credit sale records were deleted', { type: 'error' });
+        return;
+      }
+      setSales(prev => prev.filter(item => !ids.includes(String(item._id || '')) && !ids.includes(String(item.saleId || ''))));
+      setDeletedSaleKeys(prev => {
+        const next = new Set(prev);
+        ids.forEach(id => next.add(String(id)));
+        return next;
+      });
       setSelectedSaleIds([]);
       setBulkActionSales('');
-      toast.show('Selected credit sales deleted', { type: 'success' });
+      toast.show(`Deleted ${deletedCount} credit sale record(s)`, { type: 'success' });
       void loadAll();
     } catch (e) {
       toast.show(String(e?.message || 'Failed to delete selected credit sales'), { type: 'error' });
@@ -215,11 +236,16 @@ function CreditControlPage({ initialSection = 'clients', clientFilter = 'all', t
     if (!ok) return;
     setBulkDeleting(true);
     try {
-      await removeManyRepayments(ids);
+      const result = await removeManyRepayments(ids);
+      const deletedCount = Number(result?.count || 0);
+      if (deletedCount <= 0) {
+        toast.show('No matching repayment records were deleted', { type: 'error' });
+        return;
+      }
       setRepayments(prev => prev.filter(item => !ids.includes(String(item._id || ''))));
       setSelectedRepaymentIds([]);
       setBulkActionRepayments('');
-      toast.show('Selected repayments deleted', { type: 'success' });
+      toast.show(`Deleted ${deletedCount} repayment record(s)`, { type: 'success' });
       void loadAll();
     } catch (e) {
       toast.show(String(e?.message || 'Failed to delete selected repayments'), { type: 'error' });
