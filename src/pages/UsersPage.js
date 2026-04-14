@@ -46,6 +46,11 @@ const ALL_GRANTS = [
   { key: 'view_audit', label: 'Audit Log' }
 ];
 const ALL_GRANTS_KEYS = ALL_GRANTS.map(g => g.key);
+const AUDIT_GRANT_KEYS = new Set(['view_audit', 'see_audit']);
+
+function stripAuditGrants(list = []) {
+  return (Array.isArray(list) ? list : []).filter(k => !AUDIT_GRANT_KEYS.has(String(k)));
+}
 
 function UsersPage() {
   const dispatch = useDispatch();
@@ -85,6 +90,8 @@ function UsersPage() {
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const existingGrants = settings?.userGrants || {};
   const [grants, setGrants] = useState([]);
+  const canManageAuditGrant = isSuper;
+  const grantOptions = useMemo(() => canManageAuditGrant ? ALL_GRANTS : ALL_GRANTS.filter(g => !AUDIT_GRANT_KEYS.has(String(g.key))), [canManageAuditGrant]);
   const allGrantKeys = ALL_GRANTS_KEYS;
   const defaultsForRole = useCallback((r) => {
     const rl = String(r || '').toLowerCase();
@@ -102,7 +109,8 @@ function UsersPage() {
   }, [allGrantKeys]);
   // auto-apply defaults when role is selected on Create User
   useEffect(() => {
-    setGrants(defaultsForRole(role));
+    const next = defaultsForRole(role);
+    setGrants(canManageAuditGrant ? next : stripAuditGrants(next));
   }, [role, defaultsForRole]);
   // if editing role changed to SuperAdmin, ensure all grants are checked
   useEffect(() => {
@@ -136,6 +144,7 @@ function UsersPage() {
       return;
     }
     const forceAll = role === 'SuperAdmin' || role === 'Admin';
+    const safeCreateGrants = canManageAuditGrant ? grants.slice() : stripAuditGrants(grants);
     const assigned = forceAll || allBranches ? 'all' : (selectedBranches.length > 0 ? selectedBranches : [branchId]);
     const primaryBranch = allBranches ? 'main' : (assigned[0] || 'main');
     if (viewerRole === 'Admin' && role === 'SuperAdmin') {
@@ -150,7 +159,7 @@ function UsersPage() {
       dispatch(addUser({ id: cleanName, name: cleanName, role, branchId: primaryBranch, assignedBranches: assigned, offline: true }));
       try {
         await enqueueHttp({ collection: 'users', label: 'User', path: '/api/users', method: 'POST', body: { name: cleanName, role, pin: cleanPin, branchId: primaryBranch, assignedBranches: assigned } });
-        const next = { ...(settings || {}), userGrants: { ...(existingGrants || {}), [cleanName]: grants.slice() } };
+        const next = { ...(settings || {}), userGrants: { ...(existingGrants || {}), [cleanName]: safeCreateGrants } };
         await enqueueHttp({ collection: 'settings', label: 'User grants', path: '/api/settings', method: 'PUT', body: next });
       } catch {
         toast.show('Failed to save offline', { type: 'error' });
@@ -173,7 +182,7 @@ function UsersPage() {
     }
     try {
       await usersApi.create({ name: cleanName, role, pin: cleanPin, branchId: primaryBranch, assignedBranches: assigned });
-      const next = { ...(settings || {}), userGrants: { ...(existingGrants || {}), [cleanName]: grants.slice() } };
+      const next = { ...(settings || {}), userGrants: { ...(existingGrants || {}), [cleanName]: safeCreateGrants } };
       const saved = await settingsApi.save(next);
       dispatch(setAllSettings(saved));
       if ((auth.user?.name || '') === cleanName) {
@@ -214,7 +223,7 @@ function UsersPage() {
     setEditActive(u.active !== false);
     setEditRemark('');
     const g = existingGrants?.[u.name] || [];
-    setEditGrants(Array.isArray(g) ? g : []);
+    setEditGrants(canManageAuditGrant ? (Array.isArray(g) ? g : []) : stripAuditGrants(g));
   }
 
   async function saveEdit() {
@@ -260,6 +269,7 @@ function UsersPage() {
     }
     const prevName = target?.name || editName;
     const payload = { name: fields.name, role: fields.role, active: fields.active, branchId: fields.branchId, assignedBranches: fields.assignedBranches };
+    const safeEditGrants = canManageAuditGrant ? editGrants.slice() : stripAuditGrants(editGrants);
     if (fields.pin) payload.pin = fields.pin;
     if (!navigator.onLine) {
       if (!offlineBackupAllowed) {
@@ -273,7 +283,7 @@ function UsersPage() {
         if (target && target.name && target.name !== editName) {
           delete map[target.name];
         }
-        map[editName] = editGrants.slice();
+        map[editName] = safeEditGrants;
         const next = { ...(settings || {}), userGrants: map };
         await enqueueHttp({ collection: 'settings', label: 'User grants', path: '/api/settings', method: 'PUT', body: next });
       } catch {
@@ -298,7 +308,7 @@ function UsersPage() {
       if (target && target.name && target.name !== editName) {
         delete map[target.name];
       }
-      map[editName] = editGrants.slice();
+      map[editName] = safeEditGrants;
       const saved = await settingsApi.save({ userGrants: map });
       dispatch(setAllSettings(saved));
       dispatch(updateUser({
@@ -432,7 +442,7 @@ function UsersPage() {
           <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, marginBottom: 8 }}>
             <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>Feature Access</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-              {ALL_GRANTS.map(g => (
+              {grantOptions.map(g => (
                 <label key={g.key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <input
                     type="checkbox"
@@ -556,7 +566,7 @@ function UsersPage() {
                 <label>Name</label>
                 <input className="input" value={editName} onChange={e => setEditName(e.target.value)} style={{ display: 'block', width: '100%', marginBottom: 8 }} />
                 <label>Role</label>
-                <select className="select" value={editRole} onChange={e => { const nextRole = e.target.value; setEditRole(nextRole); setEditGrants(defaultsForRole(nextRole)); }} style={{ display: 'block', width: '100%', marginBottom: 8 }}>
+                <select className="select" value={editRole} onChange={e => { const nextRole = e.target.value; setEditRole(nextRole); const next = defaultsForRole(nextRole); setEditGrants(canManageAuditGrant ? next : stripAuditGrants(next)); }} style={{ display: 'block', width: '100%', marginBottom: 8 }}>
                   {rolesForUi.map(r => <option key={r}>{r}</option>)}
                 </select>
                 <label>New PIN (leave blank to keep)</label>
@@ -611,7 +621,7 @@ function UsersPage() {
                 <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, marginBottom: 8 }}>
                   <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>Feature Access</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 6, maxHeight: '50vh', overflowY: 'auto', paddingRight: 4 }}>
-                    {ALL_GRANTS.map(g => (
+                    {grantOptions.map(g => (
                       <label key={g.key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <input
                           type="checkbox"
