@@ -207,15 +207,6 @@ function PosPage({ mode = 'retail' }) {
   function visibleStockForProduct(p) {
     const stockMap = isWholesale ? (p.wholesaleStockByBranch || p.stockByBranch || {}) : (p.stockByBranch || {});
     const available = Number(stockMap?.[activeBranchId] || 0);
-    if (String(p.trackType || 'quantity') !== 'serialized') return available;
-    const cached = productUnitsApi.getEffectiveCachedProductUnitCount({
-      productId: p.productId || p.id,
-      variantId: p.variantId || '',
-      branchId: activeBranchId,
-      inventoryType: isWholesale ? 'wholesale' : 'retail',
-      reservationToken
-    });
-    if (cached.hasCache) return cached.count;
     return available;
   }
 

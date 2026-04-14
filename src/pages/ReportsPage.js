@@ -356,6 +356,65 @@ function ReportsPage() {
     else exportTablePdf(`Warehouse Stock Snapshot${selectedBranch ? ` - ${selectedBranch.name || selectedBranch.code || selectedBranch.id}` : ' - All Branches'}`, headers, rows);
   }
 
+  function exportRetailStock(type) {
+    const rows = products.map(product => ({
+      product: product.name,
+      sku: product.sku || '',
+      retailUnits: branchId
+        ? Number((product.stockByBranch || {})[branchId] || 0)
+        : Object.values(product.stockByBranch || {}).reduce((s, qty) => s + (Number(qty) || 0), 0),
+      lowStock: Number(product.lowStock || 0)
+    }));
+    const headers = [
+      { key: 'product', label: 'Product' },
+      { key: 'sku', label: 'SKU' },
+      { key: 'retailUnits', label: 'Retail Units' },
+      { key: 'lowStock', label: 'Low Stock Threshold' }
+    ];
+    if (type === 'csv') exportCsv('retail-stock.csv', headers, rows);
+    else exportTablePdf(`Retail Stock Snapshot${selectedBranch ? ` - ${selectedBranch.name || selectedBranch.code || selectedBranch.id}` : ' - All Branches'}`, headers, rows);
+  }
+
+  function exportDistributionStock(type) {
+    const rows = products.map(product => ({
+      product: product.name,
+      sku: product.sku || '',
+      distributionUnits: branchId
+        ? Number((product.wholesaleStockByBranch || {})[branchId] || 0)
+        : Object.values(product.wholesaleStockByBranch || {}).reduce((s, qty) => s + (Number(qty) || 0), 0),
+      lowStock: Number(product.wholesaleLowStock != null ? product.wholesaleLowStock : (product.lowStock || 0))
+    }));
+    const headers = [
+      { key: 'product', label: 'Product' },
+      { key: 'sku', label: 'SKU' },
+      { key: 'distributionUnits', label: 'Distribution Units' },
+      { key: 'lowStock', label: 'Low Stock Threshold' }
+    ];
+    if (type === 'csv') exportCsv('distribution-stock.csv', headers, rows);
+    else exportTablePdf(`Distribution Stock Snapshot${selectedBranch ? ` - ${selectedBranch.name || selectedBranch.code || selectedBranch.id}` : ' - All Branches'}`, headers, rows);
+  }
+
+  function exportPriceList(type) {
+    const rows = products.map(product => ({
+      product: product.name,
+      sku: product.sku || '',
+      category: product.category || '',
+      retailPrice: Number(product.retailPrice != null ? product.retailPrice : product.price || 0),
+      distributionPrice: Number(product.wholesalePrice != null ? product.wholesalePrice : product.price || 0),
+      agentPrice: Number(product.agentPrice != null ? product.agentPrice : product.price || 0)
+    }));
+    const headers = [
+      { key: 'product', label: 'Product' },
+      { key: 'sku', label: 'SKU' },
+      { key: 'category', label: 'Category' },
+      { key: 'retailPrice', label: 'Retail Price' },
+      { key: 'distributionPrice', label: 'Distribution Price' },
+      { key: 'agentPrice', label: 'Agent Price' }
+    ];
+    if (type === 'csv') exportCsv('price-list.csv', headers, rows);
+    else exportTablePdf('Price List', headers, rows);
+  }
+
   return (
     <div style={{ padding: 16 }}>
       <h1>Reports</h1>
@@ -389,7 +448,10 @@ function ReportsPage() {
               <option value="analytics-cat">Category Performance</option>
               <option value="analytics-cashier">Cashier Performance</option>
               <option value="warehouse-ops">Warehouse Operations</option>
+              <option value="retail-stock">Retail Stock</option>
+              <option value="distribution-stock">Distribution Stock</option>
               <option value="warehouse-stock">Warehouse Stock</option>
+              <option value="price-list">Price List</option>
               <option value="finance">Finance</option>
             </select>
           </label>
@@ -465,6 +527,30 @@ function ReportsPage() {
           </div>
         </div>
         )}
+        {show('retail-stock') && (
+        <div>
+          <h2 className="section-title">Retail Stock</h2>
+          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>
+            Scope: {selectedBranch ? `Selected branch (${selectedBranch.name || selectedBranch.code || selectedBranch.id})` : 'All branches'}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => exportRetailStock('csv')}>Export CSV</button>
+            <button className="btn" onClick={() => exportRetailStock('pdf')}>Export PDF</button>
+          </div>
+        </div>
+        )}
+        {show('distribution-stock') && (
+        <div>
+          <h2 className="section-title">Distribution Stock</h2>
+          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>
+            Scope: {selectedBranch ? `Selected branch (${selectedBranch.name || selectedBranch.code || selectedBranch.id})` : 'All branches'}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => exportDistributionStock('csv')}>Export CSV</button>
+            <button className="btn" onClick={() => exportDistributionStock('pdf')}>Export PDF</button>
+          </div>
+        </div>
+        )}
         {show('warehouse-stock') && (
         <div>
           <h2 className="section-title">Warehouse Stock</h2>
@@ -474,6 +560,18 @@ function ReportsPage() {
           <div style={{ display: 'flex', gap: 6 }}>
             <button className="btn" onClick={() => exportWarehouseStock('csv')}>Export CSV</button>
             <button className="btn" onClick={() => exportWarehouseStock('pdf')}>Export PDF</button>
+          </div>
+        </div>
+        )}
+        {show('price-list') && (
+        <div>
+          <h2 className="section-title">Price List</h2>
+          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>
+            Scope: All products with retail, distribution, and agent prices
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn" onClick={() => exportPriceList('csv')}>Export CSV</button>
+            <button className="btn" onClick={() => exportPriceList('pdf')}>Export PDF</button>
           </div>
         </div>
         )}

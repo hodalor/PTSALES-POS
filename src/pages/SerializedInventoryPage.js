@@ -18,12 +18,31 @@ function SerializedInventoryPage() {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
+  const [debouncedQuery, setDebouncedQuery] = useState('');
 
   const productNameById = useMemo(() => new Map(products.map(product => [String(product.id), product.name])), [products]);
   const branchNameById = useMemo(() => new Map(branches.map(branch => [String(branch.id), branch.name])), [branches]);
 
   useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 250);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
     let alive = true;
+    const cached = productUnitsApi.getCachedProductUnits({
+      productId,
+      branchId,
+      status,
+      inventoryType,
+      query: debouncedQuery,
+      page,
+      pageSize
+    });
+    if (alive && Array.isArray(cached?.rows) && cached.rows.length > 0) {
+      setRows(cached.rows);
+      setTotal(Number(cached.total || 0));
+    }
     async function run() {
       setLoading(true);
       try {
@@ -32,7 +51,7 @@ function SerializedInventoryPage() {
           branchId,
           status,
           inventoryType,
-          query,
+          query: debouncedQuery,
           page,
           pageSize
         });
@@ -50,7 +69,7 @@ function SerializedInventoryPage() {
     }
     run();
     return () => { alive = false; };
-  }, [branchId, inventoryType, page, pageSize, productId, query, status, toast]);
+  }, [branchId, debouncedQuery, inventoryType, page, pageSize, productId, status, toast]);
 
   return (
     <div style={{ padding: 16, display: 'grid', gap: 12 }}>
