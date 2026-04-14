@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import WholesaleOperation from '../models/WholesaleOperation.js';
+import Approval from '../models/Approval.js';
 import { requireAuth, requireRoleOrPerm } from '../middleware/auth.js';
 import { createApprovalForReference } from '../utils/approvalWorkflow.js';
+import mongoose from 'mongoose';
 
 const r = Router();
 
@@ -21,6 +23,9 @@ r.get('/operations', async (req, res) => {
   if (req.query.status) query.status = String(req.query.status);
   if (req.query.operationType) query.operationType = String(req.query.operationType);
   if (req.query.operationArea) query.operationArea = String(req.query.operationArea);
+  const paged = String(req.query.paged || '') === '1';
+  const page = Math.max(1, Number(req.query.page || 1) || 1);
+  const pageSize = Math.max(1, Math.min(100, Number(req.query.pageSize || 50) || 50));
   const role = String(req.user?.role || '').toLowerCase();
   const assigned = req.user?.assignedBranches ?? 'all';
   if (!(role === 'superadmin' || role === 'admin') && assigned !== 'all') {
@@ -35,8 +40,30 @@ r.get('/operations', async (req, res) => {
       query.branchId = { $in: arr };
     }
   }
-  const rows = await WholesaleOperation.find(query).sort({ createdAt: -1 }).limit(500).lean();
-  res.json(rows);
+  const total = paged ? await WholesaleOperation.countDocuments(query) : null;
+  const rows = await WholesaleOperation.find(query)
+    .sort({ createdAt: -1 })
+    .skip(paged ? (page - 1) * pageSize : 0)
+    .limit(paged ? pageSize : 500)
+    .lean();
+  const referenceIds = rows.map(row => String(row._id)).filter(Boolean);
+  const approvals = referenceIds.length > 0
+    ? await Approval.find({ referenceModel: 'WholesaleOperation', referenceId: { $in: referenceIds } }).lean()
+    : [];
+  const approvalByReferenceId = new Map(approvals.map(row => [String(row.referenceId), row]));
+  const normalized = rows.map(row => {
+    const approval = approvalByReferenceId.get(String(row._id));
+    if (!approval) return row;
+    return {
+      ...row,
+      approvalId: row.approvalId || String(approval._id),
+      status: ['pending_director', 'pending_manager', 'approved', 'rejected'].includes(String(approval.status || ''))
+        ? String(approval.status)
+        : row.status
+    };
+  });
+  if (paged) return res.json({ rows: normalized, total, page, pageSize });
+  res.json(normalized);
 });
 
 r.post('/operations', requireRoleOrPerm(['Admin', 'Manager', 'Inventory Staff'], 'add_purchases'), async (req, res) => {
@@ -92,8 +119,34 @@ r.post('/operations', requireRoleOrPerm(['Admin', 'Manager', 'Inventory Staff'],
     initiatedByName: req.user?.name || 'unknown',
     initiatedByRole: req.user?.role || ''
   });
-  const fresh = await WholesaleOperation.findById(op._id);
-  res.json({ operation: fresh, approval });
+  res.json({
+    operation: {
+      ...(op.toObject ? op.toObject() : op),
+      approvalId: String(approval._id),
+      approvalMode: 'workflow',
+      status: 'pending_director'
+    },
+    approval
+  });
+});
+
+r.delete('/operations/:id', async (req, res) => {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role !== 'superadmin') return res.status(403).json({ error: 'Forbidden' });
+  const rawId = String(req.params.id || '');
+  const lookup = [{ clientId: rawId }];
+  if (mongoose.isValidObjectId(rawId)) lookup.unshift({ _id: rawId });
+  const row = await WholesaleOperation.findOne({ $or: lookup });
+  const approval = await Approval.findOne({ referenceModel: 'WholesaleOperation', referenceId: rawId })
+    || (row ? await Approval.findOne({ referenceModel: 'WholesaleOperation', referenceId: String(row._id) }) : null);
+  if (!row && !approval) return res.status(404).json({ error: 'Not found' });
+  const effectiveStatus = String(approval?.status || row?.status || '').toLowerCase();
+  if (effectiveStatus === 'approved') {
+    return res.status(400).json({ error: 'Approved requests cannot be deleted' });
+  }
+  if (row) await row.deleteOne();
+  if (approval) await Approval.deleteMany({ referenceModel: 'WholesaleOperation', referenceId: String(approval.referenceId || row?._id || rawId) });
+  res.json({ ok: true });
 });
 
 export default r;

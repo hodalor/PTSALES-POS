@@ -45,10 +45,27 @@ async function applyWholesaleOperation(operation, actor) {
         remark: operation.remark || '',
         status: 'accepted'
       }];
+  const acceptedItems = items.filter(item => String(item.status || 'accepted').toLowerCase() !== 'cancelled');
+  const productIds = Array.from(new Set(acceptedItems.map(item => String(item.productId || '')).filter(Boolean)));
+  const objectIds = productIds.filter(pid => mongoose.isValidObjectId(pid)).map(pid => new mongoose.Types.ObjectId(pid));
+  const products = productIds.length > 0
+    ? await Product.find({
+      $or: [
+        { id: { $in: productIds } },
+        ...(objectIds.length > 0 ? [{ _id: { $in: objectIds } }] : [])
+      ]
+    })
+    : [];
+  const productByKey = new Map();
+  products.forEach(product => {
+    productByKey.set(String(product._id), product);
+    if (product.id) productByKey.set(String(product.id), product);
+  });
   let acceptedCount = 0;
+  const dirtyProducts = new Map();
   for (const item of items) {
     if (String(item.status || '').toLowerCase() === 'cancelled') continue;
-    const product = await Product.findOne(productQuery(item.productId));
+    const product = productByKey.get(String(item.productId || ''));
     if (!product) {
       const err = new Error('Product not found for wholesale operation');
       err.status = 400;
@@ -83,7 +100,7 @@ async function applyWholesaleOperation(operation, actor) {
       const current = getMapQty(target.container, operation.branchId || operation.toBranchId);
       setMapQty(target.container, operation.branchId || operation.toBranchId, current + qty);
       markInventoryModified(target);
-      await product.save();
+      dirtyProducts.set(String(product._id), product);
     } else if (operation.operationType === 'adjustment') {
       if (normalizeTrackType(product.trackType) === 'serialized') {
         if (String(item.adjustmentType || operation.adjustmentType || 'increase') === 'decrease') {
@@ -134,7 +151,7 @@ async function applyWholesaleOperation(operation, actor) {
       }
       setMapQty(target.container, branchId, current + delta);
       markInventoryModified(target);
-      await product.save();
+      dirtyProducts.set(String(product._id), product);
     } else if (operation.operationType === 'transfer') {
       if (normalizeTrackType(product.trackType) === 'serialized') {
         if (!Array.isArray(item.unitIds) || item.unitIds.length !== qty) {
@@ -172,9 +189,12 @@ async function applyWholesaleOperation(operation, actor) {
       setMapQty(toTarget.container, operation.toBranchId, toCurrent + qty);
       markInventoryModified(fromTarget);
       markInventoryModified(toTarget);
-      await product.save();
+      dirtyProducts.set(String(product._id), product);
     }
     acceptedCount += 1;
+  }
+  if (dirtyProducts.size > 0) {
+    await Promise.all(Array.from(dirtyProducts.values()).map(product => product.save()));
   }
   operation.status = 'approved';
   operation.executedAt = new Date();

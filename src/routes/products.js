@@ -91,7 +91,9 @@ function generateEAN13() {
 }
 
 r.get('/', async (req, res) => {
-  const items = await Product.find().sort({ createdAt: -1 }).limit(1000);
+  const ids = String(req.query.ids || '').split(',').map(v => String(v || '').trim()).filter(Boolean);
+  const query = ids.length > 0 ? { $or: [{ id: { $in: ids } }, { _id: { $in: ids.filter(v => mongoose.isValidObjectId(v)).map(v => new mongoose.Types.ObjectId(v)) } }] } : {};
+  const items = await Product.find(query).sort({ createdAt: -1 }).limit(ids.length > 0 ? Math.max(ids.length, 1) : 1000);
   // Backfill missing barcodes
   const toUpdate = items.filter(p => !p.barcode);
   if (toUpdate.length > 0) {
