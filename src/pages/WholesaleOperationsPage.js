@@ -321,17 +321,18 @@ function WholesaleOperationsPage({ operationType, operationArea = 'wholesale' })
       const affectedProductIds = Array.from(new Set(reviewItems.map(item => String(item.productId || '')).filter(Boolean)));
       if (type === 'approve') await wholesaleApi.approveOperation(selectedRow, { ...payload, items: reviewItems.map(item => ({ ...item, status: normalizeReviewStatus(item.status) })) });
       else await wholesaleApi.rejectOperation(selectedRow, payload);
-      if (type === 'approve' && String(selectedRow.status || '').toLowerCase() === 'pending_manager') {
-        await refreshAffectedProducts(dispatch, affectedProductIds);
-      }
       toast.show(type === 'approve' ? 'Request updated' : 'Request rejected', { type: 'success' });
+      setOperations(prev => prev.filter(item => String(item._id || item.clientId) !== String(selectedRow._id || selectedRow.clientId)));
       setSelectedRow(null);
       setDecisionRemark('');
-      await loadOperations({ force: true });
+      void loadOperations({ force: true });
+      if (type === 'approve' && String(selectedRow.status || '').toLowerCase() === 'pending_manager') {
+        void refreshAffectedProducts(dispatch, affectedProductIds);
+      }
     } catch (e) {
       const msg = String(e?.message || '');
       if (/404|not found/i.test(msg)) {
-        await loadOperations({ force: true });
+        void loadOperations({ force: true });
         setSelectedRow(null);
         setDecisionRemark('');
         toast.show('Request was already processed. List refreshed.', { type: 'warning' });

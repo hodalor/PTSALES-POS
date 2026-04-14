@@ -19,6 +19,7 @@ const cartSlice = createSlice({
           && String(i.unitId || '') === String(action.payload.unitId || '')
         );
         if (existing) {
+          if (action.payload.unitId) return;
           existing.quantity += action.payload.quantity || 1;
         } else {
           state.items.push({ id: nanoid(), ...action.payload, quantity: action.payload.quantity || 1 });
@@ -30,6 +31,10 @@ const cartSlice = createSlice({
     },
     removeItem(state, action) {
       state.items = state.items.filter(i => i.id !== action.payload);
+    },
+    removeItemByUnitId(state, action) {
+      const unitId = String(action.payload || '');
+      state.items = state.items.filter(i => String(i.unitId || '') !== unitId);
     },
     setQuantity(state, action) {
       const { id, quantity } = action.payload;
@@ -81,5 +86,5 @@ const cartSlice = createSlice({
   }
 });
 
-export const { addItem, removeItem, setQuantity, updateItemPricing, clearCart, replaceCart, addHeld, removeHeld, updateHeld, setDiscount, setNotes } = cartSlice.actions;
+export const { addItem, removeItem, removeItemByUnitId, setQuantity, updateItemPricing, clearCart, replaceCart, addHeld, removeHeld, updateHeld, setDiscount, setNotes } = cartSlice.actions;
 export default cartSlice.reducer;

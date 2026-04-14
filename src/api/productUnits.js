@@ -96,6 +96,27 @@ export function getCachedProductUnitCount(params = {}) {
   };
 }
 
+export function getEffectiveCachedProductUnitCount(params = {}) {
+  const reservationToken = String(params.reservationToken || '');
+  const baseRows = readCache().filter(row => {
+    if (params.productId && String(row.productId || '') !== String(params.productId)) return false;
+    if (params.variantId && String(row.variantId || '') !== String(params.variantId)) return false;
+    if (params.branchId && String(row.branchId || '') !== String(params.branchId)) return false;
+    if (params.inventoryType && String(row.inventoryType || '') !== String(params.inventoryType)) return false;
+    return true;
+  });
+  const rows = baseRows.filter(row => {
+    const status = String(row.status || '');
+    if (status === 'in_stock') return true;
+    if (status === 'reserved' && reservationToken && String(row.reservationToken || '') === reservationToken) return true;
+    return false;
+  });
+  return {
+    count: rows.length,
+    hasCache: baseRows.length > 0
+  };
+}
+
 export function getCachedProductUnits(params = {}) {
   return filterRows(params);
 }

@@ -27,6 +27,7 @@ function ReportsPage() {
   const [heatMode, setHeatMode] = useState('week');
   const [warehouseOperations, setWarehouseOperations] = useState([]);
   const toast = useToast();
+  const selectedBranch = useMemo(() => branches.find(branch => String(branch.id) === String(branchId)) || null, [branchId, branches]);
 
   useEffect(() => setBranchId(settings.currentBranchId), [settings.currentBranchId]);
 
@@ -340,7 +341,9 @@ function ReportsPage() {
     const rows = products.map(product => ({
       product: product.name,
       sku: product.sku || '',
-      warehouseUnits: Object.values(product.warehouseStockByBranch || {}).reduce((s, qty) => s + (Number(qty) || 0), 0),
+      warehouseUnits: branchId
+        ? Number((product.warehouseStockByBranch || {})[branchId] || 0)
+        : Object.values(product.warehouseStockByBranch || {}).reduce((s, qty) => s + (Number(qty) || 0), 0),
       lowStock: Number(product.lowStock || 0)
     }));
     const headers = [
@@ -350,7 +353,7 @@ function ReportsPage() {
       { key: 'lowStock', label: 'Low Stock Threshold' }
     ];
     if (type === 'csv') exportCsv('warehouse-stock.csv', headers, rows);
-    else exportTablePdf('Warehouse Stock Snapshot', headers, rows);
+    else exportTablePdf(`Warehouse Stock Snapshot${selectedBranch ? ` - ${selectedBranch.name || selectedBranch.code || selectedBranch.id}` : ' - All Branches'}`, headers, rows);
   }
 
   return (
@@ -465,6 +468,9 @@ function ReportsPage() {
         {show('warehouse-stock') && (
         <div>
           <h2 className="section-title">Warehouse Stock</h2>
+          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 8 }}>
+            Scope: {selectedBranch ? `Selected branch (${selectedBranch.name || selectedBranch.code || selectedBranch.id})` : 'All branches'}
+          </div>
           <div style={{ display: 'flex', gap: 6 }}>
             <button className="btn" onClick={() => exportWarehouseStock('csv')}>Export CSV</button>
             <button className="btn" onClick={() => exportWarehouseStock('pdf')}>Export PDF</button>

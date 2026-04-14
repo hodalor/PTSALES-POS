@@ -52,7 +52,7 @@ function EasyBuyRepaymentApprovalsPage() {
     } catch (e) {
       const msg = String(e?.message || '');
       if (/timed out/i.test(msg)) {
-        await load();
+        void load();
         void loadRepayments();
         toast.show('Approval is processing. The list has been refreshed.', { type: 'success' });
       } else {
@@ -76,7 +76,7 @@ function EasyBuyRepaymentApprovalsPage() {
     } catch (e) {
       const msg = String(e?.message || '');
       if (/timed out/i.test(msg)) {
-        await load();
+        void load();
         void loadRepayments();
         toast.show('Rejection is processing. The list has been refreshed.', { type: 'success' });
       } else {

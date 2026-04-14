@@ -7,27 +7,37 @@ function WarehouseGoodsPage() {
   const products = useSelector(s => s.products.products || []);
   const branches = useSelector(s => s.branches.branches || []);
   const settings = useSelector(s => s.settings);
+  const currentBranchId = useSelector(s => s.settings.currentBranchId);
   const auth = useSelector(s => s.auth);
   const [query, setQuery] = useState('');
   const [viewMode, setViewMode] = useState('card');
+  const [selectedBranchId, setSelectedBranchId] = useState('');
   const visiblePriceTiers = useMemo(() => getAllowedPriceTiers(auth), [auth]);
 
   const warehouseBranches = useMemo(
     () => branches.filter(branch => String(branch.branchType || 'retail').toLowerCase() === 'warehouse'),
     [branches]
   );
+  const defaultBranchId = useMemo(() => {
+    const currentBranch = (branches || []).find(branch => String(branch.id) === String(currentBranchId));
+    if (String(currentBranch?.branchType || 'retail').toLowerCase() === 'warehouse') return currentBranchId;
+    const fallback = warehouseBranches[0];
+    return fallback?.id || currentBranchId;
+  }, [branches, currentBranchId, warehouseBranches]);
+  const activeBranchId = selectedBranchId || defaultBranchId;
+  const activeBranch = useMemo(() => warehouseBranches.find(branch => String(branch.id) === String(activeBranchId)) || null, [activeBranchId, warehouseBranches]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return products
       .map(product => {
-        const warehouseStock = Object.values(product.warehouseStockByBranch || {}).reduce((sum, qty) => sum + (Number(qty) || 0), 0);
+        const warehouseStock = Number(product.warehouseStockByBranch?.[activeBranchId] || 0);
         const warehouseLowStock = Number(product.warehouseLowStock != null ? product.warehouseLowStock : (product.lowStock || 0));
         return { ...product, warehouseStock, warehouseLowStock };
       })
       .filter(product => !q || [product.name, product.sku, product.barcode].some(value => String(value || '').toLowerCase().includes(q)))
       .sort((a, b) => b.warehouseStock - a.warehouseStock || String(a.name || '').localeCompare(String(b.name || '')));
-  }, [products, query]);
+  }, [activeBranchId, products, query]);
   const summary = useMemo(() => ({
     totalProducts: rows.length,
     availableProducts: rows.filter(product => product.warehouseStock > Number(product.warehouseLowStock || 0)).length,
@@ -41,7 +51,7 @@ function WarehouseGoodsPage() {
       <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div>
           <h1 style={{ margin: 0 }}>Warehouse Goods</h1>
-          <div style={{ color: '#64748b', fontSize: 13 }}>Browse products available in warehouse locations and switch between list and card views.</div>
+          <div style={{ color: '#64748b', fontSize: 13 }}>Browse products available in the active warehouse branch and switch between list and card views.</div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button className={viewMode === 'card' ? 'btn btn-primary' : 'btn'} onClick={() => setViewMode('card')}>Card</button>
@@ -51,7 +61,13 @@ function WarehouseGoodsPage() {
 
       <div className="card" style={{ display: 'grid', gap: 12 }}>
         <input className="input" placeholder="Search warehouse goods by name, SKU, or barcode" value={query} onChange={e => setQuery(e.target.value)} />
-        <div style={{ color: '#64748b', fontSize: 13 }}>Warehouse locations: {warehouseBranches.map(branch => branch.name).join(', ') || 'None configured'}</div>
+        <label>
+          <div style={{ color: '#64748b', fontSize: 12, marginBottom: 6 }}>Warehouse Branch</div>
+          <select className="select" value={activeBranchId} onChange={e => setSelectedBranchId(e.target.value)} disabled={warehouseBranches.length === 0}>
+            {warehouseBranches.map(branch => <option key={branch.id} value={branch.id}>{branch.name || branch.code || branch.id}</option>)}
+          </select>
+        </label>
+        <div style={{ color: '#64748b', fontSize: 13 }}>Active warehouse branch: {activeBranch?.name || activeBranchId || 'None configured'}</div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12 }}>
@@ -109,7 +125,7 @@ function WarehouseGoodsPage() {
               )}
               <div style={{ fontWeight: 700, fontSize: 18 }}>{product.name}</div>
               <div style={{ color: '#64748b' }}>{product.sku || 'No SKU'}</div>
-              <div><strong>Warehouse Stock:</strong> {product.warehouseStock}</div>
+              <div><strong>Warehouse Stock ({activeBranch?.name || activeBranchId || 'Branch'}):</strong> {product.warehouseStock}</div>
               {visiblePriceTiers.map(tier => (
                 <div key={tier}><strong>{getPriceTierLabel(tier)}:</strong> {formatCurrency(getDisplayPrice(product, tier), settings)}</div>
               ))}
@@ -129,7 +145,7 @@ function WarehouseGoodsPage() {
                 <th align="left">Image</th>
                 <th align="left">Product</th>
                 <th align="left">SKU</th>
-                <th align="left">Warehouse Stock</th>
+                <th align="left">Warehouse Stock ({activeBranch?.name || activeBranchId || 'Branch'})</th>
                 <th align="left">Low Stock At</th>
                 {visiblePriceTiers.map(tier => <th key={tier} align="left">{getPriceTierLabel(tier)}</th>)}
                 <th align="left">Status</th>

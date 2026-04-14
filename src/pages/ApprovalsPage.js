@@ -36,15 +36,16 @@ function ApprovalsPage() {
     setWorkingId(row._id || '');
     try {
       await approveApproval(row._id, { remark: String(remark || '') });
-      if (String(row.referenceModel || '') === 'WholesaleOperation' && String(row.status || '').toLowerCase() === 'pending_manager') {
-        await refreshAffectedProducts(dispatch, [row.productId].filter(Boolean));
-      }
+      setRows(prev => prev.filter(item => String(item._id) !== String(row._id)));
       toast.show('Approval updated', { type: 'success' });
-      await load(status, { force: true });
+      void load(status, { force: true });
+      if (String(row.referenceModel || '') === 'WholesaleOperation' && String(row.status || '').toLowerCase() === 'pending_manager') {
+        void refreshAffectedProducts(dispatch, [row.productId].filter(Boolean));
+      }
     } catch (e) {
       const msg = String(e?.message || '');
       if (/404|not found/i.test(msg)) {
-        await load(status, { force: true });
+        void load(status, { force: true });
         toast.show('Approval was already processed. List refreshed.', { type: 'warning' });
       } else {
         toast.show(msg || 'Failed to approve', { type: 'error' });
@@ -63,12 +64,13 @@ function ApprovalsPage() {
     setWorkingId(row._id || '');
     try {
       await rejectApproval(row._id, { reason: String(reason || '') });
+      setRows(prev => prev.filter(item => String(item._id) !== String(row._id)));
       toast.show('Approval rejected', { type: 'success' });
-      await load(status, { force: true });
+      void load(status, { force: true });
     } catch (e) {
       const msg = String(e?.message || '');
       if (/404|not found/i.test(msg)) {
-        await load(status, { force: true });
+        void load(status, { force: true });
         toast.show('Approval was already processed. List refreshed.', { type: 'warning' });
       } else {
         toast.show(msg || 'Failed to reject', { type: 'error' });
