@@ -8,10 +8,12 @@ import { exportCsv, exportTablePdf } from '../utils/exporters';
 import * as transfersApi from '../api/transfers';
 import * as wholesaleApi from '../api/wholesale';
 import * as productUnitsApi from '../api/productUnits';
+import * as auditsApi from '../api/audits';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import Modal from '../components/Modal';
 import { approveTransfer, createTransferRequest, rejectTransfer, setTransferRequests } from '../store/transfersSlice';
+import { removeEntry as removeAuditEntry } from '../store/auditSlice';
 
 function TransfersPage() {
   const products = useSelector(s => s.products.products);
@@ -63,6 +65,7 @@ function TransfersPage() {
   const canApprove = (['admin','manager','superadmin'].includes(roleLower)) || has('approve_transfers');
   const canWorkflowDirector = roleLower === 'superadmin' || roleLower === 'admin' || roleLower === 'director' || has('approve_wholesale_director');
   const canWorkflowManager = roleLower === 'superadmin' || roleLower === 'admin' || roleLower === 'manager' || has('approve_wholesale_manager');
+  const canDeleteRecords = roleLower === 'superadmin';
   const assigned = auth.user?.assignedBranches || 'all';
   const branchOptions = useMemo(() => {
     if (roleLower === 'superadmin' || roleLower === 'admin' || assigned === 'all') return branches;
@@ -219,6 +222,22 @@ function TransfersPage() {
     setSerializedUnitsQuery('');
     toast.show(navigator.onLine ? 'Transfer request submitted for approval' : 'Saved offline. Will sync when online.', { type: 'success' });
     setSaving(false);
+  }
+
+  async function deleteRecord(entry) {
+    const recordId = String(entry?._id || entry?.id || '');
+    if (!recordId) return;
+    const { confirmDialog } = await import('../utils/dialogs');
+    const ok = await confirmDialog('Delete this transfer record?');
+    if (!ok) return;
+    try {
+      if (entry?._id) await auditsApi.remove(entry._id);
+      dispatch(removeAuditEntry(recordId));
+      if (auditDetail && String(auditDetail._id || auditDetail.id || '') === recordId) setAuditDetail(null);
+      toast.show('Transfer record deleted', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to delete transfer record'), { type: 'error' });
+    }
   }
 
   function addCurrentItem() {
@@ -631,6 +650,7 @@ function TransfersPage() {
               <th align="left">From → To</th>
               <th align="left">Qty</th>
               <th align="left">Remark</th>
+              {canDeleteRecords && <th align="left"></th>}
             </tr>
           </thead>
           <tbody>
@@ -646,11 +666,16 @@ function TransfersPage() {
                   <td>{fromName} → {toName}</td>
                   <td>{d.qty ?? '—'}</td>
                   <td>{e.remark || '—'}</td>
+                  {canDeleteRecords && (
+                    <td>
+                      <button className="btn" onClick={(evt) => { evt.stopPropagation(); void deleteRecord(e); }}>Delete</button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
             {transfers.length === 0 && (
-              <tr><td colSpan="6" style={{ padding: 12, color: '#64748b' }}>No transfers yet</td></tr>
+              <tr><td colSpan={canDeleteRecords ? 7 : 6} style={{ padding: 12, color: '#64748b' }}>No transfers yet</td></tr>
             )}
           </tbody>
         </table>

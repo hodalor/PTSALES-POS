@@ -8,9 +8,11 @@ import { formatCurrency } from '../utils/currency';
 import { useSelector as useReduxSelector } from 'react-redux';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
 import * as purchasesApi from '../api/purchases';
+import * as auditsApi from '../api/audits';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import { approvePurchase, createPurchaseRequest, rejectPurchase } from '../store/purchasesSlice';
+import { removeEntry as removeAuditEntry } from '../store/auditSlice';
 import Modal from '../components/Modal';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
@@ -76,6 +78,7 @@ function PurchasesPage() {
   }
   const canReceive = (['admin','manager','inventory staff'].includes(roleLower)) || has('add_purchases');
   const canApprove = (['admin','manager','superadmin'].includes(roleLower)) || has('approve_purchases');
+  const canDeleteRecords = roleLower === 'superadmin';
   const assigned = auth.user?.assignedBranches || 'all';
   const branchOptions = useMemo(() => {
     if (roleLower === 'superadmin' || roleLower === 'admin' || assigned === 'all') return branches;
@@ -282,6 +285,22 @@ function PurchasesPage() {
     setItems([]);
     toast.show(navigator.onLine ? 'Purchase request submitted for approval' : 'Saved offline. Will sync when online.', { type: 'success' });
     setSaving(false);
+  }
+
+  async function deleteRecord(entry) {
+    const recordId = String(entry?._id || entry?.id || '');
+    if (!recordId) return;
+    const { confirmDialog } = await import('../utils/dialogs');
+    const ok = await confirmDialog('Delete this purchase record?');
+    if (!ok) return;
+    try {
+      if (entry?._id) await auditsApi.remove(entry._id);
+      dispatch(removeAuditEntry(recordId));
+      if (auditDetail && String(auditDetail._id || auditDetail.id || '') === recordId) setAuditDetail(null);
+      toast.show('Purchase record deleted', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to delete purchase record'), { type: 'error' });
+    }
   }
 
   function addCurrentItem() {
@@ -705,6 +724,7 @@ function PurchasesPage() {
               <th align="left">Supplier</th>
               <th align="left">Cost</th>
               <th align="left">Remark</th>
+              {canDeleteRecords && <th align="left"></th>}
             </tr>
           </thead>
           <tbody>
@@ -723,11 +743,16 @@ function PurchasesPage() {
                   <td>{d.supplier || '—'}</td>
                   <td>{Number.isFinite(Number(d.cost)) ? formatCurrency(Number(d.cost), settings) : '—'}</td>
                   <td>{e.remark || '—'}</td>
+                  {canDeleteRecords && (
+                    <td>
+                      <button className="btn" onClick={(evt) => { evt.stopPropagation(); void deleteRecord(e); }}>Delete</button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
             {purchases.length === 0 && (
-              <tr><td colSpan="10" style={{ padding: 12, color: '#64748b' }}>No purchase records yet</td></tr>
+              <tr><td colSpan={canDeleteRecords ? 11 : 10} style={{ padding: 12, color: '#64748b' }}>No purchase records yet</td></tr>
             )}
           </tbody>
         </table>

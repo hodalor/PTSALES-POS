@@ -6,11 +6,13 @@ import BranchSelect from '../components/BranchSelect';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
 import * as adjustmentsApi from '../api/adjustments';
 import * as productUnitsApi from '../api/productUnits';
+import * as auditsApi from '../api/audits';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import Modal from '../components/Modal';
 import { promptDialog } from '../utils/dialogs';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
+import { removeEntry as removeAuditEntry } from '../store/auditSlice';
 
 function AdjustmentsPage() {
   const products = useSelector(s => s.products.products);
@@ -61,6 +63,7 @@ function AdjustmentsPage() {
   }
   const canAdjust = (['admin','manager','inventory staff'].includes(roleLower)) || has('add_adjustments');
   const canApprove = (['admin','manager','superadmin'].includes(roleLower)) || has('approve_adjustments');
+  const canDeleteRecords = roleLower === 'superadmin';
   const selectedProduct = useMemo(() => products.find(p => p.id === productId) || null, [productId, products]);
   const selectedTrackType = String(selectedProduct?.trackType || 'quantity');
   const serializedEntries = useMemo(() => String(serializedEntriesText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
@@ -90,7 +93,8 @@ function AdjustmentsPage() {
       const d = e.details || {};
       const delta = e.actionType === 'stock_adjust' ? (Number(d.delta) || 0) : -Math.abs(Number(d.qty) || 0);
       return {
-        id: e.id,
+        id: e.id || e._id,
+        _id: e._id || e.id,
         ts: e.ts,
         actor: e.actor,
         product: d.product || '',
@@ -166,6 +170,21 @@ function AdjustmentsPage() {
       setTimeout(() => {
         try { serializedScanInputRef.current?.focus(); } catch {}
       }, 0);
+    }
+  }
+
+  async function deleteRecord(entry) {
+    const recordId = String(entry?._id || entry?.id || '');
+    if (!recordId) return;
+    const { confirmDialog } = await import('../utils/dialogs');
+    const ok = await confirmDialog('Delete this adjustment record?');
+    if (!ok) return;
+    try {
+      if (entry?._id) await auditsApi.remove(entry._id);
+      dispatch(removeAuditEntry(recordId));
+      toast.show('Adjustment record deleted', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to delete adjustment record'), { type: 'error' });
     }
   }
 
@@ -572,6 +591,7 @@ function AdjustmentsPage() {
               <th align="left">Delta</th>
               <th align="left">Type</th>
               <th align="left">Remark</th>
+              {canDeleteRecords && <th align="left"></th>}
             </tr>
           </thead>
           <tbody>
@@ -585,10 +605,15 @@ function AdjustmentsPage() {
                 <td>{r.delta}</td>
                 <td>{r.type}</td>
                 <td>{r.remark || '—'}</td>
+                {canDeleteRecords && (
+                  <td>
+                    <button className="btn" onClick={() => void deleteRecord(r)}>Delete</button>
+                  </td>
+                )}
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan="8" style={{ padding: 12, color: '#64748b' }}>No adjustment records yet</td></tr>
+              <tr><td colSpan={canDeleteRecords ? 9 : 8} style={{ padding: 12, color: '#64748b' }}>No adjustment records yet</td></tr>
             )}
           </tbody>
         </table>

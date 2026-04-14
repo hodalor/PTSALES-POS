@@ -1,6 +1,6 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setWholesaleInvoicePrefix, setNextWholesaleInvoiceNumber, setWarehouseInvoicePrefix, setNextWarehouseInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent, setClientAppName, setClientLogoUrl, setInvoiceCompanyAddress, setInvoiceFooter, setInvoiceDeclaration, setInvoiceSignatoryLabel, setInvoiceTitle, setInvoiceWordsLabel, setInvoiceGeneratedNote, setInvoiceNumberDigits, setInvoicePaidStampEnabled, setInvoicePaidStampLabel, setInvoicePaidStampThankYou, setInvoicePaidStampShowDate, setInvoicePaidStampColor, setReceiptBrandName, setAllSettings } from '../store/settingsSlice';
-import { addBranch, removeBranch, updateBranch } from '../store/branchesSlice';
+import { addBranch, removeBranch, setBranches, updateBranch } from '../store/branchesSlice';
 import * as branchesApi from '../api/branches';
 import { useRef, useState } from 'react';
 import { useToast } from '../components/ToastProvider';
@@ -125,9 +125,15 @@ function ConfigSettingsPage() {
     try {
       await branchesApi.remove(b.id);
       dispatch(removeBranch(b.id));
+      const latest = await branchesApi.list().catch(() => null);
+      if (Array.isArray(latest)) dispatch(setBranches(latest));
+      if (String(settings.currentBranchId || '') === String(b.id)) {
+        const fallback = Array.isArray(latest) ? latest.find(branch => String(branch.id || branch._id || '') !== String(b.id)) : null;
+        if (fallback?.id || fallback?._id) dispatch(setCurrentBranch(String(fallback.id || fallback._id)));
+      }
       toast.show('Branch removed', { type: 'success' });
-    } catch {
-      toast.show('Failed to remove branch on server', { type: 'error' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to remove branch on server'), { type: 'error' });
     }
   }
 

@@ -528,13 +528,13 @@ function UsersPage() {
           </table>
         </div>
         {editingId && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ width: '90%', maxWidth: 900, background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 10px 25px rgba(0,0,0,0.2)' }}>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, overflowY: 'auto' }}>
+            <div style={{ width: 'min(960px, 100%)', maxHeight: 'calc(100vh - 32px)', background: '#fff', borderRadius: 12, padding: 16, boxShadow: '0 10px 25px rgba(0,0,0,0.2)', overflowY: 'auto', margin: 'auto' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                 <h2 style={{ margin: 0 }}>Edit User</h2>
                 <button className="btn" onClick={() => setEditingId(null)}>Close</button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, alignItems: 'start' }}>
               <div>
                 <label>Name</label>
                 <input className="input" value={editName} onChange={e => setEditName(e.target.value)} style={{ display: 'block', width: '100%', marginBottom: 8 }} />
@@ -593,7 +593,7 @@ function UsersPage() {
                 </div>
                 <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 10, marginBottom: 8 }}>
                   <div style={{ fontSize: 12, color: '#64748b', marginBottom: 6 }}>Feature Access</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 6, maxHeight: '50vh', overflowY: 'auto', paddingRight: 4 }}>
                     {ALL_GRANTS.map(g => (
                       <label key={g.key} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                         <input

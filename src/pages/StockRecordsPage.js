@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
+import * as auditsApi from '../api/audits';
+import { removeEntry as removeAuditEntry } from '../store/auditSlice';
+import { useToast } from '../components/ToastProvider';
 
 function StockRecordsPage() {
+  const dispatch = useDispatch();
   const audit = useSelector(s => s.audit.entries);
   const branches = useSelector(s => s.branches.branches);
   const settings = useSelector(s => s.settings);
   const auth = useSelector(s => s.auth);
+  const toast = useToast();
   const [fActor, setFActor] = useState('');
   const [fBranch, setFBranch] = useState(settings.currentBranchId);
   const [fSource, setFSource] = useState('');
@@ -15,6 +20,7 @@ function StockRecordsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const roleLower = String(auth.role || '').toLowerCase();
+  const canDeleteRecords = roleLower === 'superadmin';
   const assigned = auth.user?.assignedBranches || 'all';
   const branchOptions = useMemo(() => {
     if (roleLower === 'superadmin' || roleLower === 'admin' || assigned === 'all') return branches;
@@ -36,31 +42,32 @@ function StockRecordsPage() {
     const t = e.actionType;
     const d = e.details || {};
     const b = e.branchId || d.branchId || null;
+    const recordMeta = { id: e.id || e._id, _id: e._id || e.id };
     if (t === 'stock_adjust') {
-      return { ts: e.ts, actor: e.actor, branchId: b, source: 'Adjustments', action: d.delta > 0 ? 'Add' : 'Remove', product: d.product || '', variant: d.variant || '', qty: d.delta, remark: e.remark || '' };
+      return { ...recordMeta, ts: e.ts, actor: e.actor, branchId: b, source: 'Adjustments', action: d.delta > 0 ? 'Add' : 'Remove', product: d.product || '', variant: d.variant || '', qty: d.delta, remark: e.remark || '' };
     }
     if (t === 'stock_damage_remove') {
-      return { ts: e.ts, actor: e.actor, branchId: b, source: 'Adjustments', action: 'Remove', product: d.product || '', variant: d.variant || '', qty: -Math.abs(d.qty || 0), remark: e.remark || '' };
+      return { ...recordMeta, ts: e.ts, actor: e.actor, branchId: b, source: 'Adjustments', action: 'Remove', product: d.product || '', variant: d.variant || '', qty: -Math.abs(d.qty || 0), remark: e.remark || '' };
     }
     if (t === 'stock_transfer') {
-      return { ts: e.ts, actor: e.actor, branchId: d.from || b, source: 'Transfers', action: `Transfer ${d.from} → ${d.to}`, product: d.product || '', variant: d.variant || '', qty: d.qty || 0, remark: e.remark || '' };
+      return { ...recordMeta, ts: e.ts, actor: e.actor, branchId: d.from || b, source: 'Transfers', action: `Transfer ${d.from} → ${d.to}`, product: d.product || '', variant: d.variant || '', qty: d.qty || 0, remark: e.remark || '' };
     }
     if (t === 'stock_receive') {
-      return { ts: e.ts, actor: e.actor, branchId: b, source: 'Purchases', action: 'Add', product: d.product || '', variant: d.variant || '', qty: d.baseUnits ?? d.qty ?? 0, remark: e.remark || '' };
+      return { ...recordMeta, ts: e.ts, actor: e.actor, branchId: b, source: 'Purchases', action: 'Add', product: d.product || '', variant: d.variant || '', qty: d.baseUnits ?? d.qty ?? 0, remark: e.remark || '' };
     }
     if (t === 'stock_set_initial') {
-      return { ts: e.ts, actor: e.actor, branchId: b, source: 'Products', action: 'Set', product: d.product || '', variant: d.variant || '', qty: d.quantity ?? 0, remark: e.remark || '' };
+      return { ...recordMeta, ts: e.ts, actor: e.actor, branchId: b, source: 'Products', action: 'Set', product: d.product || '', variant: d.variant || '', qty: d.quantity ?? 0, remark: e.remark || '' };
     }
     if (t === 'stock_set_manual') {
-      return { ts: e.ts, actor: e.actor, branchId: b, source: 'Inventory', action: 'Set', product: d.product || '', variant: d.variant || '', qty: d.delta ?? 0, remark: e.remark || '' };
+      return { ...recordMeta, ts: e.ts, actor: e.actor, branchId: b, source: 'Inventory', action: 'Set', product: d.product || '', variant: d.variant || '', qty: d.delta ?? 0, remark: e.remark || '' };
     }
     if (t === 'stock_sale_deduct') {
       const totalUnits = Array.isArray(d.items) ? d.items.reduce((s, it) => s + (Number(it.qty) || 0), 0) : 0;
-      return { ts: e.ts, actor: e.actor, branchId: b, source: 'POS', action: 'Remove (Sale)', product: `${totalUnits} unit(s) across ${d.items?.length || 0} item(s)`, variant: '', qty: -Math.abs(totalUnits), remark: e.remark || '' };
+      return { ...recordMeta, ts: e.ts, actor: e.actor, branchId: b, source: 'POS', action: 'Remove (Sale)', product: `${totalUnits} unit(s) across ${d.items?.length || 0} item(s)`, variant: '', qty: -Math.abs(totalUnits), remark: e.remark || '' };
     }
     if (t === 'stock_restock_refund') {
       const totalUnits = Array.isArray(d.items) ? d.items.reduce((s, it) => s + (Number(it.qty) || 0), 0) : 0;
-      return { ts: e.ts, actor: e.actor, branchId: b, source: 'Refund Approvals', action: 'Add (Restock)', product: `${totalUnits} unit(s) across ${d.items?.length || 0} item(s)`, variant: '', qty: totalUnits, remark: e.remark || '' };
+      return { ...recordMeta, ts: e.ts, actor: e.actor, branchId: b, source: 'Refund Approvals', action: 'Add (Restock)', product: `${totalUnits} unit(s) across ${d.items?.length || 0} item(s)`, variant: '', qty: totalUnits, remark: e.remark || '' };
     }
     return null;
   }
@@ -86,6 +93,21 @@ function StockRecordsPage() {
 
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const pageRows = rows.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
+
+  async function deleteRecord(entry) {
+    const recordId = String(entry?._id || entry?.id || '');
+    if (!recordId) return;
+    const { confirmDialog } = await import('../utils/dialogs');
+    const ok = await confirmDialog('Delete this stock record?');
+    if (!ok) return;
+    try {
+      if (entry?._id) await auditsApi.remove(entry._id);
+      dispatch(removeAuditEntry(recordId));
+      toast.show('Stock record deleted', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to delete stock record'), { type: 'error' });
+    }
+  }
 
   function onExportCsv() {
     const headers = [
@@ -175,11 +197,12 @@ function StockRecordsPage() {
               <th align="left">Variant</th>
               <th align="left">Delta</th>
               <th align="left">Remark</th>
+              {canDeleteRecords && <th align="left"></th>}
             </tr>
           </thead>
           <tbody>
             {pageRows.map((r, idx) => (
-              <tr key={idx}>
+              <tr key={r._id || r.id || idx}>
                 <td>{new Date(r.ts).toLocaleString()}</td>
                 <td>{r.actor}</td>
                 <td>{byBranchId.get(r.branchId) || r.branchId || '—'}</td>
@@ -189,10 +212,15 @@ function StockRecordsPage() {
                 <td>{r.variant || '—'}</td>
                 <td>{typeof r.qty === 'number' ? r.qty : '—'}</td>
                 <td>{r.remark || '—'}</td>
+                {canDeleteRecords && (
+                  <td>
+                    <button className="btn" onClick={() => void deleteRecord(r)}>Delete</button>
+                  </td>
+                )}
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan="9" style={{ padding: 12, color: '#64748b' }}>No stock records.</td></tr>
+              <tr><td colSpan={canDeleteRecords ? 10 : 9} style={{ padding: 12, color: '#64748b' }}>No stock records.</td></tr>
             )}
           </tbody>
         </table>

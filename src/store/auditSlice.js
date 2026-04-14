@@ -26,11 +26,15 @@ const auditSlice = createSlice({
         offline: !!offline
       });
     },
+    removeEntry(state, action) {
+      const id = String(action.payload || '');
+      state.entries = state.entries.filter(entry => String(entry?._id || entry?.id || '') !== id);
+    },
     clearAudit(state) {
       state.entries = [];
     }
   }
 });
 
-export const { setEntries, addAudit, clearAudit } = auditSlice.actions;
+export const { setEntries, addAudit, removeEntry, clearAudit } = auditSlice.actions;
 export default auditSlice.reducer;
