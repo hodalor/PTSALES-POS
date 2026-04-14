@@ -3,6 +3,7 @@ import ProductUnit from '../models/ProductUnit.js';
 import Audit from '../models/Audit.js';
 import { requireAuth, requireRoleOrPerm } from '../middleware/auth.js';
 import { createSerializedUnits, listSerializedUnits, releaseSerializedUnits, reserveSerializedUnit, resolveInventoryTypeFromBranch, transferSerializedUnits } from '../utils/productUnits.js';
+import mongoose from 'mongoose';
 
 const r = Router();
 
@@ -122,6 +123,16 @@ r.get('/lookup/:code', async (req, res) => {
   });
   if (!row) return res.status(404).json({ error: 'Serialized unit not found' });
   res.json(row);
+});
+
+r.post('/bulk-delete', async (req, res) => {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role !== 'superadmin') return res.status(403).json({ error: 'Forbidden' });
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).filter(Boolean) : [];
+  if (ids.length === 0) return res.json({ ok: true, count: 0 });
+  const objectIds = ids.filter(id => mongoose.isValidObjectId(id));
+  const result = await ProductUnit.deleteMany({ _id: { $in: objectIds } });
+  res.json({ ok: true, count: Number(result?.deletedCount || 0) });
 });
 
 export default r;

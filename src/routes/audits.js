@@ -23,4 +23,20 @@ r.delete('/:id', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
+r.post('/bulk-delete', requireAdmin, async (req, res) => {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role !== 'superadmin') return res.status(403).json({ error: 'Forbidden' });
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).filter(Boolean) : [];
+  if (ids.length === 0) return res.json({ ok: true, count: 0 });
+  const objectIds = ids.filter(id => mongoose.isValidObjectId(id));
+  const query = {
+    $or: [
+      { id: { $in: ids } },
+      ...(objectIds.length > 0 ? [{ _id: { $in: objectIds } }] : [])
+    ]
+  };
+  const result = await Audit.deleteMany(query);
+  res.json({ ok: true, count: Number(result?.deletedCount || 0) });
+});
+
 export default r;

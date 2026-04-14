@@ -21,8 +21,9 @@ r.put('/', requireAdmin, async (req, res) => {
     return res.status(403).json({ error: 'Forbidden' });
   }
   const prev = await Settings.findOne({ key: 'default' });
-  let doc = await Settings.findOneAndUpdate({ key: 'default' }, { data }, { new: true, upsert: true });
   const before = prev && prev.data ? prev.data : {};
+  const nextData = { ...before, ...data };
+  let doc = await Settings.findOneAndUpdate({ key: 'default' }, { data: nextData }, { new: true, upsert: true });
   const after = doc && doc.data ? doc.data : {};
   const changed = [];
   Object.keys(data || {}).forEach(k => {
@@ -34,13 +35,14 @@ r.put('/', requireAdmin, async (req, res) => {
       changed.push(k);
     }
   });
-  await Audit.create({
+  res.json(after || {});
+  void Audit.create({
     actor: (req.user && req.user.name) || 'unknown',
     actionType: 'settings_update',
     details: { changedKeys: changed, count: changed.length },
     branchId: req.user?.branchId || ''
-  });
-  await ServerLog.create({
+  }).catch(() => {});
+  void ServerLog.create({
     level: 'info',
     actor: (req.user && req.user.name) || 'unknown',
     route: req.originalUrl || req.url || '',
@@ -48,8 +50,7 @@ r.put('/', requireAdmin, async (req, res) => {
     status: 200,
     message: 'Settings updated',
     details: { changedKeys: changed, count: changed.length }
-  });
-  res.json(after || {});
+  }).catch(() => {});
 });
 
 export default r;

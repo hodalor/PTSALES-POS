@@ -18,71 +18,26 @@ function inventoryFieldForBranchType(branchType = 'retail') {
 async function provisionBranchProducts(branch) {
   if (!branch?.id) return;
   const field = inventoryFieldForBranchType(branch.branchType);
-  const products = await Product.find({}, { _id: 1, [field]: 1, variants: 1 });
-  for (const product of products) {
-    let changed = false;
-    if (!product[field]) {
-      product[field] = new Map();
-      changed = true;
+  await Product.updateMany(
+    {},
+    {
+      $set: {
+        [`${field}.${branch.id}`]: 0,
+        [`variants.$[].${field}.${branch.id}`]: 0
+      }
     }
-    const existing = typeof product[field]?.get === 'function' ? product[field].get(branch.id) : product[field]?.[branch.id];
-    if (existing == null) {
-      if (typeof product[field]?.set === 'function') product[field].set(branch.id, 0);
-      else product[field][branch.id] = 0;
-      changed = true;
-    }
-    if (Array.isArray(product.variants)) {
-      product.variants.forEach(variant => {
-        if (!variant[field]) {
-          variant[field] = new Map();
-          changed = true;
-        }
-        const variantExisting = typeof variant[field]?.get === 'function' ? variant[field].get(branch.id) : variant[field]?.[branch.id];
-        if (variantExisting == null) {
-          if (typeof variant[field]?.set === 'function') variant[field].set(branch.id, 0);
-          else variant[field][branch.id] = 0;
-          changed = true;
-        }
-      });
-    }
-    if (changed) {
-      product.markModified(field);
-      product.markModified('variants');
-      await product.save();
-    }
-  }
+  );
 }
 
 async function removeBranchProducts(branch) {
   if (!branch?.id) return;
   const fields = ['stockByBranch', 'wholesaleStockByBranch', 'warehouseStockByBranch'];
-  const products = await Product.find({}, { _id: 1, stockByBranch: 1, wholesaleStockByBranch: 1, warehouseStockByBranch: 1, variants: 1 });
-  for (const product of products) {
-    let changed = false;
-    fields.forEach(field => {
-      if (product[field] && (typeof product[field]?.delete === 'function' ? product[field].has(branch.id) : Object.prototype.hasOwnProperty.call(product[field] || {}, branch.id))) {
-        if (typeof product[field]?.delete === 'function') product[field].delete(branch.id);
-        else delete product[field][branch.id];
-        changed = true;
-      }
-    });
-    if (Array.isArray(product.variants)) {
-      product.variants.forEach(variant => {
-        fields.forEach(field => {
-          if (variant[field] && (typeof variant[field]?.delete === 'function' ? variant[field].has(branch.id) : Object.prototype.hasOwnProperty.call(variant[field] || {}, branch.id))) {
-            if (typeof variant[field]?.delete === 'function') variant[field].delete(branch.id);
-            else delete variant[field][branch.id];
-            changed = true;
-          }
-        });
-      });
-    }
-    if (changed) {
-      fields.forEach(field => product.markModified(field));
-      product.markModified('variants');
-      await product.save();
-    }
-  }
+  const unset = {};
+  fields.forEach(field => {
+    unset[`${field}.${branch.id}`] = 1;
+    unset[`variants.$[].${field}.${branch.id}`] = 1;
+  });
+  await Product.updateMany({}, { $unset: unset });
 }
 
 r.get('/', async (req, res) => {
@@ -92,22 +47,22 @@ r.get('/', async (req, res) => {
 
 r.post('/', requireAdmin, async (req, res) => {
   const b = await Branch.create(req.body);
-  await provisionBranchProducts(b);
-  await Audit.create({
+  res.json(b);
+  void provisionBranchProducts(b).catch(() => {});
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'branch_create',
     details: { id: b.id || String(b._id), name: b.name, code: b.code },
     branchId: req.user?.branchId || ''
-  });
-  await ServerLog.create({
+  }).catch(() => {});
+  void ServerLog.create({
     level: 'info',
     actor: req.user?.name || 'unknown',
     route: req.originalUrl || req.url || '',
     method: req.method || 'POST',
     status: 200,
     message: `Branch created: ${b.name} (${b.code || ''})`
-  });
-  res.json(b);
+  }).catch(() => {});
 });
 
 r.put('/:id', requireAdmin, async (req, res) => {
@@ -139,22 +94,22 @@ r.delete('/:id', requireAdmin, async (req, res) => {
   if (mongoose.isValidObjectId(id)) query.$or.unshift({ _id: id });
   const b = await Branch.findOne(query);
   await Branch.findOneAndDelete(query);
-  await removeBranchProducts(b);
-  await Audit.create({
+  res.json({ ok: true });
+  void removeBranchProducts(b).catch(() => {});
+  void Audit.create({
     actor: req.user?.name || 'unknown',
     actionType: 'branch_delete',
     details: b ? { id, name: b.name, code: b.code } : { id },
     branchId: req.user?.branchId || ''
-  });
-  await ServerLog.create({
+  }).catch(() => {});
+  void ServerLog.create({
     level: 'info',
     actor: req.user?.name || 'unknown',
     route: req.originalUrl || req.url || '',
     method: req.method || 'DELETE',
     status: 200,
     message: `Branch deleted: ${b ? b.name : id}`
-  });
-  res.json({ ok: true });
+  }).catch(() => {});
 });
 
 export default r;

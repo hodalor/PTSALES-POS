@@ -31,6 +31,21 @@ r.get('/', async (req, res) => {
   res.json(rows);
 });
 
+r.post('/bulk-delete', async (req, res) => {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (role !== 'superadmin') return res.status(403).json({ error: 'Forbidden' });
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String).filter(Boolean) : [];
+  if (ids.length === 0) return res.json({ ok: true, count: 0 });
+  const objectIds = ids.filter(id => mongoose.isValidObjectId(id));
+  const result = await Sale.deleteMany({
+    $or: [
+      { clientId: { $in: ids } },
+      ...(objectIds.length > 0 ? [{ _id: { $in: objectIds } }] : [])
+    ]
+  });
+  res.json({ ok: true, count: Number(result?.deletedCount || 0) });
+});
+
 r.post('/', requireRoleOrPerm(['Admin','Manager','Cashier'], 'add_sales'), async (req, res) => {
   const payload = req.body || {};
   const branchId = String(payload.branchId || '');
