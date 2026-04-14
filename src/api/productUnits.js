@@ -276,3 +276,16 @@ export function lookupProductUnit(code) {
     return overlayRows([row])[0] || row;
   });
 }
+
+export function removeManyProductUnits(ids = []) {
+  return fetchJson('/api/product-units/bulk-delete', {
+    method: 'POST',
+    body: JSON.stringify({ ids: Array.isArray(ids) ? ids : [] }),
+    timeoutMs: 0
+  }).then(result => {
+    const set = new Set((Array.isArray(ids) ? ids : []).map(String));
+    writeCache(readCache().filter(row => !set.has(String(row._id))));
+    invalidateListRequestCache();
+    return result;
+  });
+}

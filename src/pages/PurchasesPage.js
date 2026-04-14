@@ -12,7 +12,7 @@ import * as auditsApi from '../api/audits';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import { approvePurchase, createPurchaseRequest, rejectPurchase } from '../store/purchasesSlice';
-import { removeEntry as removeAuditEntry } from '../store/auditSlice';
+import { removeEntries as removeAuditEntries } from '../store/auditSlice';
 import Modal from '../components/Modal';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
 
@@ -79,6 +79,8 @@ function PurchasesPage() {
   const canReceive = (['admin','manager','inventory staff'].includes(roleLower)) || has('add_purchases');
   const canApprove = (['admin','manager','superadmin'].includes(roleLower)) || has('approve_purchases');
   const canDeleteRecords = roleLower === 'superadmin';
+  const [selectedRecordIds, setSelectedRecordIds] = useState([]);
+  const [bulkAction, setBulkAction] = useState('');
   const assigned = auth.user?.assignedBranches || 'all';
   const branchOptions = useMemo(() => {
     if (roleLower === 'superadmin' || roleLower === 'admin' || assigned === 'all') return branches;
@@ -287,19 +289,20 @@ function PurchasesPage() {
     setSaving(false);
   }
 
-  async function deleteRecord(entry) {
-    const recordId = String(entry?._id || entry?.id || '');
-    if (!recordId) return;
+  async function deleteSelectedRecords() {
+    const ids = selectedRecordIds.filter(Boolean);
+    if (ids.length === 0) return;
     const { confirmDialog } = await import('../utils/dialogs');
-    const ok = await confirmDialog('Delete this purchase record?');
+    const ok = await confirmDialog(`Delete ${ids.length} selected purchase record(s)?`);
     if (!ok) return;
     try {
-      if (entry?._id) await auditsApi.remove(entry._id);
-      dispatch(removeAuditEntry(recordId));
-      if (auditDetail && String(auditDetail._id || auditDetail.id || '') === recordId) setAuditDetail(null);
-      toast.show('Purchase record deleted', { type: 'success' });
+      await auditsApi.removeMany(ids);
+      dispatch(removeAuditEntries(ids));
+      setSelectedRecordIds([]);
+      setBulkAction('');
+      toast.show('Purchase records deleted', { type: 'success' });
     } catch (e) {
-      toast.show(String(e?.message || 'Failed to delete purchase record'), { type: 'error' });
+      toast.show(String(e?.message || 'Failed to delete purchase records'), { type: 'error' });
     }
   }
 
@@ -708,6 +711,15 @@ function PurchasesPage() {
           <div style={{ alignSelf: 'end', display: 'flex', gap: 6 }}>
             <button className="btn" onClick={onExportCsv}>Export CSV</button>
             <button className="btn" onClick={onExportPdf}>Export PDF</button>
+            {canDeleteRecords && (
+              <>
+                <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }}>
+                  <option value="">Actions</option>
+                  <option value="delete">Delete Selected</option>
+                </select>
+                <button className="btn" disabled={bulkAction !== 'delete' || selectedRecordIds.length === 0} onClick={() => void deleteSelectedRecords()}>Apply</button>
+              </>
+            )}
           </div>
         </div>
         <h2 className="section-title">Recent Purchases</h2>
@@ -724,7 +736,15 @@ function PurchasesPage() {
               <th align="left">Supplier</th>
               <th align="left">Cost</th>
               <th align="left">Remark</th>
-              {canDeleteRecords && <th align="left"></th>}
+              {canDeleteRecords && (
+                <th align="left">
+                  <input
+                    type="checkbox"
+                    checked={purchases.length > 0 && purchases.every(entry => selectedRecordIds.includes(String(entry._id || entry.id || '')))}
+                    onChange={e => setSelectedRecordIds(e.target.checked ? purchases.map(entry => String(entry._id || entry.id || '')).filter(Boolean) : [])}
+                  />
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -745,7 +765,12 @@ function PurchasesPage() {
                   <td>{e.remark || '—'}</td>
                   {canDeleteRecords && (
                     <td>
-                      <button className="btn" onClick={(evt) => { evt.stopPropagation(); void deleteRecord(e); }}>Delete</button>
+                      <input
+                        type="checkbox"
+                        checked={selectedRecordIds.includes(String(e._id || e.id || ''))}
+                        onClick={evt => evt.stopPropagation()}
+                        onChange={evt => setSelectedRecordIds(prev => evt.target.checked ? [...new Set([...prev, String(e._id || e.id || '')])] : prev.filter(id => id !== String(e._id || e.id || '')))}
+                      />
                     </td>
                   )}
                 </tr>

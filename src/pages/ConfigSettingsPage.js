@@ -1,8 +1,8 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setWholesaleInvoicePrefix, setNextWholesaleInvoiceNumber, setWarehouseInvoicePrefix, setNextWarehouseInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent, setClientAppName, setClientLogoUrl, setInvoiceCompanyAddress, setInvoiceFooter, setInvoiceDeclaration, setInvoiceSignatoryLabel, setInvoiceTitle, setInvoiceWordsLabel, setInvoiceGeneratedNote, setInvoiceNumberDigits, setInvoicePaidStampEnabled, setInvoicePaidStampLabel, setInvoicePaidStampThankYou, setInvoicePaidStampShowDate, setInvoicePaidStampColor, setReceiptBrandName, setAllSettings } from '../store/settingsSlice';
-import { addBranch, removeBranch, setBranches, updateBranch } from '../store/branchesSlice';
+import { addBranch, removeBranch, updateBranch } from '../store/branchesSlice';
 import * as branchesApi from '../api/branches';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useToast } from '../components/ToastProvider';
 import { addAudit } from '../store/auditSlice';
 import { fetchJson, getApiBase, setApiBase } from '../api/client';
@@ -22,8 +22,13 @@ function ConfigSettingsPage() {
   const [newCurCode, setNewCurCode] = useState('');
   const [newCurSymbol, setNewCurSymbol] = useState('');
   const [newCurPos, setNewCurPos] = useState('prefix');
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [addingBranch, setAddingBranch] = useState(false);
+  const [removingBranchId, setRemovingBranchId] = useState('');
   const toast = useToast();
   const initialTaxRef = useRef(settings.taxRate);
+  const initialSettingsRef = useRef(settings || {});
+  const initialSettingsCapturedRef = useRef(false);
   const canEditTax = ['Admin','Manager'].includes(auth.role) || String(auth.role || '').toLowerCase() === 'superadmin';
   const roleLower = String(auth.role || '').toLowerCase();
   const canManageBranches = roleLower === 'admin' || roleLower === 'superadmin';
@@ -34,12 +39,32 @@ function ConfigSettingsPage() {
     try { return getApiBase(); } catch { return ''; }
   });
 
+  useEffect(() => {
+    if (!initialSettingsCapturedRef.current && settings && Object.keys(settings).length > 0) {
+      initialSettingsRef.current = { ...(settings || {}) };
+      initialSettingsCapturedRef.current = true;
+    }
+  }, [settings]);
+
+  function Spinner() {
+    return (
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
+        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+          <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite" />
+        </path>
+      </svg>
+    );
+  }
+
   function addNewBranch() {
     if (!branchName.trim() || !branchCode.trim()) return;
-    const action = dispatch(addBranch({ name: branchName.trim(), code: branchCode.trim(), branchType }));
+    const action = dispatch(addBranch({ name: branchName.trim(), code: branchCode.trim(), branchType, offline: true }));
     const created = action?.payload;
+    setAddingBranch(true);
     if (!navigator.onLine && !offlineBackupAllowed) {
       if (created) dispatch(removeBranch(created.id));
+      setAddingBranch(false);
       toast.show('Offline: connect internet and try again.', { type: 'error' });
       return;
     }
@@ -49,14 +74,21 @@ function ConfigSettingsPage() {
           .catch(() => {
             dispatch(removeBranch(created.id));
             toast.show('Failed to save offline', { type: 'error' });
-          });
+          })
+          .finally(() => setAddingBranch(false));
       } else {
         branchesApi.create({ id: created.id, name: created.name, code: created.code, branchType: created.branchType || branchType })
+          .then(() => {
+            dispatch(updateBranch({ id: created.id, name: created.name, code: created.code, branchType: created.branchType || branchType, offline: false }));
+          })
           .catch(() => {
             dispatch(removeBranch(created.id));
             toast.show('Failed to create branch on server', { type: 'error' });
-          });
+          })
+          .finally(() => setAddingBranch(false));
       }
+    } else {
+      setAddingBranch(false);
     }
     setBranchName('');
     setBranchCode('');
@@ -123,17 +155,19 @@ function ConfigSettingsPage() {
       return;
     }
     try {
-      await branchesApi.remove(b.id);
+      setRemovingBranchId(String(b.id || ''));
       dispatch(removeBranch(b.id));
-      const latest = await branchesApi.list().catch(() => null);
-      if (Array.isArray(latest)) dispatch(setBranches(latest));
+      await branchesApi.remove(b.id);
       if (String(settings.currentBranchId || '') === String(b.id)) {
-        const fallback = Array.isArray(latest) ? latest.find(branch => String(branch.id || branch._id || '') !== String(b.id)) : null;
-        if (fallback?.id || fallback?._id) dispatch(setCurrentBranch(String(fallback.id || fallback._id)));
+        const fallback = (branches || []).find(branch => String(branch.id || branch._id || '') !== String(b.id));
+        dispatch(setCurrentBranch(String(fallback?.id || fallback?._id || '')));
       }
       toast.show('Branch removed', { type: 'success' });
     } catch (e) {
+      dispatch(addBranch(b));
       toast.show(String(e?.message || 'Failed to remove branch on server'), { type: 'error' });
+    } finally {
+      setRemovingBranchId('');
     }
   }
 
@@ -163,8 +197,13 @@ function ConfigSettingsPage() {
                 </span>
               </span>
               <span>
-                <button className="btn" onClick={() => onEditBranch(b)} disabled={!canManageBranches}>Edit</button>
-                <button className="btn" onClick={() => onRemoveBranch(b)} disabled={!canManageBranches || b.id === 'main'} style={{ marginLeft: 8 }}>Remove</button>
+                <button className="btn" onClick={() => onEditBranch(b)} disabled={!canManageBranches || !!removingBranchId}>Edit</button>
+                <button className="btn" onClick={() => onRemoveBranch(b)} disabled={!canManageBranches || b.id === 'main' || !!removingBranchId} style={{ marginLeft: 8 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {removingBranchId === String(b.id || '') && <Spinner />}
+                    {removingBranchId === String(b.id || '') ? 'Removing…' : 'Remove'}
+                  </span>
+                </button>
               </span>
             </li>
           ))}
@@ -681,6 +720,7 @@ function ConfigSettingsPage() {
             <button
               className="btn btn-primary"
               onClick={async () => {
+                if (savingSettings) return;
                 const before = initialTaxRef.current || 0;
                 const after = settings.taxRate || 0;
                 if (before !== after) {
@@ -703,6 +743,7 @@ function ConfigSettingsPage() {
                   initialTaxRef.current = after;
                 }
                 try {
+                  setSavingSettings(true);
                   if (!navigator.onLine) {
                     if (!offlineBackupAllowed) {
                       toast.show('Offline: connect internet and try again.', { type: 'error' });
@@ -710,30 +751,56 @@ function ConfigSettingsPage() {
                     }
                     const payload = (() => {
                       const copy = { ...(settings || {}) };
-                      if (roleLower === 'admin' && copy && Object.prototype.hasOwnProperty.call(copy, 'featureFlags')) {
-                        delete copy.featureFlags;
+                      const baseline = initialSettingsRef.current || {};
+                      const changed = {};
+                      Object.keys(copy).forEach(key => {
+                        if (JSON.stringify(copy[key]) !== JSON.stringify(baseline[key])) changed[key] = copy[key];
+                      });
+                      if (roleLower === 'admin' && changed && Object.prototype.hasOwnProperty.call(changed, 'featureFlags')) {
+                        delete changed.featureFlags;
                       }
-                      return copy;
+                      return changed;
                     })();
+                    if (Object.keys(payload).length === 0) {
+                      toast.show('No settings changes to save', { type: 'success' });
+                      return;
+                    }
                     await enqueueHttp({ collection: 'settings', label: 'Settings', path: '/api/settings', method: 'PUT', body: payload });
                     toast.show('Saved offline. Will backup when online.', { type: 'success' });
                     return;
                   }
                   const payload = (() => {
                     const copy = { ...(settings || {}) };
-                    if (roleLower === 'admin' && copy && Object.prototype.hasOwnProperty.call(copy, 'featureFlags')) {
-                      delete copy.featureFlags;
+                    const baseline = initialSettingsRef.current || {};
+                    const changed = {};
+                    Object.keys(copy).forEach(key => {
+                      if (JSON.stringify(copy[key]) !== JSON.stringify(baseline[key])) changed[key] = copy[key];
+                    });
+                    if (roleLower === 'admin' && changed && Object.prototype.hasOwnProperty.call(changed, 'featureFlags')) {
+                      delete changed.featureFlags;
                     }
-                    return copy;
+                    return changed;
                   })();
+                  if (Object.keys(payload).length === 0) {
+                    toast.show('No settings changes to save', { type: 'success' });
+                    return;
+                  }
                   await settingsApi.save(payload);
+                  initialSettingsRef.current = { ...(initialSettingsRef.current || {}), ...payload };
+                  initialSettingsCapturedRef.current = true;
                   toast.show('Settings saved', { type: 'success' });
                 } catch {
                   toast.show('Failed to save settings', { type: 'error' });
+                } finally {
+                  setSavingSettings(false);
                 }
               }}
+              disabled={savingSettings}
             >
-              Save
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                {savingSettings && <Spinner />}
+                {savingSettings ? 'Saving…' : 'Save'}
+              </span>
             </button>
           </div>
         </div>
@@ -773,7 +840,12 @@ function ConfigSettingsPage() {
                   <option value="wholesale">Wholesale</option>
                   <option value="warehouse">Warehouse</option>
                 </select>
-                <button className="btn btn-primary" onClick={addNewBranch} disabled={!canManageBranches}>Add</button>
+                <button className="btn btn-primary" onClick={addNewBranch} disabled={!canManageBranches || addingBranch}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    {addingBranch && <Spinner />}
+                    {addingBranch ? 'Adding…' : 'Add'}
+                  </span>
+                </button>
               </div>
             </div>
             {renderBranchGroup('retail', 'Retail Branches', 'Retail sales locations and outlets.')}

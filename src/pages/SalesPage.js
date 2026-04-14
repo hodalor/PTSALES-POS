@@ -1,19 +1,25 @@
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { useMemo, useState } from 'react';
 import { buildBrandedReceiptHtml, printReceiptHtml } from '../utils/print';
 import { escposReceipt, downloadText } from '../utils/escpos';
 import { formatCurrency } from '../utils/currency';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
+import * as salesApi from '../api/sales';
+import { removeSales } from '../store/salesSlice';
+import { useToast } from '../components/ToastProvider';
 
 function SalesPage() {
+  const dispatch = useDispatch();
   const sales = useSelector(s => s.sales.sales);
   const settings = useSelector(s => s.settings);
   const branches = useSelector(s => s.branches.branches);
   const currentBranchId = useSelector(s => s.settings.currentBranchId);
   const auth = useSelector(s => s.auth);
   const roleLower = String(auth.role || '').toLowerCase();
+  const toast = useToast();
   const canSeeAll = roleLower === 'admin' || roleLower === 'superadmin';
+  const canDeleteSales = roleLower === 'superadmin';
   const [showAll, setShowAll] = useState(false);
   const [saleKind, setSaleKind] = useState('all'); // all, retail, wholesale
   const [tab, setTab] = useState('sales'); // sales, leaderboard, branches
@@ -22,6 +28,8 @@ function SalesPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [selectedBranchId, setSelectedBranchId] = useState('all');
+  const [selectedSaleIds, setSelectedSaleIds] = useState([]);
+  const [bulkAction, setBulkAction] = useState('');
   function branchLabel(sale) {
     return sale.branchName || (branches.find(b => b.id === sale.branchId)?.name || sale.branchId || '-');
   }
@@ -93,6 +101,23 @@ function SalesPage() {
     }
     const html = buildBrandedReceiptHtml({ settings, sale: { ...sale, branchName: branchLabel(sale) } });
     printReceiptHtml(html);
+  }
+
+  async function deleteSelectedSales() {
+    const ids = selectedSaleIds.filter(Boolean);
+    if (ids.length === 0) return;
+    const { confirmDialog } = await import('../utils/dialogs');
+    const ok = await confirmDialog(`Delete ${ids.length} selected sale record(s)?`);
+    if (!ok) return;
+    try {
+      await salesApi.removeMany(ids);
+      dispatch(removeSales(ids));
+      setSelectedSaleIds([]);
+      setBulkAction('');
+      toast.show('Sale records deleted', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to delete sale records'), { type: 'error' });
+    }
   }
   function onExportCsv() {
     const headers = [
@@ -225,9 +250,30 @@ function SalesPage() {
 
       {tab === 'sales' && (
       <>
+      {canDeleteSales && (
+        <div className="card" style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }}>
+            <option value="">Actions</option>
+            <option value="delete">Delete Selected</option>
+          </select>
+          <button className="btn" disabled={bulkAction !== 'delete' || selectedSaleIds.length === 0} onClick={() => void deleteSelectedSales()}>Apply</button>
+        </div>
+      )}
       <table className="table">
         <thead>
           <tr>
+            {canDeleteSales && (
+              <th>
+                <input
+                  type="checkbox"
+                  checked={filteredSales.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).length > 0 && filteredSales.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).every(sale => selectedSaleIds.includes(String(sale.id || sale._id || sale.clientId || '')))}
+                  onChange={e => {
+                    const pageIds = filteredSales.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map(sale => String(sale.id || sale._id || sale.clientId || '')).filter(Boolean);
+                    setSelectedSaleIds(prev => e.target.checked ? [...new Set([...prev, ...pageIds])] : prev.filter(id => !pageIds.includes(id)));
+                  }}
+                />
+              </th>
+            )}
             <th align="left">Date</th>
             <th align="left">Branch</th>
             <th align="left">Type</th>
@@ -241,6 +287,15 @@ function SalesPage() {
         <tbody>
           {filteredSales.slice((page-1)*pageSize, (page-1)*pageSize + pageSize).map(sale => (
             <tr key={sale.id}>
+              {canDeleteSales && (
+                <td>
+                  <input
+                    type="checkbox"
+                    checked={selectedSaleIds.includes(String(sale.id || sale._id || sale.clientId || ''))}
+                    onChange={e => setSelectedSaleIds(prev => e.target.checked ? [...new Set([...prev, String(sale.id || sale._id || sale.clientId || '')])] : prev.filter(id => id !== String(sale.id || sale._id || sale.clientId || '')))}
+                  />
+                </td>
+              )}
               <td>{new Date(sale.created_at).toLocaleString()}</td>
               <td>{branchLabel(sale)}</td>
               <td>{String(sale.posType || 'retail') === 'wholesale' ? 'Wholesale' : 'Retail'}</td>

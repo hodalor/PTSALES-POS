@@ -25,9 +25,13 @@ const salesSlice = createSlice({
         const id = sale?.id || sale?._id || nanoid();
         return { payload: { ...sale, id: String(id) } };
       }
+    },
+    removeSales(state, action) {
+      const ids = new Set((Array.isArray(action.payload) ? action.payload : []).map(String));
+      state.sales = state.sales.filter(sale => !ids.has(String(sale?.id || sale?._id || sale?.clientId || '')));
     }
   }
 });
 
-export const { setSales, recordSale } = salesSlice.actions;
+export const { setSales, recordSale, removeSales } = salesSlice.actions;
 export default salesSlice.reducer;

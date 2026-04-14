@@ -13,7 +13,7 @@ import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import Modal from '../components/Modal';
 import { approveTransfer, createTransferRequest, rejectTransfer, setTransferRequests } from '../store/transfersSlice';
-import { removeEntry as removeAuditEntry } from '../store/auditSlice';
+import { removeEntries as removeAuditEntries } from '../store/auditSlice';
 
 function TransfersPage() {
   const products = useSelector(s => s.products.products);
@@ -66,6 +66,8 @@ function TransfersPage() {
   const canWorkflowDirector = roleLower === 'superadmin' || roleLower === 'admin' || roleLower === 'director' || has('approve_wholesale_director');
   const canWorkflowManager = roleLower === 'superadmin' || roleLower === 'admin' || roleLower === 'manager' || has('approve_wholesale_manager');
   const canDeleteRecords = roleLower === 'superadmin';
+  const [selectedRecordIds, setSelectedRecordIds] = useState([]);
+  const [bulkAction, setBulkAction] = useState('');
   const assigned = auth.user?.assignedBranches || 'all';
   const branchOptions = useMemo(() => {
     if (roleLower === 'superadmin' || roleLower === 'admin' || assigned === 'all') return branches;
@@ -224,19 +226,20 @@ function TransfersPage() {
     setSaving(false);
   }
 
-  async function deleteRecord(entry) {
-    const recordId = String(entry?._id || entry?.id || '');
-    if (!recordId) return;
+  async function deleteSelectedRecords() {
+    const ids = selectedRecordIds.filter(Boolean);
+    if (ids.length === 0) return;
     const { confirmDialog } = await import('../utils/dialogs');
-    const ok = await confirmDialog('Delete this transfer record?');
+    const ok = await confirmDialog(`Delete ${ids.length} selected transfer record(s)?`);
     if (!ok) return;
     try {
-      if (entry?._id) await auditsApi.remove(entry._id);
-      dispatch(removeAuditEntry(recordId));
-      if (auditDetail && String(auditDetail._id || auditDetail.id || '') === recordId) setAuditDetail(null);
-      toast.show('Transfer record deleted', { type: 'success' });
+      await auditsApi.removeMany(ids);
+      dispatch(removeAuditEntries(ids));
+      setSelectedRecordIds([]);
+      setBulkAction('');
+      toast.show('Transfer records deleted', { type: 'success' });
     } catch (e) {
-      toast.show(String(e?.message || 'Failed to delete transfer record'), { type: 'error' });
+      toast.show(String(e?.message || 'Failed to delete transfer records'), { type: 'error' });
     }
   }
 
@@ -638,6 +641,15 @@ function TransfersPage() {
           <div style={{ alignSelf: 'end', display: 'flex', gap: 6 }}>
             <button className="btn" onClick={onExportCsv}>Export CSV</button>
             <button className="btn" onClick={onExportPdf}>Export PDF</button>
+            {canDeleteRecords && (
+              <>
+                <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }}>
+                  <option value="">Actions</option>
+                  <option value="delete">Delete Selected</option>
+                </select>
+                <button className="btn" disabled={bulkAction !== 'delete' || selectedRecordIds.length === 0} onClick={() => void deleteSelectedRecords()}>Apply</button>
+              </>
+            )}
           </div>
         </div>
         <h2 className="section-title">Recent Transfers</h2>
@@ -650,7 +662,15 @@ function TransfersPage() {
               <th align="left">From → To</th>
               <th align="left">Qty</th>
               <th align="left">Remark</th>
-              {canDeleteRecords && <th align="left"></th>}
+              {canDeleteRecords && (
+                <th align="left">
+                  <input
+                    type="checkbox"
+                    checked={transfers.length > 0 && transfers.every(entry => selectedRecordIds.includes(String(entry._id || entry.id || '')))}
+                    onChange={e => setSelectedRecordIds(e.target.checked ? transfers.map(entry => String(entry._id || entry.id || '')).filter(Boolean) : [])}
+                  />
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -668,7 +688,12 @@ function TransfersPage() {
                   <td>{e.remark || '—'}</td>
                   {canDeleteRecords && (
                     <td>
-                      <button className="btn" onClick={(evt) => { evt.stopPropagation(); void deleteRecord(e); }}>Delete</button>
+                      <input
+                        type="checkbox"
+                        checked={selectedRecordIds.includes(String(e._id || e.id || ''))}
+                        onClick={evt => evt.stopPropagation()}
+                        onChange={evt => setSelectedRecordIds(prev => evt.target.checked ? [...new Set([...prev, String(e._id || e.id || '')])] : prev.filter(id => id !== String(e._id || e.id || '')))}
+                      />
                     </td>
                   )}
                 </tr>

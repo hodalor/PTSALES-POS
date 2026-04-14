@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { exportCsv, exportTablePdf } from '../utils/exporters';
 import * as auditsApi from '../api/audits';
-import { removeEntry as removeAuditEntry } from '../store/auditSlice';
+import { removeEntries as removeAuditEntries } from '../store/auditSlice';
 import { useToast } from '../components/ToastProvider';
 
 function StockRecordsPage() {
@@ -19,6 +19,8 @@ function StockRecordsPage() {
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [selectedRecordIds, setSelectedRecordIds] = useState([]);
+  const [bulkAction, setBulkAction] = useState('');
   const roleLower = String(auth.role || '').toLowerCase();
   const canDeleteRecords = roleLower === 'superadmin';
   const assigned = auth.user?.assignedBranches || 'all';
@@ -94,18 +96,20 @@ function StockRecordsPage() {
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const pageRows = rows.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
 
-  async function deleteRecord(entry) {
-    const recordId = String(entry?._id || entry?.id || '');
-    if (!recordId) return;
+  async function deleteSelectedRecords() {
+    const ids = selectedRecordIds.filter(Boolean);
+    if (ids.length === 0) return;
     const { confirmDialog } = await import('../utils/dialogs');
-    const ok = await confirmDialog('Delete this stock record?');
+    const ok = await confirmDialog(`Delete ${ids.length} selected stock record(s)?`);
     if (!ok) return;
     try {
-      if (entry?._id) await auditsApi.remove(entry._id);
-      dispatch(removeAuditEntry(recordId));
-      toast.show('Stock record deleted', { type: 'success' });
+      await auditsApi.removeMany(ids);
+      dispatch(removeAuditEntries(ids));
+      setSelectedRecordIds([]);
+      setBulkAction('');
+      toast.show('Stock records deleted', { type: 'success' });
     } catch (e) {
-      toast.show(String(e?.message || 'Failed to delete stock record'), { type: 'error' });
+      toast.show(String(e?.message || 'Failed to delete stock records'), { type: 'error' });
     }
   }
 
@@ -151,6 +155,15 @@ function StockRecordsPage() {
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M6 4h12v16H6z" stroke="currentColor" strokeWidth="2"/><path d="M9 8h6M9 12h6M9 16h4" stroke="currentColor" strokeWidth="2"/></svg>
             Export PDF
           </button>
+          {canDeleteRecords && (
+            <>
+              <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }}>
+                <option value="">Actions</option>
+                <option value="delete">Delete Selected</option>
+              </select>
+              <button className="btn" disabled={bulkAction !== 'delete' || selectedRecordIds.length === 0} onClick={() => void deleteSelectedRecords()}>Apply</button>
+            </>
+          )}
         </div>
       </div>
       <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8, marginBottom: 8 }}>
@@ -197,7 +210,15 @@ function StockRecordsPage() {
               <th align="left">Variant</th>
               <th align="left">Delta</th>
               <th align="left">Remark</th>
-              {canDeleteRecords && <th align="left"></th>}
+              {canDeleteRecords && (
+                <th align="left">
+                  <input
+                    type="checkbox"
+                    checked={pageRows.length > 0 && pageRows.every(entry => selectedRecordIds.includes(String(entry._id || entry.id || '')))}
+                    onChange={e => setSelectedRecordIds(e.target.checked ? pageRows.map(entry => String(entry._id || entry.id || '')).filter(Boolean) : [])}
+                  />
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -214,7 +235,11 @@ function StockRecordsPage() {
                 <td>{r.remark || '—'}</td>
                 {canDeleteRecords && (
                   <td>
-                    <button className="btn" onClick={() => void deleteRecord(r)}>Delete</button>
+                    <input
+                      type="checkbox"
+                      checked={selectedRecordIds.includes(String(r._id || r.id || ''))}
+                      onChange={e => setSelectedRecordIds(prev => e.target.checked ? [...new Set([...prev, String(r._id || r.id || '')])] : prev.filter(id => id !== String(r._id || r.id || '')))}
+                    />
                   </td>
                 )}
               </tr>

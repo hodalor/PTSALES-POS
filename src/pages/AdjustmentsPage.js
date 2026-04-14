@@ -12,7 +12,7 @@ import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import Modal from '../components/Modal';
 import { promptDialog } from '../utils/dialogs';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
-import { removeEntry as removeAuditEntry } from '../store/auditSlice';
+import { removeEntries as removeAuditEntries } from '../store/auditSlice';
 
 function AdjustmentsPage() {
   const products = useSelector(s => s.products.products);
@@ -64,6 +64,8 @@ function AdjustmentsPage() {
   const canAdjust = (['admin','manager','inventory staff'].includes(roleLower)) || has('add_adjustments');
   const canApprove = (['admin','manager','superadmin'].includes(roleLower)) || has('approve_adjustments');
   const canDeleteRecords = roleLower === 'superadmin';
+  const [selectedRecordIds, setSelectedRecordIds] = useState([]);
+  const [bulkAction, setBulkAction] = useState('');
   const selectedProduct = useMemo(() => products.find(p => p.id === productId) || null, [productId, products]);
   const selectedTrackType = String(selectedProduct?.trackType || 'quantity');
   const serializedEntries = useMemo(() => String(serializedEntriesText || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
@@ -173,18 +175,20 @@ function AdjustmentsPage() {
     }
   }
 
-  async function deleteRecord(entry) {
-    const recordId = String(entry?._id || entry?.id || '');
-    if (!recordId) return;
+  async function deleteSelectedRecords() {
+    const ids = selectedRecordIds.filter(Boolean);
+    if (ids.length === 0) return;
     const { confirmDialog } = await import('../utils/dialogs');
-    const ok = await confirmDialog('Delete this adjustment record?');
+    const ok = await confirmDialog(`Delete ${ids.length} selected adjustment record(s)?`);
     if (!ok) return;
     try {
-      if (entry?._id) await auditsApi.remove(entry._id);
-      dispatch(removeAuditEntry(recordId));
-      toast.show('Adjustment record deleted', { type: 'success' });
+      await auditsApi.removeMany(ids);
+      dispatch(removeAuditEntries(ids));
+      setSelectedRecordIds([]);
+      setBulkAction('');
+      toast.show('Adjustment records deleted', { type: 'success' });
     } catch (e) {
-      toast.show(String(e?.message || 'Failed to delete adjustment record'), { type: 'error' });
+      toast.show(String(e?.message || 'Failed to delete adjustment records'), { type: 'error' });
     }
   }
 
@@ -577,6 +581,15 @@ function AdjustmentsPage() {
           <div style={{ alignSelf: 'end', display: 'flex', gap: 6 }}>
             <button className="btn" onClick={onExportCsv}>Export CSV</button>
             <button className="btn" onClick={onExportPdf}>Export PDF</button>
+            {canDeleteRecords && (
+              <>
+                <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }}>
+                  <option value="">Actions</option>
+                  <option value="delete">Delete Selected</option>
+                </select>
+                <button className="btn" disabled={bulkAction !== 'delete' || selectedRecordIds.length === 0} onClick={() => void deleteSelectedRecords()}>Apply</button>
+              </>
+            )}
           </div>
         </div>
         <h2 className="section-title">Recent Adjustments</h2>
@@ -591,7 +604,15 @@ function AdjustmentsPage() {
               <th align="left">Delta</th>
               <th align="left">Type</th>
               <th align="left">Remark</th>
-              {canDeleteRecords && <th align="left"></th>}
+              {canDeleteRecords && (
+                <th align="left">
+                  <input
+                    type="checkbox"
+                    checked={rows.length > 0 && rows.every(entry => selectedRecordIds.includes(String(entry._id || entry.id || '')))}
+                    onChange={e => setSelectedRecordIds(e.target.checked ? rows.map(entry => String(entry._id || entry.id || '')).filter(Boolean) : [])}
+                  />
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -607,7 +628,11 @@ function AdjustmentsPage() {
                 <td>{r.remark || '—'}</td>
                 {canDeleteRecords && (
                   <td>
-                    <button className="btn" onClick={() => void deleteRecord(r)}>Delete</button>
+                    <input
+                      type="checkbox"
+                      checked={selectedRecordIds.includes(String(r._id || r.id || ''))}
+                      onChange={evt => setSelectedRecordIds(prev => evt.target.checked ? [...new Set([...prev, String(r._id || r.id || '')])] : prev.filter(id => id !== String(r._id || r.id || '')))}
+                    />
                   </td>
                 )}
               </tr>

@@ -8,6 +8,9 @@ function SerializedInventoryPage() {
   const toast = useToast();
   const products = useSelector(s => s.products.products || []);
   const branches = useSelector(s => s.branches.branches || []);
+  const auth = useSelector(s => s.auth);
+  const roleLower = String(auth?.role || '').toLowerCase();
+  const canDeleteUnits = roleLower === 'superadmin';
   const [productId, setProductId] = useState('');
   const [branchId, setBranchId] = useState('');
   const [status, setStatus] = useState('');
@@ -19,6 +22,8 @@ function SerializedInventoryPage() {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkAction, setBulkAction] = useState('');
 
   const productNameById = useMemo(() => new Map(products.map(product => [String(product.id), product.name])), [products]);
   const branchNameById = useMemo(() => new Map(branches.map(branch => [String(branch.id), branch.name])), [branches]);
@@ -71,6 +76,24 @@ function SerializedInventoryPage() {
     return () => { alive = false; };
   }, [branchId, debouncedQuery, inventoryType, page, pageSize, productId, status, toast]);
 
+  async function deleteSelectedUnits() {
+    const ids = selectedIds.filter(Boolean);
+    if (ids.length === 0) return;
+    const { confirmDialog } = await import('../utils/dialogs');
+    const ok = await confirmDialog(`Delete ${ids.length} selected serialized unit(s)?`);
+    if (!ok) return;
+    try {
+      await productUnitsApi.removeManyProductUnits(ids);
+      setRows(prev => prev.filter(row => !ids.includes(String(row._id))));
+      setSelectedIds([]);
+      setBulkAction('');
+      setTotal(prev => Math.max(0, Number(prev || 0) - ids.length));
+      toast.show('Serialized units deleted', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to delete serialized units'), { type: 'error' });
+    }
+  }
+
   return (
     <div style={{ padding: 16, display: 'grid', gap: 12 }}>
       <div className="card">
@@ -116,12 +139,30 @@ function SerializedInventoryPage() {
           </select>
         </label>
       </div>
+      {canDeleteUnits && (
+        <div className="card" style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select className="select" value={bulkAction} onChange={e => setBulkAction(e.target.value)} style={{ width: 180 }}>
+            <option value="">Actions</option>
+            <option value="delete">Delete Selected</option>
+          </select>
+          <button className="btn" disabled={bulkAction !== 'delete' || selectedIds.length === 0} onClick={() => void deleteSelectedUnits()}>Apply</button>
+        </div>
+      )}
       <div className="card">
         <div style={{ color: '#64748b', marginBottom: 8 }}>Total Units: {total}</div>
         <div style={{ overflowX: 'auto' }}>
           <table className="table">
             <thead>
               <tr>
+                {canDeleteUnits && (
+                  <th>
+                    <input
+                      type="checkbox"
+                      checked={rows.length > 0 && rows.every(row => selectedIds.includes(String(row._id)))}
+                      onChange={e => setSelectedIds(e.target.checked ? rows.map(row => String(row._id)).filter(Boolean) : [])}
+                    />
+                  </th>
+                )}
                 <th align="left">Product</th>
                 <th align="left">IMEI</th>
                 <th align="left">Serial</th>
@@ -134,6 +175,15 @@ function SerializedInventoryPage() {
             <tbody>
               {rows.map(row => (
                 <tr key={row._id}>
+                  {canDeleteUnits && (
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(String(row._id))}
+                        onChange={e => setSelectedIds(prev => e.target.checked ? [...new Set([...prev, String(row._id)])] : prev.filter(id => id !== String(row._id)))}
+                      />
+                    </td>
+                  )}
                   <td>{productNameById.get(String(row.productId)) || row.productId}</td>
                   <td>{row.imei || '—'}</td>
                   <td>{row.serialNumber || '—'}</td>
@@ -143,8 +193,8 @@ function SerializedInventoryPage() {
                   <td>{row.updatedAt ? new Date(row.updatedAt).toLocaleString() : '—'}</td>
                 </tr>
               ))}
-              {!loading && rows.length === 0 && <tr><td colSpan="7" style={{ padding: 12, color: '#64748b' }}>No serialized units found</td></tr>}
-              {loading && <tr><td colSpan="7" style={{ padding: 12, color: '#64748b' }}>Loading…</td></tr>}
+              {!loading && rows.length === 0 && <tr><td colSpan={canDeleteUnits ? 8 : 7} style={{ padding: 12, color: '#64748b' }}>No serialized units found</td></tr>}
+              {loading && <tr><td colSpan={canDeleteUnits ? 8 : 7} style={{ padding: 12, color: '#64748b' }}>Loading…</td></tr>}
             </tbody>
           </table>
         </div>
