@@ -14,7 +14,7 @@ import * as productsApi from './api/products';
 import * as suppliersApi from './api/suppliers';
 import * as customersApi from './api/customers';
 import * as branchesApi from './api/branches';
-import { setProducts } from './store/productsSlice';
+import { setCategories as setProductCategories, setProducts } from './store/productsSlice';
 import { setSuppliers } from './store/suppliersSlice';
 import { setCustomers } from './store/customersSlice';
 import { setBranches } from './store/branchesSlice';
@@ -208,6 +208,7 @@ function App() {
         const remote = await settingsApi.get();
         if (remote && Object.keys(remote).length > 0) {
           dispatch(setAllSettings(remote));
+          if (Array.isArray(remote.productCategories)) dispatch(setProductCategories(remote.productCategories));
         } else {
           let snapshot = null;
           try {

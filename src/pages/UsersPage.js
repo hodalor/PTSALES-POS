@@ -43,6 +43,7 @@ const ALL_GRANTS = [
   { key: 'view_cashdrawer', label: 'Cash Drawer' },
   { key: 'view_users', label: 'Users' },
   { key: 'view_config', label: 'Config' },
+  { key: 'manage_categories', label: 'Config: Manage Categories' },
   { key: 'view_audit', label: 'Audit Log' }
 ];
 const ALL_GRANTS_KEYS = ALL_GRANTS.map(g => g.key);

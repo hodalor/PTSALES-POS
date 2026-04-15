@@ -177,10 +177,21 @@ const productsSlice = createSlice({
       p[stockField][branchId] = Math.max(0, cur + delta);
     },
     addCategory(state, action) {
-      if (!state.categories.includes(action.payload)) state.categories.push(action.payload);
+      const value = String(action.payload || '').trim();
+      if (!value) return;
+      if (!state.categories.includes(value)) state.categories.push(value);
+    },
+    setCategories(state, action) {
+      const list = Array.isArray(action.payload) ? action.payload.map(v => String(v || '').trim()).filter(Boolean) : [];
+      state.categories = Array.from(new Set(list));
+    },
+    removeCategory(state, action) {
+      const value = String(action.payload || '').trim();
+      if (!value) return;
+      state.categories = state.categories.filter(c => String(c || '').trim() !== value);
     }
   }
 });
 
-export const { setProducts, mergeProducts, addProduct, updateProduct, removeProduct, setStock, adjustStock, addCategory } = productsSlice.actions;
+export const { setProducts, mergeProducts, addProduct, updateProduct, removeProduct, setStock, adjustStock, addCategory, setCategories, removeCategory } = productsSlice.actions;
 export default productsSlice.reducer;

@@ -1,7 +1,9 @@
 import { useDispatch, useSelector } from 'react-redux';
 import { setAppName, setFooterText, setCurrentBranch, setReceiptHeader, setReceiptFooter, setBusinessPhone, setBusinessWebsite, setBusinessTpin, setReceiptQrBaseUrl, setInvoicePrefix, setNextInvoiceNumber, setWholesaleInvoicePrefix, setNextWholesaleInvoiceNumber, setWarehouseInvoicePrefix, setNextWarehouseInvoiceNumber, setReceiptPrefix, setNextReceiptNumber, setDrawerOpenOnCash, setTaxRate, setCurrencyCode, setCurrencySymbol, setCurrencyPosition, setRefreshIntervalSec, addCurrency, removeCurrency, setActiveCurrency, setLoyaltyEnabled, setLoyaltyEarnAmount, setLoyaltyEarnPoints, setLoyaltyRedeemValue, setLoyaltyMinRedeemPoints, setLoyaltyMaxRedeemPercent, setClientAppName, setClientLogoUrl, setInvoiceCompanyAddress, setInvoiceFooter, setInvoiceDeclaration, setInvoiceSignatoryLabel, setInvoiceTitle, setInvoiceWordsLabel, setInvoiceGeneratedNote, setInvoiceNumberDigits, setInvoicePaidStampEnabled, setInvoicePaidStampLabel, setInvoicePaidStampThankYou, setInvoicePaidStampShowDate, setInvoicePaidStampColor, setReceiptBrandName, setAllSettings } from '../store/settingsSlice';
 import { addBranch, removeBranch, updateBranch } from '../store/branchesSlice';
+import { addCategory, removeCategory, setCategories as setProductCategories, updateProduct as updateProductState } from '../store/productsSlice';
 import * as branchesApi from '../api/branches';
+import * as productsApi from '../api/products';
 import { useEffect, useRef, useState } from 'react';
 import { useToast } from '../components/ToastProvider';
 import { addAudit } from '../store/auditSlice';
@@ -15,7 +17,10 @@ function ConfigSettingsPage() {
   const dispatch = useDispatch();
   const settings = useSelector(s => s.settings);
   const branches = useSelector(s => s.branches.branches);
+  const products = useSelector(s => s.products.products || []);
+  const storeCategories = useSelector(s => s.products.categories || []);
   const auth = useSelector(s => s.auth);
+  const authGrants = Array.isArray(auth.grants) ? auth.grants : [];
   const [branchName, setBranchName] = useState('');
   const [branchCode, setBranchCode] = useState('');
   const [branchType, setBranchType] = useState('retail');
@@ -25,6 +30,8 @@ function ConfigSettingsPage() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [addingBranch, setAddingBranch] = useState(false);
   const [removingBranchId, setRemovingBranchId] = useState('');
+  const [newProductCategory, setNewProductCategory] = useState('');
+  const [savingCategory, setSavingCategory] = useState(false);
   const toast = useToast();
   const initialTaxRef = useRef(settings.taxRate);
   const initialSettingsRef = useRef(settings || {});
@@ -33,8 +40,11 @@ function ConfigSettingsPage() {
   const roleLower = String(auth.role || '').toLowerCase();
   const canManageBranches = roleLower === 'admin' || roleLower === 'superadmin';
   const isSuperAdmin = roleLower === 'superadmin';
+  const canManageCategories = isSuperAdmin || authGrants.includes('manage_categories');
   const offlineBackupAllowed = isOfflineBackupEnabled(settings);
   const setSetting = (key, value) => dispatch(setAllSettings({ ...(settings || {}), [key]: value }));
+  const configuredCategories = Array.isArray(settings?.productCategories) ? settings.productCategories : [];
+  const productCategories = Array.from(new Set([...(configuredCategories || []), ...(storeCategories || []), ...products.map(p => String(p?.category || '').trim()).filter(Boolean)]));
   const [apiBase, setApiBaseState] = useState(() => {
     try { return getApiBase(); } catch { return ''; }
   });
@@ -55,6 +65,77 @@ function ConfigSettingsPage() {
         </path>
       </svg>
     );
+  }
+
+  async function persistProductCategories(nextCategories) {
+    const clean = Array.from(new Set((Array.isArray(nextCategories) ? nextCategories : []).map(v => String(v || '').trim()).filter(Boolean)));
+    dispatch(setProductCategories(clean));
+    dispatch(setAllSettings({ ...(settings || {}), productCategories: clean }));
+    if (!navigator.onLine) {
+      if (!offlineBackupAllowed) throw new Error('Offline: connect internet and try again.');
+      await enqueueHttp({ collection: 'settings', label: 'Categories', path: '/api/settings', method: 'PUT', body: { productCategories: clean } });
+      return;
+    }
+    const saved = await settingsApi.save({ productCategories: clean });
+    dispatch(setAllSettings(saved));
+    dispatch(setProductCategories(Array.isArray(saved?.productCategories) ? saved.productCategories : clean));
+  }
+
+  async function addProductCategoryFromConfig() {
+    if (!canManageCategories) {
+      toast.show('Not allowed to manage categories', { type: 'error' });
+      return;
+    }
+    const value = String(newProductCategory || '').trim();
+    if (!value) return;
+    if (productCategories.includes(value)) {
+      setNewProductCategory('');
+      return;
+    }
+    setSavingCategory(true);
+    try {
+      dispatch(addCategory(value));
+      await persistProductCategories([...productCategories, value]);
+      setNewProductCategory('');
+      toast.show('Category added', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to add category'), { type: 'error' });
+    } finally {
+      setSavingCategory(false);
+    }
+  }
+
+  async function removeProductCategoryFromConfig(categoryName) {
+    if (!canManageCategories) {
+      toast.show('Not allowed to manage categories', { type: 'error' });
+      return;
+    }
+    const value = String(categoryName || '').trim();
+    if (!value) return;
+    const { confirmDialog } = await import('../utils/dialogs');
+    const ok = await confirmDialog(`Delete category "${value}"? Products using it will be moved to Uncategorized.`);
+    if (!ok) return;
+    setSavingCategory(true);
+    try {
+      dispatch(removeCategory(value));
+      const impacted = (products || []).filter(p => String(p?.category || '').trim() === value);
+      impacted.forEach(p => dispatch(updateProductState({ id: p.id || p._id, category: '' })));
+      const next = productCategories.filter(c => String(c || '').trim() !== value);
+      await persistProductCategories(next);
+      if (!navigator.onLine) {
+        if (!offlineBackupAllowed) throw new Error('Offline: connect internet and try again.');
+        for (const p of impacted) {
+          await enqueueHttp({ collection: 'products', label: 'Product category update', path: `/api/products/${encodeURIComponent(p.id || p._id)}`, method: 'PUT', body: { category: '' } });
+        }
+      } else {
+        await Promise.all(impacted.map(p => productsApi.update(p.id || p._id, { category: '' }).catch(() => null)));
+      }
+      toast.show('Category removed', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to remove category'), { type: 'error' });
+    } finally {
+      setSavingCategory(false);
+    }
   }
 
   function addNewBranch() {
@@ -222,7 +303,7 @@ function ConfigSettingsPage() {
           <OfflineQueueIndicator collection="branches" label="Branches queued" />
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 16, alignItems: 'start' }}>
         <div style={{ display: 'grid', gap: 16 }}>
           <div className="card">
             <h2 className="section-title">App Identity</h2>
@@ -804,53 +885,95 @@ function ConfigSettingsPage() {
             </button>
           </div>
         </div>
-        <div className="card">
-          <h2 className="section-title">Branches</h2>
-          <div style={{ display: 'grid', gap: 12 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
-              <div className="card" style={{ padding: 16 }}>
-                <div style={{ color: '#64748b', fontSize: 12 }}>Retail Branches</div>
-                <div style={{ fontSize: 28, fontWeight: 800 }}>{branches.filter(b => String(b.branchType || 'retail').toLowerCase() === 'retail').length}</div>
-              </div>
-              <div className="card" style={{ padding: 16 }}>
-                <div style={{ color: '#64748b', fontSize: 12 }}>Distribution Shops</div>
-                <div style={{ fontSize: 28, fontWeight: 800, color: '#1d4ed8' }}>{branches.filter(b => String(b.branchType || 'retail').toLowerCase() === 'wholesale').length}</div>
-              </div>
-              <div className="card" style={{ padding: 16 }}>
-                <div style={{ color: '#64748b', fontSize: 12 }}>Warehouses</div>
-                <div style={{ fontSize: 28, fontWeight: 800, color: '#6d28d9' }}>{branches.filter(b => String(b.branchType || 'retail').toLowerCase() === 'warehouse').length}</div>
-              </div>
+        <div style={{ display: 'grid', gap: 16 }}>
+          <div className="card">
+            <h2 className="section-title">Manage Categories</h2>
+            <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>
+              Add or remove product categories here. SuperAdmin or users with `manage_categories` grant can modify.
             </div>
-            <div className="card" style={{ padding: 16 }}>
-              <label>
-                Current Branch
-                <select className="select" value={settings.currentBranchId} onChange={e => dispatch(setCurrentBranch(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }}>
-                  {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                </select>
-              </label>
-            </div>
-            <div className="card" style={{ padding: 16 }}>
-              <h3 className="section-title" style={{ margin: '0 0 8px 0' }}>Create Location</h3>
-              <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>Create retail branches, wholesale shops, or warehouse locations from here.</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8 }}>
-                <input className="input" placeholder="Branch name" value={branchName} onChange={e => setBranchName(e.target.value)} disabled={!canManageBranches} />
-                <input className="input" placeholder="Code" value={branchCode} onChange={e => setBranchCode(e.target.value)} disabled={!canManageBranches} />
-                <select className="select" value={branchType} onChange={e => setBranchType(e.target.value)} disabled={!canManageBranches}>
-                  <option value="retail">Retail</option>
-                  <option value="wholesale">Wholesale</option>
-                  <option value="warehouse">Warehouse</option>
-                </select>
-                <button className="btn btn-primary" onClick={addNewBranch} disabled={!canManageBranches || addingBranch}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    {addingBranch && <Spinner />}
-                    {addingBranch ? 'Adding…' : 'Add'}
-                  </span>
-                </button>
+            {!canManageCategories && (
+              <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>
+                You can view categories, but cannot modify them without `manage_categories`.
               </div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginBottom: 10 }}>
+              <input
+                className="input"
+                placeholder="New category"
+                value={newProductCategory}
+                onChange={e => setNewProductCategory(e.target.value)}
+                disabled={savingCategory || !canManageCategories}
+              />
+              <button className="btn btn-primary" onClick={() => void addProductCategoryFromConfig()} disabled={savingCategory || !canManageCategories || !newProductCategory.trim()}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {savingCategory && <Spinner />}
+                  {savingCategory ? 'Saving…' : 'Add'}
+                </span>
+              </button>
             </div>
-            {renderBranchGroup('retail', 'Retail Branches', 'Retail sales locations and outlets.')}
-            {renderBranchGroup('wholesale', 'Wholesale Shops', 'Wholesale-only selling locations and stores.')}
-            {renderBranchGroup('warehouse', 'Warehouses', 'Storage and supply locations without POS.')}
+            <ul>
+              {productCategories.map(cat => (
+                <li key={`right-${cat}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #f1f5f9', padding: '8px 0' }}>
+                  <span>{cat}</span>
+                  <button className="btn" onClick={() => void removeProductCategoryFromConfig(cat)} disabled={savingCategory || !canManageCategories}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {savingCategory && <Spinner />}
+                      Remove
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {productCategories.length === 0 && <li style={{ padding: '8px 0', color: '#64748b' }}>No categories yet.</li>}
+            </ul>
+          </div>
+          <div className="card">
+            <h2 className="section-title">Branches</h2>
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
+                <div className="card" style={{ padding: 16 }}>
+                  <div style={{ color: '#64748b', fontSize: 12 }}>Retail Branches</div>
+                  <div style={{ fontSize: 28, fontWeight: 800 }}>{branches.filter(b => String(b.branchType || 'retail').toLowerCase() === 'retail').length}</div>
+                </div>
+                <div className="card" style={{ padding: 16 }}>
+                  <div style={{ color: '#64748b', fontSize: 12 }}>Distribution Shops</div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: '#1d4ed8' }}>{branches.filter(b => String(b.branchType || 'retail').toLowerCase() === 'wholesale').length}</div>
+                </div>
+                <div className="card" style={{ padding: 16 }}>
+                  <div style={{ color: '#64748b', fontSize: 12 }}>Warehouses</div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: '#6d28d9' }}>{branches.filter(b => String(b.branchType || 'retail').toLowerCase() === 'warehouse').length}</div>
+                </div>
+              </div>
+              <div className="card" style={{ padding: 16 }}>
+                <label>
+                  Current Branch
+                  <select className="select" value={settings.currentBranchId} onChange={e => dispatch(setCurrentBranch(e.target.value))} style={{ display: 'block', width: '100%', marginTop: 6 }}>
+                    {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="card" style={{ padding: 16 }}>
+                <h3 className="section-title" style={{ margin: '0 0 8px 0' }}>Create Location</h3>
+                <div style={{ color: '#64748b', fontSize: 12, marginBottom: 10 }}>Create retail branches, wholesale shops, or warehouse locations from here.</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 8 }}>
+                  <input className="input" placeholder="Branch name" value={branchName} onChange={e => setBranchName(e.target.value)} disabled={!canManageBranches} />
+                  <input className="input" placeholder="Code" value={branchCode} onChange={e => setBranchCode(e.target.value)} disabled={!canManageBranches} />
+                  <select className="select" value={branchType} onChange={e => setBranchType(e.target.value)} disabled={!canManageBranches}>
+                    <option value="retail">Retail</option>
+                    <option value="wholesale">Wholesale</option>
+                    <option value="warehouse">Warehouse</option>
+                  </select>
+                  <button className="btn btn-primary" onClick={addNewBranch} disabled={!canManageBranches || addingBranch}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {addingBranch && <Spinner />}
+                      {addingBranch ? 'Adding…' : 'Add'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+              {renderBranchGroup('retail', 'Retail Branches', 'Retail sales locations and outlets.')}
+              {renderBranchGroup('wholesale', 'Wholesale Shops', 'Wholesale-only selling locations and stores.')}
+              {renderBranchGroup('warehouse', 'Warehouses', 'Storage and supply locations without POS.')}
+            </div>
           </div>
         </div>
       </div>

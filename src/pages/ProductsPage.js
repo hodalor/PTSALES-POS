@@ -1,6 +1,6 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { addProduct, updateProduct, removeProduct, setStock, addCategory } from '../store/productsSlice';
-import { useMemo, useRef, useState } from 'react';
+import { addProduct, updateProduct, removeProduct, setStock, addCategory, setCategories as setProductCategories } from '../store/productsSlice';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatCurrency } from '../utils/currency';
 import { addAudit } from '../store/auditSlice';
 import { useToast } from '../components/ToastProvider';
@@ -9,11 +9,13 @@ import { productSpec } from '../utils/productSpec';
 import * as productsApi from '../api/products';
 import * as stockApi from '../api/stock';
 import * as productUnitsApi from '../api/productUnits';
+import * as settingsApi from '../api/settings';
 import Modal from '../components/Modal';
 import BarcodeScannerModal from '../components/BarcodeScannerModal';
 import { enqueueHttp, isOfflineBackupEnabled } from '../offline/offlineBackup';
 import OfflineQueueIndicator from '../components/OfflineQueueIndicator';
 import { getAllowedPriceTiers, getDisplayPrice, getPreferredPriceTier } from '../utils/priceVisibility';
+import { setAllSettings } from '../store/settingsSlice';
 
 function ProductsPage() {
   const dispatch = useDispatch();
@@ -51,7 +53,13 @@ function ProductsPage() {
   const [price, setPrice] = useState('');
   const [wholesalePrice, setWholesalePrice] = useState('');
   const [agentPrice, setAgentPrice] = useState('');
-  const [category, setCategory] = useState(categories[0] || '');
+  const categoryOptions = useMemo(() => {
+    const fromSettings = Array.isArray(settings?.productCategories) ? settings.productCategories : [];
+    const fromStore = Array.isArray(categories) ? categories : [];
+    const fromProducts = (Array.isArray(products) ? products : []).map(p => String(p?.category || '').trim()).filter(Boolean);
+    return Array.from(new Set([...fromSettings, ...fromStore, ...fromProducts].map(v => String(v || '').trim()).filter(Boolean)));
+  }, [categories, products, settings?.productCategories]);
+  const [category, setCategory] = useState(categoryOptions[0] || '');
   const [newCategory, setNewCategory] = useState('');
   const [initialStock, setInitialStock] = useState(0);
   const [editStockQty, setEditStockQty] = useState(0);
@@ -98,7 +106,7 @@ function ProductsPage() {
 
   function resetForm() {
     setName(''); setSku(''); setPrice(''); setWholesalePrice(''); setAgentPrice('');
-    setCategory(categories[0] || ''); setNewCategory('');
+    setCategory(categoryOptions[0] || ''); setNewCategory('');
     setInitialStock(0); setEditStockQty(0); setLowStock(0); setWholesaleLowStock(0); setWarehouseLowStock(0); setImagePreview('');
     setCostPrice(''); setExpiryDate('');
     setUnitKind('none'); setUnitValue(''); setUnitSymbol('');
@@ -560,12 +568,32 @@ function ProductsPage() {
     }
   }
 
-  function addCat() {
-    if (!newCategory.trim()) return;
-    dispatch(addCategory(newCategory.trim()));
-    setCategory(newCategory.trim());
+  async function addCat() {
+    const value = String(newCategory || '').trim();
+    if (!value) return;
+    dispatch(addCategory(value));
+    setCategory(value);
     setNewCategory('');
+    const current = Array.isArray(settings?.productCategories) ? settings.productCategories : [];
+    if (current.includes(value)) return;
+    const nextCategories = Array.from(new Set([...current, value]));
+    dispatch(setProductCategories(nextCategories));
+    dispatch(setAllSettings({ ...(settings || {}), productCategories: nextCategories }));
+    try {
+      if (!navigator.onLine) {
+        if (!offlineBackupAllowed) return;
+        await enqueueHttp({ collection: 'settings', label: 'Categories', path: '/api/settings', method: 'PUT', body: { productCategories: nextCategories } });
+      } else {
+        const saved = await settingsApi.save({ productCategories: nextCategories });
+        dispatch(setAllSettings(saved));
+        if (Array.isArray(saved?.productCategories)) dispatch(setProductCategories(saved.productCategories));
+      }
+    } catch {}
   }
+
+  useEffect(() => {
+    if (!category && categoryOptions.length > 0) setCategory(categoryOptions[0]);
+  }, [category, categoryOptions]);
 
   const unitSymbolOptions = useMemo(() => {
     if (unitKind === 'volume') return ['mL', 'L'];
@@ -1058,7 +1086,7 @@ function ProductsPage() {
                 <div>
                     <label className="label">Category</label>
                     <select className="select" value={category} onChange={e => setCategory(e.target.value)} style={{ display: 'block', width: '100%' }}>
-                        {categories.map(c => <option key={c}>{c}</option>)}
+                        {categoryOptions.map(c => <option key={c}>{c}</option>)}
                     </select>
                 </div>
                 <div>
