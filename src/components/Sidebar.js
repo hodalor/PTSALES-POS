@@ -52,7 +52,12 @@ function Sidebar({ collapsed }) {
       return false;
     }
     const okGrant = Array.isArray(grant) ? grant.some(has) : has(grant);
-    return okRole || okGrant;
+    const hasAnyGrant = Array.isArray(grants) && grants.length > 0;
+    if (grant) {
+      // Grant-first for users with custom grants; role fallback only for legacy no-grant users.
+      return hasAnyGrant ? okGrant : okRole;
+    }
+    return okRole;
   };
   function toggleGroup(group) {
     setRetailOpen(group === 'retail' ? !retailOpen : false);

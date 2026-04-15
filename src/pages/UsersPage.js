@@ -111,7 +111,7 @@ function UsersPage() {
   useEffect(() => {
     const next = defaultsForRole(role);
     setGrants(canManageAuditGrant ? next : stripAuditGrants(next));
-  }, [role, defaultsForRole]);
+  }, [role, defaultsForRole, canManageAuditGrant]);
   // if editing role changed to SuperAdmin, ensure all grants are checked
   useEffect(() => {
     if (String(editRole || '').toLowerCase() === 'superadmin') {

@@ -18,6 +18,7 @@ function ProtectedRoute({ roles, grant, feature, children }) {
   }
   const isSuper = String(auth.role || '').toLowerCase() === 'superadmin';
   const grants = Array.isArray(auth.grants) ? auth.grants : [];
+  const hasAnyGrant = grants.length > 0;
   function has(g) {
     if (!g) return false;
     if (grants.includes(g)) return true;
@@ -26,8 +27,15 @@ function ProtectedRoute({ roles, grant, feature, children }) {
     return false;
   }
   const hasGrant = Array.isArray(grant) ? grant.some(has) : has(grant);
-  if (!isSuper && !hasGrant && roles && roles.length > 0 && roles.indexOf(auth.role) === -1) {
-    return <Navigate to="/pos" replace />;
+  if (!isSuper) {
+    if (grant) {
+      // Grant-first authorization for users with explicit custom grants.
+      // Keep role fallback only for legacy users that have no grants saved yet.
+      if (hasAnyGrant && !hasGrant) return <Navigate to="/pos" replace />;
+      if (!hasAnyGrant && roles && roles.length > 0 && roles.indexOf(auth.role) === -1) return <Navigate to="/pos" replace />;
+    } else if (roles && roles.length > 0 && roles.indexOf(auth.role) === -1) {
+      return <Navigate to="/pos" replace />;
+    }
   }
   return children;
 }
