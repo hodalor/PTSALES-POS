@@ -21,6 +21,10 @@ function ReportsPage() {
   const auth = useSelector(s => s.auth);
   const roleLower = String(auth.role || '').toLowerCase();
   const actorName = String(auth.user?.name || '').trim();
+  const grants = Array.isArray(auth.grants) ? auth.grants : [];
+  const canSeeRevenue = roleLower === 'superadmin' || grants.includes('view_revenue');
+  const canSeeProfit = roleLower === 'superadmin' || grants.includes('view_profit');
+  const maskedMoney = (value, allow) => allow ? formatCurrency(value, settings) : '******';
 
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -628,7 +632,7 @@ function ReportsPage() {
               </div>
             </div>
             <div style={{ height: 220, marginTop: 8 }}>
-              <Bar data={analytics.cashierBar} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, indexAxis: 'y' }} />
+              <Bar data={analytics.cashierBar} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: !canSeeRevenue ? { callbacks: { label: () => '***' } } : undefined }, indexAxis: 'y' }} />
             </div>
           </div>
           )}
@@ -641,13 +645,13 @@ function ReportsPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
           <div className="card">
             <div style={{ fontWeight: 700, marginBottom: 6 }}>Summary</div>
-            <div className="sp"><span className="muted">Revenue</span><span>{formatCurrency(money.revenue, settings)}</span></div>
-            <div className="sp"><span className="muted">COGS</span><span>{formatCurrency(money.cost, settings)}</span></div>
-            <div className="sp"><span className="muted">Profit</span><span>{formatCurrency(money.profit, settings)}</span></div>
-            <div className="sp"><span className="muted">Margin</span><span>{money.marginPct}%</span></div>
-            <div className="sp"><span className="muted">Expenses</span><span>{formatCurrency(money.expenseTotal, settings)}</span></div>
-            <div className="sp"><strong>Net</strong><strong>{formatCurrency(money.net, settings)}</strong></div>
-            <div className="sp"><span className="muted">Projected (30d)</span><span>{formatCurrency(money.projected30, settings)}</span></div>
+            <div className="sp"><span className="muted">Revenue</span><span>{maskedMoney(money.revenue, canSeeRevenue)}</span></div>
+            <div className="sp"><span className="muted">COGS</span><span>{maskedMoney(money.cost, canSeeProfit)}</span></div>
+            <div className="sp"><span className="muted">Profit</span><span>{maskedMoney(money.profit, canSeeProfit)}</span></div>
+            <div className="sp"><span className="muted">Margin</span><span>{canSeeProfit ? `${money.marginPct}%` : '******'}</span></div>
+            <div className="sp"><span className="muted">Expenses</span><span>{maskedMoney(money.expenseTotal, canSeeRevenue)}</span></div>
+            <div className="sp"><strong>Net</strong><strong>{maskedMoney(money.net, canSeeRevenue)}</strong></div>
+            <div className="sp"><span className="muted">Projected (30d)</span><span>{maskedMoney(money.projected30, canSeeRevenue)}</span></div>
           </div>
 
           <div className="card">
@@ -665,7 +669,7 @@ function ReportsPage() {
                   <tr key={String(r._id || r.id)}>
                     <td>{new Date(r.date).toLocaleDateString()}</td>
                     <td>{r.category}</td>
-                    <td>{formatCurrency(Number(r.amount) || 0, settings)}</td>
+                    <td>{maskedMoney(Number(r.amount) || 0, canSeeRevenue)}</td>
                   </tr>
                 ))}
                 {expenses.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No expenses in range</td></tr>}
@@ -690,7 +694,7 @@ function ReportsPage() {
                       {r.hours.map((v, i) => {
                         const t = heatmap.max > 0 ? v / heatmap.max : 0;
                         const bg = `rgba(14,165,233,${Math.min(0.9, Math.max(0, t))})`;
-                        return <td key={i} title={formatCurrency(v, settings)} style={{ width: 18, height: 18, background: v > 0 ? bg : '#f8fafc', border: '1px solid #eef2f7' }} />;
+                        return <td key={i} title={canSeeRevenue ? formatCurrency(v, settings) : '***'} style={{ width: 18, height: 18, background: v > 0 ? bg : '#f8fafc', border: '1px solid #eef2f7' }} />;
                       })}
                     </tr>
                   ))}

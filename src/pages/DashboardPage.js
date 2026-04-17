@@ -16,6 +16,12 @@ function DashboardPage() {
   const auth = useSelector(s => s.auth);
   const roleLower = String(auth.role || '').toLowerCase();
   const actorName = String(auth.user?.name || '').trim();
+  const grants = Array.isArray(auth.grants) ? auth.grants : [];
+  const canSeeRevenue = roleLower === 'superadmin' || grants.includes('view_revenue');
+  const canSeeProfit = roleLower === 'superadmin' || grants.includes('view_profit');
+  const maskedMoney = (value, allow) => allow ? formatCurrency(value, settings) : '******';
+  const maskedNumber = (value, allow, suffix = '') => allow ? `${value}${suffix}` : '******';
+  const hideRevenueValue = !canSeeRevenue;
   const [heatMode, setHeatMode] = useState('week'); // day, week, month
   const [expenses, setExpenses] = useState([]);
   const [warehousePending, setWarehousePending] = useState(0);
@@ -200,11 +206,22 @@ function DashboardPage() {
     const lineOptions = {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { position: 'bottom' } },
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: hideRevenueValue ? { callbacks: { label: () => '***' } } : undefined
+      },
       interaction: { intersect: false, mode: 'index' },
       scales: { y: { beginAtZero: true } }
     };
-    const barOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, indexAxis: 'y' };
+    const barOptions = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: hideRevenueValue ? { callbacks: { label: () => '***' } } : undefined
+      },
+      indexAxis: 'y'
+    };
     const cashierTop = Object.entries(cashierTotals).sort((a,b)=>b[1]-a[1]).slice(0,6);
     const cashierBar = {
       labels: cashierTop.map(x => x[0]),
@@ -237,7 +254,7 @@ function DashboardPage() {
     for (const r of grid) for (const v of r.hours) max = Math.max(max, v);
 
     return { todayTotal, todayProfit, itemsSold, lineData, paymentBar, doughData, topBar, stackedOptions, lineOptions, barOptions, cashierBar, last30Revenue, last30Profit, last30Cost, marginPct, cashierLeaderboard, topProfitProducts, heatmap: { grid, max } };
-  }, [sales, products, settings.currentBranchId, roleLower, heatMode, actorName]);
+  }, [sales, products, settings.currentBranchId, roleLower, heatMode, actorName, hideRevenueValue]);
 
   const finance = useMemo(() => {
     const expenseTotal = expenses.reduce((s, x) => s + (Number(x.amount) || 0), 0);
@@ -321,7 +338,7 @@ function DashboardPage() {
         </div>
         <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
           <div style={{ color: '#64748b' }}>Today Profit</div>
-          <div style={{ fontSize: 28, fontWeight: 700 }}>{formatCurrency(metrics.todayProfit, settings)}</div>
+          <div style={{ fontSize: 28, fontWeight: 700 }}>{maskedMoney(metrics.todayProfit, canSeeProfit)}</div>
         </div>
         <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
           <div style={{ color: '#64748b' }}>Items Sold</div>
@@ -333,11 +350,11 @@ function DashboardPage() {
         </div>
         <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
           <div style={{ color: '#64748b' }}>30d Margin</div>
-          <div style={{ fontSize: 28, fontWeight: 700 }}>{metrics.marginPct}%</div>
+          <div style={{ fontSize: 28, fontWeight: 700 }}>{maskedNumber(metrics.marginPct, canSeeProfit, '%')}</div>
         </div>
         <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
           <div style={{ color: '#64748b' }}>30d Net Cashflow</div>
-          <div style={{ fontSize: 28, fontWeight: 700 }}>{formatCurrency(finance.net, settings)}</div>
+          <div style={{ fontSize: 28, fontWeight: 700 }}>{maskedMoney(finance.net, canSeeRevenue)}</div>
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
@@ -355,21 +372,21 @@ function DashboardPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginTop: 16 }}>
         <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
           <div style={{ color: '#64748b' }}>30d Revenue</div>
-          <div style={{ fontSize: 22, fontWeight: 800 }}>{formatCurrency(metrics.last30Revenue, settings)}</div>
-          <div style={{ marginTop: 6, color: '#64748b' }}>COGS: {formatCurrency(metrics.last30Cost, settings)}</div>
-          <div style={{ marginTop: 2, color: '#64748b' }}>Profit: {formatCurrency(metrics.last30Profit, settings)}</div>
+          <div style={{ fontSize: 22, fontWeight: 800 }}>{maskedMoney(metrics.last30Revenue, canSeeRevenue)}</div>
+          <div style={{ marginTop: 6, color: '#64748b' }}>COGS: {maskedMoney(metrics.last30Cost, canSeeProfit)}</div>
+          <div style={{ marginTop: 2, color: '#64748b' }}>Profit: {maskedMoney(metrics.last30Profit, canSeeProfit)}</div>
         </div>
         <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
           <div style={{ color: '#64748b' }}>30d Expenses</div>
-          <div style={{ fontSize: 22, fontWeight: 800 }}>{formatCurrency(finance.expenseTotal, settings)}</div>
-          <div style={{ marginTop: 6, color: '#64748b' }}>Projection (30d): {formatCurrency(finance.projected30, settings)}</div>
+          <div style={{ fontSize: 22, fontWeight: 800 }}>{maskedMoney(finance.expenseTotal, canSeeRevenue)}</div>
+          <div style={{ marginTop: 6, color: '#64748b' }}>Projection (30d): {maskedMoney(finance.projected30, canSeeRevenue)}</div>
         </div>
         <div style={{ background: '#fff', padding: 16, borderRadius: 12 }}>
           <div style={{ color: '#64748b' }}>Cashflow</div>
           <div style={{ marginTop: 6, display: 'grid', gap: 4 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Inflow</span><strong>{formatCurrency(metrics.last30Revenue, settings)}</strong></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Outflow</span><strong>{formatCurrency(finance.expenseTotal, settings)}</strong></div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Net</span><strong>{formatCurrency(finance.net, settings)}</strong></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Inflow</span><strong>{maskedMoney(metrics.last30Revenue, canSeeRevenue)}</strong></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Outflow</span><strong>{maskedMoney(finance.expenseTotal, canSeeRevenue)}</strong></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Net</span><strong>{maskedMoney(finance.net, canSeeRevenue)}</strong></div>
           </div>
         </div>
       </div>
@@ -488,7 +505,7 @@ function DashboardPage() {
       <div style={{ background: '#fff', padding: 16, borderRadius: 12, marginTop: 16 }}>
         <h2 style={{ marginTop: 0 }}>Cashier Performance (30d revenue)</h2>
         <div style={{ height: 240 }}>
-          <Bar data={metrics.cashierBar} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }} />
+          <Bar data={metrics.cashierBar} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: hideRevenueValue ? { callbacks: { label: () => '***' } } : undefined } }} />
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
@@ -507,7 +524,7 @@ function DashboardPage() {
                 <tr key={p.key}>
                   <td>{p.name}</td>
                   <td>{p.units}</td>
-                  <td>{formatCurrency(p.profit, settings)}</td>
+                  <td>{maskedMoney(p.profit, canSeeProfit)}</td>
                 </tr>
               ))}
               {metrics.topProfitProducts.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No data</td></tr>}
@@ -528,8 +545,8 @@ function DashboardPage() {
               {metrics.cashierLeaderboard.map(x => (
                 <tr key={x.seller}>
                   <td>{x.seller}</td>
-                  <td>{formatCurrency(x.revenue, settings)}</td>
-                  <td>{formatCurrency(x.profit, settings)}</td>
+                  <td>{maskedMoney(x.revenue, canSeeRevenue)}</td>
+                  <td>{maskedMoney(x.profit, canSeeProfit)}</td>
                 </tr>
               ))}
               {metrics.cashierLeaderboard.length === 0 && <tr><td colSpan="3" style={{ padding: 12, color: '#64748b' }}>No data</td></tr>}
@@ -554,8 +571,8 @@ function DashboardPage() {
                 <tr key={b.branchId}>
                   <td>{b.name}</td>
                   <td>{b.sales}</td>
-                  <td>{formatCurrency(b.revenue, settings)}</td>
-                  <td>{formatCurrency(b.profit, settings)}</td>
+                  <td>{maskedMoney(b.revenue, canSeeRevenue)}</td>
+                  <td>{maskedMoney(b.profit, canSeeProfit)}</td>
                 </tr>
               ))}
               {branchComparison.length === 0 && <tr><td colSpan="4" style={{ padding: 12, color: '#64748b' }}>No data</td></tr>}
