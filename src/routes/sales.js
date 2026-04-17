@@ -31,6 +31,14 @@ r.get('/', async (req, res) => {
   res.json(rows);
 });
 
+r.get('/by-client/:clientId', async (req, res) => {
+  const clientId = String(req.params.clientId || '').trim();
+  if (!clientId) return res.status(400).json({ error: 'Missing clientId' });
+  const row = await Sale.findOne({ clientId });
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  res.json(row);
+});
+
 r.post('/bulk-delete', async (req, res) => {
   const role = String(req.user?.role || '').toLowerCase();
   if (role !== 'superadmin') return res.status(403).json({ error: 'Forbidden' });
