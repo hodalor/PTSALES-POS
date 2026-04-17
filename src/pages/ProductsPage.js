@@ -45,6 +45,8 @@ function ProductsPage() {
   const [modalMode, setModalMode] = useState('none'); // none, add, edit
   const [editingId, setEditingId] = useState(null);
   const [tab, setTab] = useState('catalog'); // catalog, reorder, expiry, profitability
+  const [catalogQuery, setCatalogQuery] = useState('');
+  const [catalogCategoryFilter, setCatalogCategoryFilter] = useState('all');
   const [leadDays, setLeadDays] = useState(7);
 
   // Unified form state
@@ -667,6 +669,18 @@ function ProductsPage() {
     return Array.from(map.values()).sort((a, b) => b.profit - a.profit).slice(0, 20);
   }, [sales, products, currentBranchId]);
 
+  const filteredCatalogProducts = useMemo(() => {
+    const q = String(catalogQuery || '').trim().toLowerCase();
+    return products.filter(p => {
+      const cat = String(p.category || '').trim();
+      if (catalogCategoryFilter !== 'all' && cat !== catalogCategoryFilter) return false;
+      if (!q) return true;
+      return String(p.name || '').toLowerCase().includes(q)
+        || String(p.sku || '').toLowerCase().includes(q)
+        || cat.toLowerCase().includes(q);
+    });
+  }, [products, catalogCategoryFilter, catalogQuery]);
+
   return (
     <div style={{ padding: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -786,6 +800,13 @@ function ProductsPage() {
       {tab === 'catalog' && (
       <div className="card">
         <h2 className="section-title">Catalog</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 220px', gap: 8, marginBottom: 10 }}>
+          <input className="input" placeholder="Search name, SKU, category" value={catalogQuery} onChange={e => setCatalogQuery(e.target.value)} />
+          <select className="select" value={catalogCategoryFilter} onChange={e => setCatalogCategoryFilter(e.target.value)}>
+            <option value="all">All Categories</option>
+            {categoryOptions.map(c => <option key={`flt-${c}`} value={c}>{c}</option>)}
+          </select>
+        </div>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
@@ -802,7 +823,7 @@ function ProductsPage() {
             </tr>
           </thead>
           <tbody>
-            {products.map(p => (
+            {filteredCatalogProducts.map(p => (
               <tr key={p.id || p._id || p.sku} style={{ borderTop: '1px solid #e2e8f0' }}>
                 <td>
                   {p.image ? <img src={p.image} alt={p.name} className="thumb" /> : <span style={{ color: '#94a3b8' }}>—</span>}
@@ -927,7 +948,7 @@ function ProductsPage() {
                 </td>
               </tr>
             ))}
-            {products.map(p => (
+            {filteredCatalogProducts.map(p => (
               (openStockFor === (p.id || p._id || p.sku) && Array.isArray(p.variants) && p.variants.length > 0) ? (
                 <tr key={`${p.id || p._id || p.sku}-variants`} style={{ background: '#fbfdff' }}>
                   <td colSpan="10">

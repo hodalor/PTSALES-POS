@@ -18,6 +18,7 @@ function SalesPage() {
   const currentBranchId = useSelector(s => s.settings.currentBranchId);
   const auth = useSelector(s => s.auth);
   const roleLower = String(auth.role || '').toLowerCase();
+  const actorName = String(auth.user?.name || '').trim();
   const toast = useToast();
   const canSeeAll = roleLower === 'admin' || roleLower === 'superadmin';
   const canDeleteSales = roleLower === 'superadmin';
@@ -37,9 +38,10 @@ function SalesPage() {
   }
   const filteredByBranch = useMemo(() => {
     let list = (canSeeAll && showAll) ? sales : sales.filter(sale => sale.branchId === currentBranchId);
+    if (roleLower === 'cashier') list = list.filter(sale => String(sale.sellerName || '').trim() === actorName);
     if (selectedBranchId !== 'all') list = list.filter(sale => String(sale.branchId || '') === String(selectedBranchId));
     return list;
-  }, [canSeeAll, currentBranchId, sales, selectedBranchId, showAll]);
+  }, [canSeeAll, currentBranchId, sales, selectedBranchId, showAll, roleLower, actorName]);
   const filteredSales = useMemo(() => {
     let list = filteredByBranch;
     if (dateFrom) {

@@ -15,6 +15,7 @@ function DashboardPage() {
   const settings = useSelector(s => s.settings);
   const auth = useSelector(s => s.auth);
   const roleLower = String(auth.role || '').toLowerCase();
+  const actorName = String(auth.user?.name || '').trim();
   const [heatMode, setHeatMode] = useState('week'); // day, week, month
   const [expenses, setExpenses] = useState([]);
   const [warehousePending, setWarehousePending] = useState(0);
@@ -82,7 +83,8 @@ function DashboardPage() {
   }, []);
 
   const metrics = useMemo(() => {
-    const sourceSales = (roleLower === 'superadmin' || roleLower === 'admin') ? sales : sales.filter(s => s.branchId === settings.currentBranchId);
+    let sourceSales = (roleLower === 'superadmin' || roleLower === 'admin') ? sales : sales.filter(s => s.branchId === settings.currentBranchId);
+    if (roleLower === 'cashier') sourceSales = sourceSales.filter(s => String(s.sellerName || '').trim() === actorName);
     const today = new Date().toDateString();
     let todayTotal = 0;
     let todayProfit = 0;
@@ -235,7 +237,7 @@ function DashboardPage() {
     for (const r of grid) for (const v of r.hours) max = Math.max(max, v);
 
     return { todayTotal, todayProfit, itemsSold, lineData, paymentBar, doughData, topBar, stackedOptions, lineOptions, barOptions, cashierBar, last30Revenue, last30Profit, last30Cost, marginPct, cashierLeaderboard, topProfitProducts, heatmap: { grid, max } };
-  }, [sales, products, settings.currentBranchId, roleLower, heatMode]);
+  }, [sales, products, settings.currentBranchId, roleLower, heatMode, actorName]);
 
   const finance = useMemo(() => {
     const expenseTotal = expenses.reduce((s, x) => s + (Number(x.amount) || 0), 0);

@@ -18,10 +18,13 @@ function ReportsPage() {
   const products = useSelector(s => s.products.products);
   const branches = useSelector(s => s.branches.branches);
   const settings = useSelector(s => s.settings);
+  const auth = useSelector(s => s.auth);
+  const roleLower = String(auth.role || '').toLowerCase();
+  const actorName = String(auth.user?.name || '').trim();
 
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [branchId, setBranchId] = useState(settings.currentBranchId);
+  const [branchId, setBranchId] = useState(roleLower === 'superadmin' || roleLower === 'admin' ? '' : settings.currentBranchId);
   const [reportType, setReportType] = useState('all');
   const [expenses, setExpenses] = useState([]);
   const [heatMode, setHeatMode] = useState('week');
@@ -29,7 +32,10 @@ function ReportsPage() {
   const toast = useToast();
   const selectedBranch = useMemo(() => branches.find(branch => String(branch.id) === String(branchId)) || null, [branchId, branches]);
 
-  useEffect(() => setBranchId(settings.currentBranchId), [settings.currentBranchId]);
+  useEffect(() => {
+    if (roleLower === 'superadmin' || roleLower === 'admin') return;
+    setBranchId(settings.currentBranchId);
+  }, [settings.currentBranchId, roleLower]);
 
   useEffect(() => {
     let alive = true;
@@ -59,6 +65,10 @@ function ReportsPage() {
     return ts >= fromTs && ts <= toTs;
   }, [dateFrom, dateTo]);
   const matchBranch = useCallback((id) => !branchId || id === branchId, [branchId]);
+  const matchOwner = useCallback((row) => {
+    if (roleLower !== 'cashier') return true;
+    return String(row?.sellerName || '').trim() === actorName;
+  }, [actorName, roleLower]);
 
   useEffect(() => {
     let alive = true;
@@ -80,7 +90,7 @@ function ReportsPage() {
     return () => { alive = false; };
   }, [branchId, dateFrom, dateTo, inRange, matchBranch]);
 
-  const filteredSales = useMemo(() => sales.filter(s => inRange(s.created_at) && matchBranch(s.branchId)), [sales, inRange, matchBranch]);
+  const filteredSales = useMemo(() => sales.filter(s => inRange(s.created_at) && matchBranch(s.branchId) && matchOwner(s)), [sales, inRange, matchBranch, matchOwner]);
   const analytics = useMemo(() => {
     const productUnits = {};
     const categoryUnits = {};
@@ -179,7 +189,7 @@ function ReportsPage() {
   }
 
   function exportSales(type) {
-    const rows = sales.filter(s => inRange(s.created_at) && matchBranch(s.branchId));
+    const rows = sales.filter(s => inRange(s.created_at) && matchBranch(s.branchId) && matchOwner(s));
     const headers = [
       { key: 'id', label: 'Sale ID' },
       { key: 'created_at', label: 'Date', value: r => new Date(r.created_at).toLocaleString() },
@@ -429,7 +439,7 @@ function ReportsPage() {
         </label>
         <label>
           Branch
-          <BranchSelect value={branchId} onChange={setBranchId} />
+          <BranchSelect value={branchId} onChange={setBranchId} includeAll allLabel="All Branches" />
         </label>
       </div>
       <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
