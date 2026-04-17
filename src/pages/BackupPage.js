@@ -3,22 +3,26 @@ import { Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { useToast } from '../components/ToastProvider';
 import { attemptSync } from '../offline/queue';
-import { COLLECTIONS, listQueuedByCollection } from '../offline/offlineBackup';
+import { COLLECTIONS, listQueuedByCollection, removeQueuedCollection, removeQueuedIds } from '../offline/offlineBackup';
 import { syncQueuedItem } from '../offline/syncHandlers';
 import { ensureOnlineJwt } from '../offline/reAuth';
 import { refreshAllData } from '../offline/refreshAll';
 import { useDispatch } from 'react-redux';
 import { listImeiConflicts } from '../offline/imeiConflicts';
+import { confirmDialog } from '../utils/dialogs';
 
 function BackupPage() {
   const toast = useToast();
   const settings = useSelector(s => s.settings);
+  const auth = useSelector(s => s.auth);
   const summary = useSelector(s => s.offlineQueue);
   const dispatch = useDispatch();
   const [selected, setSelected] = useState('sales');
   const [loading, setLoading] = useState(false);
   const [itemsByCollection, setItemsByCollection] = useState(new Map());
   const [imeiConflictCount, setImeiConflictCount] = useState(0);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const isSuperAdmin = String(auth?.role || '').toLowerCase() === 'superadmin';
 
   useEffect(() => {
     let alive = true;
@@ -53,6 +57,17 @@ function BackupPage() {
     return list.slice().sort((a, b) => (a.ts || 0) - (b.ts || 0));
   }, [itemsByCollection, selected]);
 
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [selected]);
+
+  async function reloadQueueMap() {
+    try {
+      const map = await listQueuedByCollection();
+      setItemsByCollection(map);
+    } catch {}
+  }
+
   async function onBackupNow() {
     if (loading) return;
     if (!navigator.onLine) {
@@ -79,8 +94,7 @@ function BackupPage() {
       toast.show('Backup failed', { type: 'error' });
     } finally {
       try {
-        const map = await listQueuedByCollection();
-        setItemsByCollection(map);
+        await reloadQueueMap();
       } catch {}
       setLoading(false);
     }
@@ -95,11 +109,48 @@ function BackupPage() {
     try {
       await ensureOnlineJwt();
       await refreshAllData(dispatch);
-      const map = await listQueuedByCollection();
-      setItemsByCollection(map);
+      await reloadQueueMap();
       toast.show('Sync completed', { type: 'success' });
     } catch (e) {
       toast.show(String(e?.message || 'Sync failed'), { type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onRemoveSelected() {
+    if (!isSuperAdmin) return;
+    const ids = selectedIds.filter(Boolean);
+    if (ids.length === 0) return;
+    const ok = await confirmDialog(`Remove ${ids.length} selected queued item(s)?`);
+    if (!ok) return;
+    setLoading(true);
+    try {
+      await removeQueuedIds(ids);
+      setSelectedIds([]);
+      await reloadQueueMap();
+      toast.show('Selected queue items removed', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to remove selected queue items'), { type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onClearCollection() {
+    if (!isSuperAdmin) return;
+    const total = rows.length;
+    if (total === 0) return;
+    const ok = await confirmDialog(`Remove all ${total} queued item(s) in "${selected}"?`);
+    if (!ok) return;
+    setLoading(true);
+    try {
+      await removeQueuedCollection(selected);
+      setSelectedIds([]);
+      await reloadQueueMap();
+      toast.show(`Cleared ${selected} queue`, { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to clear collection queue'), { type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -160,27 +211,61 @@ function BackupPage() {
 
         <div className="card" style={{ padding: 12 }}>
           <h2 className="section-title" style={{ marginTop: 0, textTransform: 'lowercase' }}>{selected}</h2>
+          {isSuperAdmin && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <button className="btn" onClick={() => void onRemoveSelected()} disabled={loading || selectedIds.length === 0}>Delete Selected</button>
+              <button className="btn" onClick={() => void onClearCollection()} disabled={loading || rows.length === 0}>Delete All In List</button>
+            </div>
+          )}
           <table className="table">
             <thead>
               <tr>
+                {isSuperAdmin && (
+                  <th align="left">
+                    <input
+                      type="checkbox"
+                      disabled={loading}
+                      checked={rows.length > 0 && rows.every(it => selectedIds.includes(it.id))}
+                      onChange={e => setSelectedIds(e.target.checked ? rows.map(it => it.id) : [])}
+                    />
+                  </th>
+                )}
                 <th align="left">Time</th>
                 <th align="left">Action</th>
                 <th align="left">Target</th>
                 <th align="left">Status</th>
+                <th align="left">Reason</th>
               </tr>
             </thead>
             <tbody>
               {rows.map(it => (
                 <tr key={it.id}>
+                  {isSuperAdmin && (
+                    <td>
+                      <input
+                        type="checkbox"
+                        disabled={loading}
+                        checked={selectedIds.includes(it.id)}
+                        onChange={e => setSelectedIds(prev => e.target.checked ? [...new Set([...prev, it.id])] : prev.filter(id => id !== it.id))}
+                      />
+                    </td>
+                  )}
                   <td>{new Date(it.ts || Date.now()).toLocaleString()}</td>
                   <td>{it?.payload?.label || it.type}</td>
                   <td><code style={{ fontSize: 12 }}>{it?.payload?.path || ''}</code></td>
-                  <td><span style={{ color: '#f59e0b', fontWeight: 700 }}>pending</span></td>
+                  <td>
+                    <span style={{ color: it?.lastError ? '#ef4444' : '#f59e0b', fontWeight: 700 }}>
+                      {it?.lastError ? 'failed' : 'pending'}
+                    </span>
+                  </td>
+                  <td style={{ color: '#64748b', maxWidth: 420 }}>
+                    {it?.lastError || '—'}
+                  </td>
                 </tr>
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan="4" style={{ padding: 12, color: '#94a3b8' }}>No pending offline records</td>
+                  <td colSpan={isSuperAdmin ? '6' : '5'} style={{ padding: 12, color: '#94a3b8' }}>No pending offline records</td>
                 </tr>
               )}
             </tbody>

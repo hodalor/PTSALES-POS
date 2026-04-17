@@ -1,5 +1,5 @@
 import { isFeatureEnabled } from '../utils/featureFlags';
-import { enqueue, getAll } from './queue';
+import { enqueue, getAll, removeByCollection, removeMany } from './queue';
 
 export const COLLECTIONS = [
   { key: 'adjustmentrequests', label: 'adjustmentrequests' },
@@ -51,4 +51,12 @@ export async function listQueuedByCollection() {
     map.get(c).push(it);
   }
   return map;
+}
+
+export async function removeQueuedIds(ids = []) {
+  return removeMany(ids);
+}
+
+export async function removeQueuedCollection(collection) {
+  return removeByCollection(collection);
 }

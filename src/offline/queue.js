@@ -42,6 +42,53 @@ export async function remove(id) {
   await db.delete(STORE, id);
 }
 
+async function updateItemMeta(id, updater) {
+  const db = await getDb();
+  const tx = db.transaction(STORE, 'readwrite');
+  const current = await tx.store.get(id);
+  if (!current) {
+    await tx.done;
+    return;
+  }
+  const next = updater({ ...current });
+  await tx.store.put(next);
+  await tx.done;
+}
+
+export async function markSyncFailure(id, message) {
+  const msg = String(message || 'Sync failed').trim() || 'Sync failed';
+  await updateItemMeta(id, (item) => ({
+    ...item,
+    lastTriedAt: Date.now(),
+    lastError: msg,
+    attempts: Number(item.attempts || 0) + 1
+  }));
+}
+
+export async function removeMany(ids = []) {
+  const list = Array.isArray(ids) ? ids.map(id => Number(id)).filter(Number.isFinite) : [];
+  if (list.length === 0) return 0;
+  const db = await getDb();
+  const tx = db.transaction(STORE, 'readwrite');
+  for (const id of list) {
+    await tx.store.delete(id);
+  }
+  await tx.done;
+  return list.length;
+}
+
+export async function removeByCollection(collection) {
+  const key = String(collection || '').trim();
+  if (!key) return 0;
+  const items = await getAll();
+  const ids = items
+    .filter(it => String(it?.payload?.collection || '') === key)
+    .map(it => it.id);
+  if (ids.length === 0) return 0;
+  await removeMany(ids);
+  return ids.length;
+}
+
 export async function attemptSync(syncHandler) {
   if (syncing) return false;
   syncing = true;
@@ -55,6 +102,7 @@ export async function attemptSync(syncHandler) {
     for (const item of items) {
       let ok = false;
       let attempt = 0;
+      let lastErr = null;
       const maxAttempts = 3;
       while (!ok && attempt < maxAttempts) {
         try {
@@ -62,16 +110,19 @@ export async function attemptSync(syncHandler) {
           if (attempt > 0) await sleep([0, 1000, 3000][attempt] || 5000);
           await syncHandler(item);
           ok = true;
-        } catch {
+        } catch (e) {
+          lastErr = e;
           attempt += 1;
         }
       }
       if (ok) {
         await remove(item.id);
       } else {
+        const message = String(lastErr?.message || 'Sync failed');
+        await markSyncFailure(item.id, message);
         allOk = false;
         failed += 1;
-        errors.push(`Failed item id=${item.id}`);
+        errors.push(`Failed item id=${item.id}: ${message}`);
       }
     }
     return { ok: allOk, total, failed, errors };

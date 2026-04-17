@@ -23,6 +23,15 @@ export async function syncQueuedItem(item) {
         await fetchJson(path, opts);
         return;
       }
+      if (path === '/api/sales') {
+        const clientId = String(body?.clientId || '').trim();
+        if (clientId) {
+          try {
+            await fetchJson(`/api/sales/by-client/${encodeURIComponent(clientId)}`, { timeoutMs: 15000 });
+            return;
+          } catch {}
+        }
+      }
       if (path === '/api/sales' && hasSerialized) {
         addImeiConflict({
           queueId: item.id,
