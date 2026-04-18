@@ -10,6 +10,7 @@ import { refreshAllData } from '../offline/refreshAll';
 import { useDispatch } from 'react-redux';
 import { listImeiConflicts } from '../offline/imeiConflicts';
 import { confirmDialog } from '../utils/dialogs';
+import { exportAllData, importAllData } from '../api/dataMigration';
 
 function BackupPage() {
   const toast = useToast();
@@ -23,6 +24,12 @@ function BackupPage() {
   const [imeiConflictCount, setImeiConflictCount] = useState(0);
   const [selectedIds, setSelectedIds] = useState([]);
   const isSuperAdmin = String(auth?.role || '').toLowerCase() === 'superadmin';
+  const grants = Array.isArray(auth?.grants) ? auth.grants : [];
+  const canExportData = isSuperAdmin || grants.includes('export_data');
+  const canImportData = isSuperAdmin || grants.includes('import_data');
+  const [migrationMode, setMigrationMode] = useState('merge');
+  const [importCollections, setImportCollections] = useState(null);
+  const [importFileName, setImportFileName] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -156,6 +163,75 @@ function BackupPage() {
     }
   }
 
+  async function onExportData() {
+    if (!canExportData) return;
+    setLoading(true);
+    try {
+      const payload = await exportAllData();
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ptsales-export-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.show('Data export downloaded', { type: 'success' });
+    } catch (e) {
+      toast.show(String(e?.message || 'Failed to export data'), { type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onPickImportFile(e) {
+    const file = e?.target?.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const collections = (parsed?.collections && typeof parsed.collections === 'object')
+        ? parsed.collections
+        : ((parsed?.data?.collections && typeof parsed.data.collections === 'object') ? parsed.data.collections : null);
+      if (!collections) throw new Error('Invalid import file format');
+      setImportCollections(collections);
+      setImportFileName(file.name);
+      toast.show('Import file loaded', { type: 'success' });
+    } catch (err) {
+      setImportCollections(null);
+      setImportFileName('');
+      toast.show(String(err?.message || 'Invalid import file'), { type: 'error' });
+    }
+  }
+
+  async function onRunImport() {
+    if (!canImportData || !importCollections) return;
+    const labels = Object.entries(importCollections)
+      .filter(([, value]) => Array.isArray(value))
+      .map(([key, value]) => `${key}: ${value.length}`)
+      .slice(0, 10)
+      .join(', ');
+    const ok = await confirmDialog(`Import data in "${migrationMode}" mode? ${labels ? `\n${labels}` : ''}`);
+    if (!ok) return;
+    setLoading(true);
+    try {
+      const result = await importAllData({ mode: migrationMode, collections: importCollections });
+      const inserted = Number(result?.totals?.inserted || 0);
+      const updated = Number(result?.totals?.updated || 0);
+      const skipped = Number(result?.totals?.skipped || 0);
+      toast.show(`Import complete: inserted ${inserted}, updated ${updated}, skipped ${skipped}`, { type: 'success' });
+      await onSyncNow();
+      setImportCollections(null);
+      setImportFileName('');
+    } catch (e) {
+      toast.show(String(e?.message || 'Import failed'), { type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div style={{ padding: 16 }}>
       <div className="card" style={{ padding: 16, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
@@ -169,6 +245,26 @@ function BackupPage() {
           <Link to="/imei-conflicts" className="btn" style={{ textDecoration: 'none' }}>
             IMEI Conflicts{imeiConflictCount > 0 ? `: ${imeiConflictCount}` : ''}
           </Link>
+          {canExportData && (
+            <button className="btn" onClick={() => void onExportData()} disabled={loading}>
+              Export Data
+            </button>
+          )}
+          {canImportData && (
+            <>
+              <select className="select" value={migrationMode} onChange={e => setMigrationMode(e.target.value)} disabled={loading}>
+                <option value="merge">Import: Keep/Merge</option>
+                <option value="override">Import: Override DB</option>
+              </select>
+              <label className="btn" style={{ cursor: 'pointer' }}>
+                Pick Import File
+                <input type="file" accept="application/json,.json" onChange={e => void onPickImportFile(e)} style={{ display: 'none' }} />
+              </label>
+              <button className="btn" onClick={() => void onRunImport()} disabled={loading || !importCollections}>
+                Import & Sync
+              </button>
+            </>
+          )}
           <button className="btn btn-primary" onClick={onBackupNow} disabled={loading || !navigator.onLine || Number(summary?.total || 0) === 0}>
             {loading ? 'Backing up…' : 'Backup Now'}
           </button>
@@ -177,6 +273,13 @@ function BackupPage() {
           </button>
         </div>
       </div>
+      {canImportData && (
+        <div className="card" style={{ padding: 10, marginBottom: 12 }}>
+          <div style={{ color: '#64748b', fontSize: 12 }}>
+            Import file: {importFileName || 'none selected'} {importCollections ? `• collections: ${Object.keys(importCollections).length}` : ''}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 12, alignItems: 'start' }}>
         <div className="card" style={{ padding: 10 }}>
