@@ -21,6 +21,7 @@ import approvals from './approvals.js';
 import wholesale from './wholesale.js';
 import credits from './credits.js';
 import productUnits from './productUnits.js';
+import dataMigration from './dataMigration.js';
 
 const router = Router();
 router.use('/products', products);
@@ -45,5 +46,6 @@ router.use('/approvals', approvals);
 router.use('/wholesale', wholesale);
 router.use('/credits', credits);
 router.use('/product-units', productUnits);
+router.use('/data-migration', dataMigration);
 
 export default router;

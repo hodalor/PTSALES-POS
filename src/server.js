@@ -11,7 +11,7 @@ dotenv.config();
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '25mb' }));
 if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev', {
     skip: (req) => req.url.includes('/api/auth/me') || req.url.includes('/api/server-logs')
